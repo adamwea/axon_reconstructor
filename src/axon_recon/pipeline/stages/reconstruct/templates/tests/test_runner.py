@@ -16,6 +16,9 @@ from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.reconstruct.phases.build_templates import (
 	run_reconstruct_templates_build_templates_phase,
 )
+from axon_recon.pipeline.stages.reconstruct.phases.extract_partial_templates import (
+	run_reconstruct_templates_extract_partial_templates_phase,
+)
 from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import (
 	_resolve_plot_templates_execution_plan,
 	_run_reconstruct_templates_plot_batches,
@@ -1056,7 +1059,8 @@ def test_run_reconstruct_templates_build_templates_phase_omits_disabled_full_out
 	assert "square_template_npy" not in unit_summary["outputs"]
 
 
-def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_extract_partial_templates_phase_loads_cached_analyzers_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
+	"""Migrated from build_templates: extract phase materializes partials from cached analyzers."""
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1065,7 +1069,6 @@ def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_
 	templates_out_dir = well_out_dir / "templates_outputs"
 	analyzer_cache_dir = templates_out_dir / "analyzers"
 	requested_source_batches: list[list[str]] = []
-	build_call: dict[str, Any] = {}
 
 	class _FakeSorting:
 		unit_ids = [94]
@@ -1102,27 +1105,6 @@ def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_
 			channel_ids = [101]
 		return (template, locations, electrode_ids, channel_ids, 4, 10_000.0, np.ones((2, 3), dtype=float), 10, 2)
 
-	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
-		build_call.update(kwargs)
-		assert kwargs["payload_materialization_mode"] == "analyzer_cache"
-		assert kwargs["source_names"] == ["concat", "000_recA"]
-		assert kwargs["unit_ids"] == [94]
-		assert kwargs.get("source_payloads_by_unit") is None
-		loader = kwargs["payload_loader"]
-		assert callable(loader)
-		loaded = loader(94)
-		assert [name for name, _ in loaded] == ["concat", "000_recA"]
-		# Payloads loaded from disk are 9-tuples (overlay/top/total are None).
-		assert all(len(payload) == 9 for _, payload in loaded)
-		return {
-			"phase": "build_templates",
-			"payload_materialization_mode": "analyzer_cache",
-			"built_units": [94],
-			"skipped_units": [],
-			"unit_count": 1,
-			"source_count": 2,
-		}
-
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
@@ -1134,10 +1116,6 @@ def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
 		_fake_build_unit_source_payload,
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
-		_fake_build_templates_phase_from_unit_payloads,
 	)
 
 	inputs = TemplatesInputs(
@@ -1159,23 +1137,22 @@ def test_run_reconstruct_templates_build_templates_phase_loads_cached_analyzers_
 		n_jobs=1,
 	)
 
-	summary = run_reconstruct_templates_build_templates_phase(inputs)
+	summary = run_reconstruct_templates_extract_partial_templates_phase(inputs)
 
 	assert requested_source_batches == [["concat"], ["000_recA"], ["concat"], ["000_recA"]]
-	assert summary["phase"] == "build_templates"
-	assert summary["payload_materialization_mode"] == "analyzer_cache"
-	assert summary["built_units"] == [94]
+	assert summary["phase"] == "extract_partial_templates"
+	assert summary["source_names"] == ["concat", "000_recA"]
 	assert summary["source_payload_well_out_dir"] == str(well_out_dir)
 	assert summary["analyzer_cache_dir"] == str(analyzer_cache_dir)
 	assert summary["source_payload_sources"]["concat"]["unit_count"] == 1
-	assert build_call["payload_root"] == templates_out_dir / "cache/source_payloads"
 
 
-def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analyzers_per_unit(
+def test_run_reconstruct_templates_extract_partial_templates_phase_lazy_loads_cached_analyzers_per_unit(
 	tmp_path: Path,
 	monkeypatch,
 	caplog,
 ) -> None:
+	"""Migrated from build_templates: extract phase lazy-materializes partials per unit."""
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1224,22 +1201,6 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 			channel_ids = [101]
 		return (template, locations, electrode_ids, channel_ids, 4, 10_000.0, None, None, None)
 
-	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
-		assert kwargs["payload_materialization_mode"] == "analyzer_cache"
-		assert kwargs["source_names"] == ["concat", "000_recA"]
-		assert kwargs["unit_ids"] == [94, 95]
-		loader = kwargs["payload_loader"]
-		assert [name for name, _ in loader(94)] == ["concat", "000_recA"]
-		assert [name for name, _ in loader(95)] == ["concat", "000_recA"]
-		return {
-			"phase": "build_templates",
-			"payload_materialization_mode": "analyzer_cache",
-			"built_units": [94, 95],
-			"skipped_units": [],
-			"unit_count": 2,
-			"source_count": 2,
-		}
-
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
@@ -1251,10 +1212,6 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
 		_fake_build_unit_source_payload,
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
-		_fake_build_templates_phase_from_unit_payloads,
 	)
 
 	inputs = TemplatesInputs(
@@ -1275,7 +1232,7 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 	)
 
 	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
-		summary = run_reconstruct_templates_build_templates_phase(inputs)
+		summary = run_reconstruct_templates_extract_partial_templates_phase(inputs)
 
 	assert requested_source_batches == [
 		["concat"],
@@ -1312,11 +1269,12 @@ def test_run_reconstruct_templates_build_templates_phase_lazy_loads_cached_analy
 	assert summary["source_payload_sources"]["000_recA"]["unit_count"] == 2
 
 
-def test_run_reconstruct_templates_build_templates_phase_uses_unit_manifests_for_lazy_dispatch(
+def test_run_reconstruct_templates_extract_partial_templates_phase_uses_unit_manifests_for_lazy_dispatch(
 	tmp_path: Path,
 	monkeypatch,
 	caplog,
 ) -> None:
+	"""Migrated from build_templates: extract phase honors per-source unit manifests."""
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1352,21 +1310,6 @@ def test_run_reconstruct_templates_build_templates_phase_uses_unit_manifests_for
 		locations = np.asarray([[float(unit_id), 0.0]], dtype=float)
 		return (template, locations, [10], [100], 4, 10_000.0, None, None, None)
 
-	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
-		assert kwargs["payload_materialization_mode"] == "analyzer_cache"
-		assert kwargs["unit_ids"] == [94, 95]
-		loader = kwargs["payload_loader"]
-		assert [name for name, _ in loader(94)] == ["concat", "000_recA"]
-		assert [name for name, _ in loader(95)] == ["concat"]
-		return {
-			"phase": "build_templates",
-			"payload_materialization_mode": "analyzer_cache",
-			"built_units": [94, 95],
-			"skipped_units": [],
-			"unit_count": 2,
-			"source_count": 2,
-		}
-
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
@@ -1378,10 +1321,6 @@ def test_run_reconstruct_templates_build_templates_phase_uses_unit_manifests_for
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
 		_fake_build_unit_source_payload,
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
-		_fake_build_templates_phase_from_unit_payloads,
 	)
 
 	inputs = TemplatesInputs(
@@ -1402,7 +1341,7 @@ def test_run_reconstruct_templates_build_templates_phase_uses_unit_manifests_for
 	)
 
 	with caplog.at_level(logging.INFO, logger="axon_recon.templates"):
-		summary = run_reconstruct_templates_build_templates_phase(inputs)
+		summary = run_reconstruct_templates_extract_partial_templates_phase(inputs)
 
 	assert requested_source_batches == [
 		["concat"],
@@ -1423,10 +1362,11 @@ def test_run_reconstruct_templates_build_templates_phase_uses_unit_manifests_for
 	)
 
 
-def test_run_reconstruct_templates_build_templates_phase_resumes_partial_source_payloads(
+def test_run_reconstruct_templates_extract_partial_templates_phase_resumes_partial_source_payloads(
 	tmp_path: Path,
 	monkeypatch,
 ) -> None:
+	"""Migrated from build_templates: extract phase reuses pre-existing partials per source."""
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1475,18 +1415,6 @@ def test_run_reconstruct_templates_build_templates_phase_resumes_partial_source_
 		locations = np.asarray([[20.0, 0.0]], dtype=float)
 		return (template, locations, [11], [101], 6, 10_000.0, None, None, None)
 
-	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
-		loader = kwargs["payload_loader"]
-		assert [name for name, _ in loader(94)] == ["concat", "000_recA"]
-		return {
-			"phase": "build_templates",
-			"payload_materialization_mode": "analyzer_cache",
-			"built_units": [94],
-			"skipped_units": [],
-			"unit_count": 1,
-			"source_count": 2,
-		}
-
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
@@ -1498,10 +1426,6 @@ def test_run_reconstruct_templates_build_templates_phase_resumes_partial_source_
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_unit_source_payload",
 		_fake_build_unit_source_payload,
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
-		_fake_build_templates_phase_from_unit_payloads,
 	)
 
 	inputs = TemplatesInputs(
@@ -1515,7 +1439,7 @@ def test_run_reconstruct_templates_build_templates_phase_resumes_partial_source_
 		n_jobs=1,
 	)
 
-	summary = run_reconstruct_templates_build_templates_phase(inputs)
+	summary = run_reconstruct_templates_extract_partial_templates_phase(inputs)
 
 	assert payload_calls == [("000_recA", 94)]
 	assert summary["source_payload_sources"]["concat"]["units_reused"] == [94]
@@ -1686,10 +1610,11 @@ def test_cached_analyzer_process_materialization_logs_each_unit_source_future(
 	)
 
 
-def test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materialization_filters_labels(
+def test_run_reconstruct_templates_extract_partial_templates_phase_parallel_lazy_materialization_filters_labels(
 	tmp_path: Path,
 	monkeypatch,
 ) -> None:
+	"""Migrated from build_templates: extract phase honors unit label filters."""
 	from axon_recon.pipeline.stages.reconstruct.phases import (
 		build_templates as build_templates_phase,
 	)
@@ -1738,18 +1663,6 @@ def test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materiali
 		job_unit_ids.extend(int(job.unit_id) for job in jobs)
 		return [build_templates_phase._materialize_cached_analyzer_unit(job) for job in jobs]
 
-	def _fake_build_templates_phase_from_unit_payloads(**kwargs) -> dict[str, Any]:
-		assert kwargs["payload_materialization_mode"] == "analyzer_cache"
-		assert kwargs["unit_ids"] == [94, 96]
-		return {
-			"phase": "build_templates",
-			"payload_materialization_mode": "analyzer_cache",
-			"built_units": [94, 96],
-			"skipped_units": [],
-			"unit_count": 2,
-			"source_count": 2,
-		}
-
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.discover_cached_spikeinterface_analyzer_source_names",
 		_fake_discover_cached_source_names,
@@ -1765,10 +1678,6 @@ def test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materiali
 	monkeypatch.setattr(
 		"axon_recon.pipeline.stages.reconstruct.phases.build_templates._run_cached_analyzer_unit_materialization_jobs_with_processes",
 		_fake_run_jobs_with_processes,
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.phases.build_templates.build_templates_phase_from_unit_payloads",
-		_fake_build_templates_phase_from_unit_payloads,
 	)
 
 	inputs = TemplatesInputs(
@@ -1786,7 +1695,7 @@ def test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materiali
 		),
 	)
 
-	summary = run_reconstruct_templates_build_templates_phase(inputs)
+	summary = run_reconstruct_templates_extract_partial_templates_phase(inputs)
 
 	assert worker_counts == [2]
 	assert job_unit_ids == [94, 96]
@@ -1796,7 +1705,49 @@ def test_run_reconstruct_templates_build_templates_phase_parallel_lazy_materiali
 	assert summary["source_payload_sources"]["000_recA"]["units_materialized"] == [94, 96]
 
 
-def test_run_reconstruct_templates_build_templates_phase_requires_analyzer_cache_when_payloads_missing(tmp_path: Path, monkeypatch) -> None:
+def test_run_reconstruct_templates_build_templates_phase_requires_partial_payloads(tmp_path: Path) -> None:
+	"""Slice 2 contract: build_templates only consumes partial payloads from disk.
+
+	When no partial payloads exist (e.g., extract_partial_templates was not run),
+	build_templates must raise a clear FileNotFoundError directing the operator
+	to run ``templates.extract_partial_templates`` first. It MUST NOT attempt to
+	bootstrap from cached analyzers.
+	"""
+	output_root = tmp_path / "outputs"
+	h5_path = tmp_path / "dataset.h5"
+	h5_path.write_text("", encoding="utf-8")
+
+	inputs = TemplatesInputs(
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="templates_outputs",
+		unit_ids=[94],
+		unit_label_filter_required=False,
+		force_restart=True,
+		n_jobs=1,
+	)
+
+	with pytest.raises(
+		FileNotFoundError,
+		match=r"templates\.extract_partial_templates before templates\.build_templates",
+	):
+		run_reconstruct_templates_build_templates_phase(inputs)
+
+
+def test_run_reconstruct_templates_extract_partial_templates_phase_requires_analyzer_cache(
+	tmp_path: Path, monkeypatch
+) -> None:
+	"""Migrated test: extract_partial_templates raises when analyzer cache is empty.
+
+	Previously this lived on ``build_templates``. Slice 2 moves the
+	cached-analyzer discovery / materialization logic to
+	``extract_partial_templates``, so the same negative path now belongs there.
+	"""
+	from axon_recon.pipeline.stages.reconstruct.phases.extract_partial_templates import (
+		run_reconstruct_templates_extract_partial_templates_phase as run_extract_phase,
+	)
+
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -1821,8 +1772,11 @@ def test_run_reconstruct_templates_build_templates_phase_requires_analyzer_cache
 		n_jobs=1,
 	)
 
-	with pytest.raises(FileNotFoundError, match=r"run templates\.analyzers before templates\.build_templates"):
-		run_reconstruct_templates_build_templates_phase(inputs)
+	with pytest.raises(
+		FileNotFoundError,
+		match=r"run templates\.analyzers before templates\.extract_partial_templates",
+	):
+		run_extract_phase(inputs)
 
 
 def test_run_reconstruct_templates_compute_template_similarity_phase_requires_built_artifacts(tmp_path: Path) -> None:

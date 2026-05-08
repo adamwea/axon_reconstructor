@@ -1106,33 +1106,65 @@ def _materialize_cached_analyzers_by_source(
     return list(unit_ids or []), streamed_sources_summary
 
 
-def _build_templates_from_cached_analyzers(
-    *,
-    inputs: TemplatesInputs,
-    context: BuildTemplatesContext,
-    discovered_cached_analyzer_sources: tuple[Path, Path | None, list[str]] | None = None,
+def _discover_partial_payload_unit_ids(
+    *, context: BuildTemplatesContext, source_names: list[str]
+) -> list[Any]:
+    """Discover unit ids that have at least one partial payload artifact on disk.
+
+    The build_templates phase merges partial payloads written by
+    extract_partial_templates. It must NOT reopen segment analyzers; the only
+    way to enumerate units here is to read the on-disk partial payload tree.
+    """
+    discovered: list[Any] = []
+    seen: set[str] = set()
+    for source_name in source_names:
+        source_dir = context.payload_root / str(source_name)
+        if not source_dir.exists():
+            continue
+        for unit_dir in sorted(source_dir.iterdir()):
+            if not unit_dir.is_dir():
+                continue
+            token = unit_dir.name
+            if token.startswith("unit_"):
+                token = token.split("unit_", 1)[1]
+            try:
+                unit_id: Any = int(token)
+            except (TypeError, ValueError):
+                unit_id = token
+            key = str(unit_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            discovered.append(unit_id)
+    return discovered
+
+
+def _build_templates_from_existing_payloads(
+    *, inputs: TemplatesInputs, context: BuildTemplatesContext
 ) -> dict[str, Any]:
-    if discovered_cached_analyzer_sources is None:
-        analyzer_well_out_dir, analyzer_cache_dir, source_names = _discover_cached_analyzer_sources(
-            inputs=inputs,
-            context=context,
-        )
-    else:
-        analyzer_well_out_dir, analyzer_cache_dir, source_names = discovered_cached_analyzer_sources
-    if analyzer_cache_dir is None or not source_names:
+    """Merge per-unit templates from previously written partial payloads.
+
+    Reads the partial payload set produced by extract_partial_templates and
+    fans out across units. Does NOT reopen any segment analyzers.
+    """
+    payload_root = context.payload_root
+    if not payload_root.exists():
         raise FileNotFoundError(
-            "No cached templates analyzers found for build_templates. "
-            f"checked analyzer_cache_dir={analyzer_cache_dir}; run templates.analyzers before templates.build_templates."
+            f"Missing materialized source payloads at {payload_root}; "
+            "run templates.extract_partial_templates before templates.build_templates."
         )
 
-    lazy_load_analyzers = bool(getattr(inputs.phases.build_templates, "lazy_load_analyzers", False))
-    LOGGER.info(
-        "templates.build_templates loading cached analyzers for build bootstrap: analyzer_well_out_dir=%s analyzer_cache_dir=%s source_count=%d lazy_load_analyzers=%s",
-        str(analyzer_well_out_dir),
-        str(analyzer_cache_dir),
-        int(len(source_names)),
-        bool(lazy_load_analyzers),
-    )
+    # Discover sources that actually have partials on disk. We rely on the
+    # extract phase to have laid these out; we never re-open analyzers.
+    source_names: list[str] = []
+    for source_dir in sorted(payload_root.iterdir()):
+        if source_dir.is_dir():
+            source_names.append(source_dir.name)
+    if not source_names:
+        raise FileNotFoundError(
+            f"No partial payload sources found under {payload_root}; "
+            "run templates.extract_partial_templates before templates.build_templates."
+        )
 
     unit_ids: list[Any] | None = None if inputs.unit_ids is None else list(inputs.unit_ids)
     if unit_ids is not None and inputs.unit_limit is not None:
@@ -1143,47 +1175,24 @@ def _build_templates_from_cached_analyzers(
             unit_ids=unit_ids,
             well_out_dir=context.well_out_dir,
         )
-    source_names = [str(source_name) for source_name in source_names]
-    source_unit_ids_by_source = _load_or_create_source_unit_manifests(
-        inputs=inputs,
-        context=context,
-        analyzer_well_out_dir=analyzer_well_out_dir,
-        analyzer_cache_dir=analyzer_cache_dir,
-        source_names=source_names,
-    )
     if unit_ids is None:
-        manifest_unit_ids = _collect_unit_ids_from_source_manifests(
-            source_unit_ids_by_source,
-            source_names,
+        discovered = _discover_partial_payload_unit_ids(
+            context=context, source_names=source_names
         )
-        if manifest_unit_ids:
-            if inputs.unit_limit is not None:
-                manifest_unit_ids = manifest_unit_ids[: int(inputs.unit_limit)]
-            unit_ids = _apply_build_templates_unit_label_filter(
-                inputs=inputs,
-                unit_ids=manifest_unit_ids,
-                well_out_dir=context.well_out_dir,
-            )
-    if lazy_load_analyzers:
-        unit_ids, streamed_sources_summary = _materialize_cached_analyzers_by_unit(
+        if inputs.unit_limit is not None:
+            discovered = discovered[: int(inputs.unit_limit)]
+        unit_ids = _apply_build_templates_unit_label_filter(
             inputs=inputs,
-            context=context,
-            analyzer_well_out_dir=analyzer_well_out_dir,
-            analyzer_cache_dir=analyzer_cache_dir,
-            source_names=source_names,
-            unit_ids=unit_ids,
-            source_unit_ids_by_source=source_unit_ids_by_source,
+            unit_ids=discovered,
+            well_out_dir=context.well_out_dir,
         )
-    else:
-        unit_ids, streamed_sources_summary = _materialize_cached_analyzers_by_source(
-            inputs=inputs,
-            context=context,
-            analyzer_well_out_dir=analyzer_well_out_dir,
-            analyzer_cache_dir=analyzer_cache_dir,
-            source_names=source_names,
-            unit_ids=unit_ids,
-            source_unit_ids_by_source=source_unit_ids_by_source,
-        )
+
+    LOGGER.info(
+        "templates.build_templates merging partial payloads: payload_root=%s source_count=%d unit_count=%d",
+        str(payload_root),
+        int(len(source_names)),
+        int(len(unit_ids)),
+    )
 
     summary = build_templates_phase_from_unit_payloads(
         inputs=inputs,
@@ -1192,24 +1201,11 @@ def _build_templates_from_cached_analyzers(
         unit_ids=list(unit_ids),
         source_names=source_names,
         payload_root=context.payload_root,
-        payload_materialization_mode="analyzer_cache",
+        payload_materialization_mode="partial_payloads",
         payload_loader=_build_payload_loader(context=context, source_names=source_names),
     )
-    summary["source_payload_well_out_dir"] = str(analyzer_well_out_dir)
-    summary["analyzer_cache_dir"] = str(analyzer_cache_dir)
-    summary["lazy_load_analyzers"] = bool(lazy_load_analyzers)
-    summary["source_payload_sources"] = streamed_sources_summary
+    summary["source_names"] = list(source_names)
     return summary
-
-
-def _build_templates_from_existing_payloads(
-    *, inputs: TemplatesInputs, context: BuildTemplatesContext
-) -> dict[str, Any]:
-    return build_templates_phase_from_payloads(
-        inputs=inputs,
-        well_out_dir=context.well_out_dir,
-        templates_out_dir=context.templates_out_dir,
-    )
 
 
 def _write_build_templates_summary(
@@ -1245,55 +1241,23 @@ def run_reconstruct_templates_build_templates_phase(inputs: TemplatesInputs) -> 
     context = _resolve_build_templates_context(inputs)
     _log_build_templates_start(inputs=inputs, context=context)
 
-    # 2. Apply force-restart cleanup for build_templates-owned source payloads.
-    _clear_payload_root_for_force_restart(inputs=inputs, context=context)
+    # 2. build_templates only consumes partial payloads written by the
+    #    extract_partial_templates phase. It MUST NOT reopen segment analyzers.
     payload_status = _payload_root_status(context.payload_root)
-    cached_analyzer_sources = _discover_cached_analyzer_sources(inputs=inputs, context=context)
-    cached_source_names = list(cached_analyzer_sources[2])
+    if payload_status != "ready":
+        raise FileNotFoundError(
+            "templates.build_templates requires partial payloads to be present at "
+            f"{context.payload_root} (status={payload_status}). Run "
+            "templates.extract_partial_templates before templates.build_templates."
+        )
 
-    # 3. Ensure source payloads exist, bootstrapping from cached analyzers when needed.
-    if cached_source_names:
-        bootstrap_reason = "force_restart" if bool(inputs.force_restart) else payload_status
-        LOGGER.info(
-            "templates.build_templates resuming source payloads from cached analyzers: "
-            "payload_root=%s reason=%s source_count=%d",
-            str(context.payload_root),
-            bootstrap_reason,
-            int(len(cached_source_names)),
-        )
-        summary = _build_templates_from_cached_analyzers(
-            inputs=inputs,
-            context=context,
-            discovered_cached_analyzer_sources=cached_analyzer_sources,
-        )
-        LOGGER.info(
-            "templates.build_templates source payload resume complete: payload_root=%s "
-            "source_count=%d analyzer_well_out_dir=%s analyzer_cache_dir=%s",
-            str(context.payload_root),
-            int(summary.get("source_count", 0)),
-            str(summary.get("source_payload_well_out_dir", "")),
-            str(summary.get("analyzer_cache_dir", "")),
-        )
-    elif payload_status != "ready":
-        LOGGER.info(
-            "templates.build_templates loading source payloads from cached analyzers: "
-            "payload_root=%s reason=%s",
-            str(context.payload_root),
-            "force_restart" if bool(inputs.force_restart) else payload_status,
-        )
-        summary = _build_templates_from_cached_analyzers(
-            inputs=inputs,
-            context=context,
-            discovered_cached_analyzer_sources=cached_analyzer_sources,
-        )
-    else:
-        LOGGER.info(
-            "templates.build_templates using existing source payloads: payload_root=%s",
-            str(context.payload_root),
-        )
-        summary = _build_templates_from_existing_payloads(inputs=inputs, context=context)
+    LOGGER.info(
+        "templates.build_templates using existing partial payloads: payload_root=%s",
+        str(context.payload_root),
+    )
+    summary = _build_templates_from_existing_payloads(inputs=inputs, context=context)
 
-    # 4. Persist the phase summary after the core builder has written per-unit outputs.
+    # 3. Persist the phase summary after the core builder has written per-unit outputs.
     return _write_build_templates_summary(
         inputs=inputs,
         context=context,

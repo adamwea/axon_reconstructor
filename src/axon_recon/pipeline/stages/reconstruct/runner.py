@@ -116,6 +116,7 @@ DEBUGGY_PROJECT_LOGGER_NAMES: tuple[str, ...] = (
 DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"templates_resolve_sources",
 	"templates_analyzers",
+	"templates_extract_partial_templates",
 	"templates_build_templates",
 	"templates_compute_template_similarity",
 	"templates_plot_templates",
@@ -1167,6 +1168,20 @@ def run_reconstruct_templates_analyzers_phase(inputs: ReconstructionInputs) -> d
 	return run_reconstruct_templates_analyzers_phase(inputs.templates_inputs)
 
 
+def run_reconstruct_templates_extract_partial_templates_phase(
+	inputs: ReconstructionInputs,
+) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.reconstruct.phases.extract_partial_templates import (
+		run_reconstruct_templates_extract_partial_templates_phase,
+	)
+
+	if inputs.templates_inputs is None:
+		raise ValueError(
+			"reconstruct.templates_extract_partial_templates requires templates_inputs to be populated on ReconstructionInputs"
+		)
+	return run_reconstruct_templates_extract_partial_templates_phase(inputs.templates_inputs)
+
+
 def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
 	from axon_recon.pipeline.stages.reconstruct.phases.build_templates import (
 		run_reconstruct_templates_build_templates_phase,
@@ -1175,6 +1190,15 @@ def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs
 	if inputs.templates_inputs is None:
 		raise ValueError("reconstruct.templates_build_templates requires templates_inputs to be populated on ReconstructionInputs")
 	return run_reconstruct_templates_build_templates_phase(inputs.templates_inputs)
+
+
+# Short aliases used by the slice 2 acceptance check. These mirror the canonical
+# `run_reconstruct_templates_<phase>_phase` shims above without the
+# ``templates_`` infix, so external scripts can import either form.
+run_reconstruct_extract_partial_templates_phase = (
+	run_reconstruct_templates_extract_partial_templates_phase
+)
+run_reconstruct_build_templates_phase = run_reconstruct_templates_build_templates_phase
 
 
 def run_reconstruct_templates_compute_template_similarity_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
@@ -1316,6 +1340,8 @@ def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 		"templates.resolve_sources": "templates_resolve_sources",
 		"analyzers": "templates_analyzers",
 		"templates.analyzers": "templates_analyzers",
+		"extract_partial_templates": "templates_extract_partial_templates",
+		"templates.extract_partial_templates": "templates_extract_partial_templates",
 		"build_templates": "templates_build_templates",
 		"templates.build_templates": "templates_build_templates",
 		"compute_template_similarity": "templates_compute_template_similarity",
@@ -1344,6 +1370,11 @@ def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: s
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.resolve_sources_phase.enabled)
 	if phase == "templates_analyzers":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.analyzers.enabled)
+	if phase == "templates_extract_partial_templates":
+		return bool(
+			inputs.templates_inputs is not None
+			and inputs.templates_inputs.phases.extract_partial_templates.enabled
+		)
 	if phase == "templates_build_templates":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.build_templates.enabled)
 	if phase == "templates_compute_template_similarity":
@@ -1394,6 +1425,12 @@ def _reconstruct_stage_phase_resource_class(inputs: ReconstructionInputs, phase_
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.resolve_sources_phase)
 	if phase == "templates_analyzers":
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.analyzers)
+	if phase == "templates_extract_partial_templates":
+		return (
+			None
+			if inputs.templates_inputs is None
+			else _resource_class(inputs.templates_inputs.phases.extract_partial_templates)
+		)
 	if phase == "templates_build_templates":
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.build_templates)
 	if phase == "templates_compute_template_similarity":
@@ -1439,6 +1476,7 @@ def _display_reconstruct_stage_phase_name(phase_name: str) -> str:
 	aliases = {
 		"templates_resolve_sources": "resolve_sources",
 		"templates_analyzers": "analyzers",
+		"templates_extract_partial_templates": "extract_partial_templates",
 		"templates_build_templates": "build_templates",
 		"templates_compute_template_similarity": "compute_template_similarity",
 		"templates_plot_templates": "plot_templates",
@@ -1478,6 +1516,8 @@ def _reconstruct_stage_phase_runner(phase_name: str):
 		return run_reconstruct_templates_resolve_sources_phase
 	if phase == "templates_analyzers":
 		return run_reconstruct_templates_analyzers_phase
+	if phase == "templates_extract_partial_templates":
+		return run_reconstruct_templates_extract_partial_templates_phase
 	if phase == "templates_build_templates":
 		return run_reconstruct_templates_build_templates_phase
 	if phase == "templates_compute_template_similarity":

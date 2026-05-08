@@ -128,6 +128,13 @@ resources:
       nested_shape: si_njobs
       keyed_resources:
         source_h5_path: 1
+    extract_partial_templates:
+      description: Per-segment extraction of partial templates from cached analyzers.
+      bottleneck: ram_cpu_disk_io
+      cpu_cores: 6
+      ram_gb: 24
+      analyzer_slots: 1
+      nested_shape: segment_workers
     template_build:
       description: Template merge/build or lightweight unit-level compute.
       bottleneck: cpu_memory_light
@@ -1121,6 +1128,7 @@ stages:
     phase_sequence:
       #- resolve_sources
       - analyzers
+      - extract_partial_templates
       - build_templates
       #- compute_template_similarity
       #- plot_templates
@@ -1310,6 +1318,10 @@ stages:
             concat_analyzer_subdir: concat
             segment_analyzers_subdir: segments
             cleanup_on_success: false
+      extract_partial_templates:
+        enabled: true
+        resource_class: extract_partial_templates
+        summary_json_relpath: context/extract_partial_templates_summary.json
       build_templates:
         enabled: true
         resource_class: template_build

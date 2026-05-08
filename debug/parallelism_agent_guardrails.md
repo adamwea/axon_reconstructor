@@ -37,6 +37,10 @@ The per-phase `cpus_per_task` field is OPTIONAL and acts as a cap on the inner t
 
 Parallelism must be understandable from logs. Every phase that launches work should make effective worker counts, resource class, and any active keyed resources visible in logs or phase summaries.
 
+### Templates Phases
+
+Template artifacts are produced in two phases. `extract_partial_templates` (`nested_shape: segment_workers`) reads each segment analyzer once and writes per-(unit, segment) partial templates under `cache/source_payloads/<source>/<unit>/`. `build_templates` (`nested_shape: unit_workers`) reads the partials and produces the merged per-unit template under `cache/templates/merged/<unit>/`. `build_templates` MUST NOT reopen segment analyzers; if partial payloads are missing, it must error and direct the operator to run `templates.extract_partial_templates` first.
+
 ## Resource And Slot Guardrails
 
 Expected resource concepts:

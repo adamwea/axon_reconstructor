@@ -63,6 +63,7 @@ from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_templates_analyzers_phase,
 	run_reconstruct_templates_build_templates_phase,
 	run_reconstruct_templates_compute_template_similarity_phase,
+	run_reconstruct_templates_extract_partial_templates_phase,
 	run_reconstruct_templates_plot_templates_phase,
 	run_reconstruct_templates_plot_templates_v2_phase,
 	run_reconstruct_templates_report_templates_phase,
@@ -245,6 +246,15 @@ def test_reconstruct_phase_resolver_handles_templates_phases() -> None:
 	assert _normalize_reconstruct_stage_phase_name("templates.analyzers") == "templates_analyzers"
 	assert _reconstruct_stage_phase_runner("templates_resolve_sources") is run_reconstruct_templates_resolve_sources_phase
 	assert _reconstruct_stage_phase_runner("templates_analyzers") is run_reconstruct_templates_analyzers_phase
+	assert (
+		_normalize_reconstruct_stage_phase_name("templates.extract_partial_templates")
+		== "templates_extract_partial_templates"
+	)
+	assert _normalize_reconstruct_stage_phase_name("extract_partial_templates") == "templates_extract_partial_templates"
+	assert (
+		_reconstruct_stage_phase_runner("templates_extract_partial_templates")
+		is run_reconstruct_templates_extract_partial_templates_phase
+	)
 	assert _reconstruct_stage_phase_runner("templates_build_templates") is run_reconstruct_templates_build_templates_phase
 	assert (
 		_reconstruct_stage_phase_runner("templates_compute_template_similarity")
@@ -308,6 +318,7 @@ def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path
 	phase_runner_attrs = {
 		"templates_resolve_sources": "run_reconstruct_templates_resolve_sources_phase",
 		"templates_analyzers": "run_reconstruct_templates_analyzers_phase",
+		"templates_extract_partial_templates": "run_reconstruct_templates_extract_partial_templates_phase",
 		"templates_build_templates": "run_reconstruct_templates_build_templates_phase",
 		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
 		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
@@ -342,6 +353,7 @@ def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path
 			phases=SimpleNamespace(
 				analyzers=SimpleNamespace(enabled=True),
 				per_unit_processing=SimpleNamespace(enabled=True),
+				extract_partial_templates=SimpleNamespace(enabled=True),
 				build_templates=SimpleNamespace(enabled=True),
 				compute_template_similarity=SimpleNamespace(enabled=True),
 				plot_templates=SimpleNamespace(enabled=True),
@@ -396,6 +408,7 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 	phase_runner_attrs = {
 		"templates_resolve_sources": "run_reconstruct_templates_resolve_sources_phase",
 		"templates_analyzers": "run_reconstruct_templates_analyzers_phase",
+		"templates_extract_partial_templates": "run_reconstruct_templates_extract_partial_templates_phase",
 		"templates_build_templates": "run_reconstruct_templates_build_templates_phase",
 		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
 		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
@@ -430,6 +443,7 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 			phases=SimpleNamespace(
 				analyzers=SimpleNamespace(enabled=True),
 				per_unit_processing=SimpleNamespace(enabled=True),
+				extract_partial_templates=SimpleNamespace(enabled=True),
 				build_templates=SimpleNamespace(enabled=True),
 				compute_template_similarity=SimpleNamespace(enabled=True),
 				plot_templates=SimpleNamespace(enabled=True),
@@ -504,6 +518,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 
 	phase_runner_attrs = {
 		"templates_analyzers": "run_reconstruct_templates_analyzers_phase",
+		"templates_extract_partial_templates": "run_reconstruct_templates_extract_partial_templates_phase",
 		"templates_build_templates": "run_reconstruct_templates_build_templates_phase",
 		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
 		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
@@ -534,6 +549,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 			phases=SimpleNamespace(
 				analyzers=SimpleNamespace(enabled=True),
 				per_unit_processing=SimpleNamespace(enabled=True),
+				extract_partial_templates=SimpleNamespace(enabled=True),
 				build_templates=SimpleNamespace(enabled=True),
 				compute_template_similarity=SimpleNamespace(enabled=True),
 				plot_templates=SimpleNamespace(enabled=True),

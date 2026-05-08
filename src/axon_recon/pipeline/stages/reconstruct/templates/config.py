@@ -41,6 +41,7 @@ from .models.inputs import (
 	TemplateAnalysisPhaseConfig,
 	TemplateArtifactConfig,
 	TemplateBuildTemplatesPhaseConfig,
+	TemplateExtractPartialTemplatesPhaseConfig,
 	TemplateCirclesBranchMorphologyConfig,
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
@@ -81,6 +82,7 @@ LOGGER = logging.getLogger("axon_recon.templates.config")
 DEFAULT_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
 	"resolve_sources",
 	"analyzers",
+	"extract_partial_templates",
 	"build_templates",
 	"compute_template_similarity",
 	"plot_templates",
@@ -93,6 +95,8 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 	"resolve_sources": "resolve_sources",
 	"analyzer": "analyzers",
 	"analyzers": "analyzers",
+	"extract_partial_templates": "extract_partial_templates",
+	"templates.extract_partial_templates": "extract_partial_templates",
 	"build": "build_templates",
 	"build_templates": "build_templates",
 	"per_unit_processing.build_templates": "build_templates",
@@ -3949,6 +3953,20 @@ def parse_reconstruct_templates_config(
 	plot_phase_unit_batch_size = _parse_optional_positive_int(
 		plot_phase_resources_cfg.get("unit_batch_size", effective_plot_phase_cfg.get("unit_batch_size", None))
 	)
+	phase_extract_partial_templates_cfg = _phase_block(phases_cfg, "extract_partial_templates")
+	extract_partial_templates_phase = TemplateExtractPartialTemplatesPhaseConfig(
+		enabled=_as_bool(phase_extract_partial_templates_cfg.get("enabled", True), True),
+		summary_json_relpath=str(
+			phase_extract_partial_templates_cfg.get(
+				"summary_json_relpath",
+				"context/extract_partial_templates_summary.json",
+			)
+		),
+		resource_class=_phase_resource_class(
+			phase_extract_partial_templates_cfg,
+			"extract_partial_templates",
+		),
+	)
 	build_templates_phase = TemplateBuildTemplatesPhaseConfig(
 		enabled=_as_bool(phase_build_cfg.get("enabled", True), True),
 		summary_json_relpath=str(phase_build_cfg.get("summary_json_relpath", "context/build_templates_summary.json")),
@@ -4189,6 +4207,7 @@ def parse_reconstruct_templates_config(
 	phases = TemplatesPhasesConfig(
 		resolve_sources=resolve_sources_phase,
 		analyzers=analyzers_phase,
+		extract_partial_templates=extract_partial_templates_phase,
 		build_templates=build_templates_phase,
 		compute_template_similarity=compute_template_similarity_phase,
 		plot_templates=plot_templates_phase,

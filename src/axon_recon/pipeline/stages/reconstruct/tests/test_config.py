@@ -218,6 +218,7 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime()
 	assert inputs.debug_prints is False
 	assert inputs.phase_sequence == (
 		"templates_analyzers",
+		"templates_extract_partial_templates",
 		"templates_build_templates",
 		"templates_report_templates",
 		"generate_gtrs",

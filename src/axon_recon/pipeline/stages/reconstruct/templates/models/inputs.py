@@ -228,6 +228,13 @@ class TemplatesAnalyzersPhaseConfig:
 
 
 @dataclass(frozen=True)
+class TemplateExtractPartialTemplatesPhaseConfig:
+	enabled: bool = True
+	summary_json_relpath: str = "context/extract_partial_templates_summary.json"
+	resource_class: str | None = None
+
+
+@dataclass(frozen=True)
 class TemplateBuildTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/build_templates_summary.json"
@@ -987,6 +994,9 @@ class ResolveSourcesPhaseConfig:
 class TemplatesPhasesConfig:
 	resolve_sources: ResolveSourcesPhaseConfig = field(default_factory=ResolveSourcesPhaseConfig)
 	analyzers: TemplatesAnalyzersPhaseConfig = field(default_factory=TemplatesAnalyzersPhaseConfig)
+	extract_partial_templates: TemplateExtractPartialTemplatesPhaseConfig = field(
+		default_factory=TemplateExtractPartialTemplatesPhaseConfig
+	)
 	build_templates: TemplateBuildTemplatesPhaseConfig = field(
 		default_factory=TemplateBuildTemplatesPhaseConfig
 	)
