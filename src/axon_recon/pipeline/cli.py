@@ -617,7 +617,7 @@ def _run_mpi_sample_worker_test(*, rank: int, size: int) -> None:
 	sys.stderr.flush()
 
 	print("")
-	print(f"mpi_sample_worker_test: rank {rank + 1}")
+	print(f"mpi_sample_worker_test: rank {rank}")
 	sys.stdout.flush()
 
 	try:
