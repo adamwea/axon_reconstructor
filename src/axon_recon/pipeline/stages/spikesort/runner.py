@@ -15,6 +15,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any, Callable
 
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 	SpikeSortingInputs as LegacySpikeSortingInputs,
@@ -469,21 +470,31 @@ def _normalize_merge_template_heatmap_magnitude_mode(raw: Any) -> str:
 	return "ptp"
 
 
-def _merge_analyzer_compute_job_kwargs(stage_config: Any) -> dict[str, Any]:
+def _merge_analyzer_configured_n_jobs(stage_config: Any) -> int | None:
+	"""Return the explicitly configured merge analyzer n_jobs, or None if not set."""
 	n_jobs_raw = getattr(stage_config, "merge_analyzer_n_jobs", None)
 	if n_jobs_raw is None:
 		n_jobs_raw = getattr(stage_config, "n_jobs", None)
+	try:
+		return int(n_jobs_raw) if n_jobs_raw is not None and int(n_jobs_raw) > 0 else None
+	except Exception:
+		return None
+
+
+def _merge_analyzer_compute_job_kwargs(stage_config: Any) -> dict[str, Any]:
+	_yaml_n_jobs = _merge_analyzer_configured_n_jobs(stage_config)
 	chunk_duration_raw = getattr(stage_config, "merge_analyzer_chunk_duration", None)
 	if chunk_duration_raw is None:
 		chunk_duration_raw = getattr(stage_config, "chunk_duration", None)
 	progress_bar = bool(getattr(stage_config, "progress_bar", True))
 
 	job_kwargs: dict[str, Any] = {}
-	try:
-		if n_jobs_raw is not None and int(n_jobs_raw) > 0:
-			job_kwargs["n_jobs"] = int(n_jobs_raw)
-	except Exception:
-		pass
+	job_kwargs["n_jobs"] = resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=None,
+		yaml_n_jobs_override=_yaml_n_jobs,
+		work_item_count=None,
+	)
 	if chunk_duration_raw is not None:
 		chunk_duration = str(chunk_duration_raw).strip()
 		if chunk_duration:
@@ -767,7 +778,7 @@ def _requested_merge_analyzer_policy(stage_config: Any) -> dict[str, Any]:
 	policy.update(sparsity_settings)
 	policy.update(random_spikes_settings)
 	policy.update(waveform_settings)
-	policy["compute_n_jobs"] = job_kwargs.get("n_jobs", None)
+	policy["compute_n_jobs"] = _merge_analyzer_configured_n_jobs(stage_config)
 	policy["compute_chunk_duration"] = job_kwargs.get("chunk_duration", None)
 	return policy
 
@@ -3381,11 +3392,16 @@ def run_spikesort_bootstrap_concat_binary_stage(
 	overwrite_saved_recording = bool(getattr(stage_config, "bootstrap_concat_binary_overwrite_existing", False))
 	if bool(force_restart) and bool(getattr(stage_config, "bootstrap_concat_binary_overwrite_on_force_restart", True)):
 		overwrite_saved_recording = True
-	n_jobs = getattr(stage_config, "bootstrap_concat_binary_n_jobs", None)
-	if n_jobs is None:
-		n_jobs = getattr(stage_config, "n_jobs", None)
-	if n_jobs is None:
-		n_jobs = 1
+	n_jobs_raw = getattr(stage_config, "bootstrap_concat_binary_n_jobs", None)
+	if n_jobs_raw is None:
+		n_jobs_raw = getattr(stage_config, "n_jobs", None)
+	_bcb_budget = current_phase_budget("spikesort", "bootstrap_concat_binary")
+	n_jobs = resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=getattr(_bcb_budget, "cpus_per_task", None) if _bcb_budget else None,
+		yaml_n_jobs_override=int(n_jobs_raw) if n_jobs_raw is not None else None,
+		work_item_count=None,
+	)
 	limit_segments_per_well = _bootstrap_concat_binary_limit_segments_per_well(stage_config)
 	applied_debug_limits = _spikesort_applied_debug_limits_from_stage_config(
 		stage_config,
@@ -3432,7 +3448,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		concat_manifest_path=paths["concat_manifest_path"],
 		overwrite_saved_recording=bool(overwrite_saved_recording),
 		output_mode="binary",
-		n_jobs=max(1, int(n_jobs)),
+		n_jobs=n_jobs,
 		chunk_duration=str(chunk_duration),
 		progress_bar=bool(getattr(stage_config, "bootstrap_concat_binary_progress_bar", True)),
 		logger=LOGGER,

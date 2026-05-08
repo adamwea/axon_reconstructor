@@ -204,7 +204,7 @@ def test_run_local_spikeinterface_sort_stage_uses_in_process_sorter(tmp_path: Pa
     assert outputs.recording_dir == recording_dir.resolve()
     assert outputs.sorter_output_dir == (stage_output_root_dir / "sorter_output").resolve()
     assert outputs.analyzer_dir == (stage_output_root_dir / "analyzer_output").resolve()
-    assert fake_si.global_job_kwargs == {"n_jobs": 2, "chunk_duration": "1s", "progress_bar": True}
+    assert fake_si.global_job_kwargs == {"n_jobs": 1, "chunk_duration": "1s", "progress_bar": True}
     assert fake_sorters.run_sorter_kwargs["sorter_name"] == "kilosort4"
     assert fake_sorters.run_sorter_kwargs["verbose"] is False
     assert fake_sorters.run_sorter_kwargs["recording"].__class__ is _FakeRecording

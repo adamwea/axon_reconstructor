@@ -13,6 +13,14 @@ from axon_recon.pipeline.stages.spikesort.runner import (
     run_spikesort_merge_stage,
     run_spikesort_stage,
 )
+from axon_recon.pipeline.cpu_allocation import TaskSlot, task_slot_context
+
+_TEST_TASK_SLOT = TaskSlot(
+    slot_id=0,
+    logical_cpus=tuple(range(10)),
+    core_ids=tuple(range(10)),
+    package_ids=(0,),
+)
 
 
 def _read_json(path: Path) -> dict:
@@ -204,14 +212,15 @@ def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeyp
         chunk_duration="2s",
     )
 
-    result = run_spikesort_bootstrap_concat_binary_stage(
-        h5_path=tmp_path / "test.h5",
-        stream_id="well001",
-        mea_output_root=tmp_path,
-        output_rel_root="spikesort_outputs",
-        stage_config=stage_config,
-        force_restart=True,
-    )
+    with task_slot_context(_TEST_TASK_SLOT):
+        result = run_spikesort_bootstrap_concat_binary_stage(
+            h5_path=tmp_path / "test.h5",
+            stream_id="well001",
+            mea_output_root=tmp_path,
+            output_rel_root="spikesort_outputs",
+            stage_config=stage_config,
+            force_restart=True,
+        )
 
     assert Path(captured["recording_dir"]) == well_out_dir / "spikesort_outputs/cache/bootstrap_concat_binary/recording"
     assert captured["output_mode"] == "binary"
@@ -505,28 +514,29 @@ def test_ensure_merge_analyzer_extensions_uses_all_random_spikes_method() -> Non
             self._computed.add(str(extension_name))
 
     analyzer = _FakeAnalyzer()
-    computed = spikesort_runner._ensure_merge_analyzer_extensions(
-        analyzer=analyzer,
-        stage_config=SimpleNamespace(
-            merge_template_random_spikes_method="all",
-            merge_template_random_spikes_max_spikes_per_unit=321,
-            merge_template_random_spikes_margin_size=17,
-            merge_template_random_spikes_seed=42,
-            merge_analyzer_n_jobs=2,
-            merge_analyzer_chunk_duration="0.5s",
-            merge_analyzer_waveforms_ms_before=0.75,
-            merge_analyzer_waveforms_ms_after=1.5,
-            merge_analyzer_waveforms_dtype="float32",
-            n_jobs=None,
-            chunk_duration=None,
-        ),
-        include_unit_locations=True,
-    )
+    with task_slot_context(_TEST_TASK_SLOT):
+        computed = spikesort_runner._ensure_merge_analyzer_extensions(
+            analyzer=analyzer,
+            stage_config=SimpleNamespace(
+                merge_template_random_spikes_method="all",
+                merge_template_random_spikes_max_spikes_per_unit=321,
+                merge_template_random_spikes_margin_size=17,
+                merge_template_random_spikes_seed=42,
+                merge_analyzer_n_jobs=2,
+                merge_analyzer_chunk_duration="0.5s",
+                merge_analyzer_waveforms_ms_before=0.75,
+                merge_analyzer_waveforms_ms_after=1.5,
+                merge_analyzer_waveforms_dtype="float32",
+                n_jobs=None,
+                chunk_duration=None,
+            ),
+            include_unit_locations=True,
+        )
 
     assert computed == ["random_spikes", "waveforms", "templates", "unit_locations"]
     assert analyzer.compute_calls[0] == (
         {"random_spikes": {"method": "all", "max_spikes_per_unit": 321, "margin_size": 17, "seed": 42}},
-        {"n_jobs": 2, "chunk_duration": "0.5s"},
+        {"n_jobs": 2, "chunk_duration": "0.5s", "progress_bar": True},
     )
     assert analyzer.compute_calls[1] == (
         "random_spikes",
@@ -537,6 +547,7 @@ def test_ensure_merge_analyzer_extensions_uses_all_random_spikes_method() -> Non
             "seed": 42,
             "n_jobs": 2,
             "chunk_duration": "0.5s",
+            "progress_bar": True,
         },
     )
     assert analyzer.compute_calls[2] == (
@@ -547,6 +558,7 @@ def test_ensure_merge_analyzer_extensions_uses_all_random_spikes_method() -> Non
             "ms_before": 0.75,
             "ms_after": 1.5,
             "dtype": "float32",
+            "progress_bar": True,
         },
     )
     assert analyzer.compute_calls[3] == (
@@ -556,6 +568,7 @@ def test_ensure_merge_analyzer_extensions_uses_all_random_spikes_method() -> Non
             "chunk_duration": "0.5s",
             "ms_before": 0.75,
             "ms_after": 1.5,
+            "progress_bar": True,
         },
     )
 
@@ -582,26 +595,27 @@ def test_ensure_merge_analyzer_extensions_uses_percentage_random_spikes_method()
             self._computed.add(str(extension_name))
 
     analyzer = _FakeAnalyzer()
-    computed = spikesort_runner._ensure_merge_analyzer_extensions(
-        analyzer=analyzer,
-        stage_config=SimpleNamespace(
-            merge_template_random_spikes_method="percentage",
-            merge_template_random_spikes_percentage=0.75,
-            merge_template_random_spikes_min_spikes_per_unit=1000,
-            merge_template_random_spikes_log_before_after_spike_counts=True,
-            merge_template_random_spikes_max_spikes_per_unit=5000,
-            merge_template_random_spikes_margin_size=17,
-            merge_template_random_spikes_seed=42,
-            merge_analyzer_n_jobs=2,
-            merge_analyzer_chunk_duration="0.5s",
-            merge_analyzer_waveforms_ms_before=0.75,
-            merge_analyzer_waveforms_ms_after=1.5,
-            merge_analyzer_waveforms_dtype="float32",
-            n_jobs=None,
-            chunk_duration=None,
-        ),
-        include_unit_locations=False,
-    )
+    with task_slot_context(_TEST_TASK_SLOT):
+        computed = spikesort_runner._ensure_merge_analyzer_extensions(
+            analyzer=analyzer,
+            stage_config=SimpleNamespace(
+                merge_template_random_spikes_method="percentage",
+                merge_template_random_spikes_percentage=0.75,
+                merge_template_random_spikes_min_spikes_per_unit=1000,
+                merge_template_random_spikes_log_before_after_spike_counts=True,
+                merge_template_random_spikes_max_spikes_per_unit=5000,
+                merge_template_random_spikes_margin_size=17,
+                merge_template_random_spikes_seed=42,
+                merge_analyzer_n_jobs=2,
+                merge_analyzer_chunk_duration="0.5s",
+                merge_analyzer_waveforms_ms_before=0.75,
+                merge_analyzer_waveforms_ms_after=1.5,
+                merge_analyzer_waveforms_dtype="float32",
+                n_jobs=None,
+                chunk_duration=None,
+            ),
+            include_unit_locations=False,
+        )
 
     assert computed == ["random_spikes", "waveforms", "templates"]
     assert analyzer.compute_calls[0] == (
@@ -616,6 +630,7 @@ def test_ensure_merge_analyzer_extensions_uses_percentage_random_spikes_method()
             "seed": 42,
             "n_jobs": 2,
             "chunk_duration": "0.5s",
+            "progress_bar": True,
         },
     )
 
@@ -638,26 +653,27 @@ def test_ensure_merge_analyzer_extensions_omits_max_cap_for_percentage_mode_when
             self._computed.add(str(extension_name))
 
     analyzer = _FakeAnalyzer()
-    spikesort_runner._ensure_merge_analyzer_extensions(
-        analyzer=analyzer,
-        stage_config=SimpleNamespace(
-            merge_template_random_spikes_method="percentage",
-            merge_template_random_spikes_percentage=0.75,
-            merge_template_random_spikes_max_spikes_per_unit=None,
-            merge_template_random_spikes_min_spikes_per_unit=None,
-            merge_template_random_spikes_log_before_after_spike_counts=False,
-            merge_template_random_spikes_margin_size=None,
-            merge_template_random_spikes_seed=42,
-            merge_analyzer_n_jobs=2,
-            merge_analyzer_chunk_duration="0.5s",
-            merge_analyzer_waveforms_ms_before=0.75,
-            merge_analyzer_waveforms_ms_after=1.5,
-            merge_analyzer_waveforms_dtype="float32",
-            n_jobs=None,
-            chunk_duration=None,
-        ),
-        include_unit_locations=False,
-    )
+    with task_slot_context(_TEST_TASK_SLOT):
+        spikesort_runner._ensure_merge_analyzer_extensions(
+            analyzer=analyzer,
+            stage_config=SimpleNamespace(
+                merge_template_random_spikes_method="percentage",
+                merge_template_random_spikes_percentage=0.75,
+                merge_template_random_spikes_max_spikes_per_unit=None,
+                merge_template_random_spikes_min_spikes_per_unit=None,
+                merge_template_random_spikes_log_before_after_spike_counts=False,
+                merge_template_random_spikes_margin_size=None,
+                merge_template_random_spikes_seed=42,
+                merge_analyzer_n_jobs=2,
+                merge_analyzer_chunk_duration="0.5s",
+                merge_analyzer_waveforms_ms_before=0.75,
+                merge_analyzer_waveforms_ms_after=1.5,
+                merge_analyzer_waveforms_dtype="float32",
+                n_jobs=None,
+                chunk_duration=None,
+            ),
+            include_unit_locations=False,
+        )
 
     assert analyzer.compute_calls[0] == (
         "random_spikes",
@@ -667,6 +683,7 @@ def test_ensure_merge_analyzer_extensions_omits_max_cap_for_percentage_mode_when
             "seed": 42,
             "n_jobs": 2,
             "chunk_duration": "0.5s",
+            "progress_bar": True,
         },
     )
 
@@ -740,33 +757,34 @@ def test_ensure_bombcell_metric_extensions_uses_bombcell_job_kwargs() -> None:
                 self._extensions[extension_name] = _FakeExtension([])
 
     analyzer = _FakeAnalyzer()
-    computed = spikesort_runner._ensure_bombcell_metric_extensions(
-        analyzer=analyzer,
-        stage_config=SimpleNamespace(
-            bombcell_label_template_random_spikes_method="all",
-            bombcell_label_template_random_spikes_max_spikes_per_unit=500,
-            bombcell_label_template_random_spikes_margin_size=None,
-            bombcell_label_template_random_spikes_seed=None,
-            bombcell_label_analyzer_n_jobs=3,
-            bombcell_label_analyzer_chunk_duration="0.25s",
-            bombcell_label_analyzer_waveforms_ms_before=1.0,
-            bombcell_label_analyzer_waveforms_ms_after=2.0,
-            bombcell_label_analyzer_waveforms_dtype=None,
-            bombcell_label_analyzer_compute_sparsity=True,
-            bombcell_label_analyzer_sparsity_method="radius",
-            bombcell_label_analyzer_sparsity_radius_um=100.0,
-            bombcell_label_analyzer_sparsity_num_channels=5,
-            bombcell_label_analyzer_sparsity_threshold=5.0,
-            bombcell_label_analyzer_sparsity_peak_sign="neg",
-            bombcell_label_analyzer_sparsity_num_spikes_for_sparsity=100,
-            bombcell_label_analyzer_sparsity_by_property=None,
-            merge_template_random_spikes_method="default",
-            merge_analyzer_n_jobs=99,
-            merge_analyzer_chunk_duration="9s",
-            n_jobs=None,
-            chunk_duration=None,
-        ),
-    )
+    with task_slot_context(_TEST_TASK_SLOT):
+        computed = spikesort_runner._ensure_bombcell_metric_extensions(
+            analyzer=analyzer,
+            stage_config=SimpleNamespace(
+                bombcell_label_template_random_spikes_method="all",
+                bombcell_label_template_random_spikes_max_spikes_per_unit=500,
+                bombcell_label_template_random_spikes_margin_size=None,
+                bombcell_label_template_random_spikes_seed=None,
+                bombcell_label_analyzer_n_jobs=3,
+                bombcell_label_analyzer_chunk_duration="0.25s",
+                bombcell_label_analyzer_waveforms_ms_before=1.0,
+                bombcell_label_analyzer_waveforms_ms_after=2.0,
+                bombcell_label_analyzer_waveforms_dtype=None,
+                bombcell_label_analyzer_compute_sparsity=True,
+                bombcell_label_analyzer_sparsity_method="radius",
+                bombcell_label_analyzer_sparsity_radius_um=100.0,
+                bombcell_label_analyzer_sparsity_num_channels=5,
+                bombcell_label_analyzer_sparsity_threshold=5.0,
+                bombcell_label_analyzer_sparsity_peak_sign="neg",
+                bombcell_label_analyzer_sparsity_num_spikes_for_sparsity=100,
+                bombcell_label_analyzer_sparsity_by_property=None,
+                merge_template_random_spikes_method="default",
+                merge_analyzer_n_jobs=99,
+                merge_analyzer_chunk_duration="9s",
+                n_jobs=None,
+                chunk_duration=None,
+            ),
+        )
 
     assert computed == [
         "random_spikes",
@@ -787,15 +805,16 @@ def test_ensure_bombcell_metric_extensions_uses_bombcell_job_kwargs() -> None:
             "max_spikes_per_unit": 500,
             "n_jobs": 3,
             "chunk_duration": "0.25s",
+            "progress_bar": True,
         },
     )
     assert analyzer.compute_calls[2] == (
         "waveforms",
-        {"n_jobs": 3, "chunk_duration": "0.25s", "ms_before": 1.0, "ms_after": 2.0},
+        {"n_jobs": 3, "chunk_duration": "0.25s", "ms_before": 1.0, "ms_after": 2.0, "progress_bar": True},
     )
-    assert ("noise_levels", {"n_jobs": 3, "chunk_duration": "0.25s"}) in analyzer.compute_calls
-    assert ("spike_amplitudes", {"n_jobs": 3, "chunk_duration": "0.25s"}) in analyzer.compute_calls
-    assert ("spike_locations", {"n_jobs": 3, "chunk_duration": "0.25s"}) in analyzer.compute_calls
+    assert ("noise_levels", {"n_jobs": 3, "chunk_duration": "0.25s", "progress_bar": True}) in analyzer.compute_calls
+    assert ("spike_amplitudes", {"n_jobs": 3, "chunk_duration": "0.25s", "progress_bar": True}) in analyzer.compute_calls
+    assert ("spike_locations", {"n_jobs": 3, "chunk_duration": "0.25s", "progress_bar": True}) in analyzer.compute_calls
     assert (
         "template_metrics",
         {
@@ -803,6 +822,7 @@ def test_ensure_bombcell_metric_extensions_uses_bombcell_job_kwargs() -> None:
             "chunk_duration": "0.25s",
             "metric_names": list(spikesort_runner._BOMBCELL_TEMPLATE_METRIC_NAMES),
             "include_multi_channel_metrics": True,
+            "progress_bar": True,
         },
     ) in analyzer.compute_calls
     assert (
@@ -812,6 +832,7 @@ def test_ensure_bombcell_metric_extensions_uses_bombcell_job_kwargs() -> None:
             "chunk_duration": "0.25s",
             "metric_names": list(spikesort_runner._BOMBCELL_QUALITY_METRIC_NAMES),
             "skip_pc_metrics": True,
+            "progress_bar": True,
         },
     ) in analyzer.compute_calls
 
@@ -2902,35 +2923,36 @@ def test_recompute_sorting_analyzer_to_dir_uses_merge_sparsity_settings(tmp_path
         lambda **kwargs: "sorting",
     )
 
-    analyzer, analyzer_dir = spikesort_runner._recompute_sorting_analyzer_to_dir(
-        si_module=_FakeSI(),
-        well_out_dir=tmp_path,
-        sorter_output_dir=tmp_path / "sorter_output",
-        stage_config=SimpleNamespace(
-            preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
-            sorter="kilosort4",
-            merge_analyzer_compute_sparsity=True,
-            merge_template_random_spikes_method="default",
-            merge_template_random_spikes_max_spikes_per_unit=321,
-            merge_template_random_spikes_margin_size=17,
-            merge_template_random_spikes_seed=42,
-            merge_analyzer_n_jobs=2,
-            merge_analyzer_chunk_duration="0.5s",
-            merge_analyzer_sparsity_method="best_channels",
-            merge_analyzer_sparsity_radius_um=111.0,
-            merge_analyzer_sparsity_num_channels=8,
-            merge_analyzer_sparsity_threshold=3.5,
-            merge_analyzer_sparsity_peak_sign="both",
-            merge_analyzer_sparsity_num_spikes_for_sparsity=222,
-            merge_analyzer_sparsity_by_property=None,
-            merge_analyzer_waveforms_ms_before=0.75,
-            merge_analyzer_waveforms_ms_after=1.75,
-            merge_analyzer_waveforms_dtype="float32",
-            n_jobs=None,
-            chunk_duration=None,
-        ),
-        analyzer_dir=tmp_path / "analyzer_output",
-    )
+    with task_slot_context(_TEST_TASK_SLOT):
+        analyzer, analyzer_dir = spikesort_runner._recompute_sorting_analyzer_to_dir(
+            si_module=_FakeSI(),
+            well_out_dir=tmp_path,
+            sorter_output_dir=tmp_path / "sorter_output",
+            stage_config=SimpleNamespace(
+                preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
+                sorter="kilosort4",
+                merge_analyzer_compute_sparsity=True,
+                merge_template_random_spikes_method="default",
+                merge_template_random_spikes_max_spikes_per_unit=321,
+                merge_template_random_spikes_margin_size=17,
+                merge_template_random_spikes_seed=42,
+                merge_analyzer_n_jobs=2,
+                merge_analyzer_chunk_duration="0.5s",
+                merge_analyzer_sparsity_method="best_channels",
+                merge_analyzer_sparsity_radius_um=111.0,
+                merge_analyzer_sparsity_num_channels=8,
+                merge_analyzer_sparsity_threshold=3.5,
+                merge_analyzer_sparsity_peak_sign="both",
+                merge_analyzer_sparsity_num_spikes_for_sparsity=222,
+                merge_analyzer_sparsity_by_property=None,
+                merge_analyzer_waveforms_ms_before=0.75,
+                merge_analyzer_waveforms_ms_after=1.75,
+                merge_analyzer_waveforms_dtype="float32",
+                n_jobs=None,
+                chunk_duration=None,
+            ),
+            analyzer_dir=tmp_path / "analyzer_output",
+        )
 
     assert analyzer_dir == (tmp_path / "analyzer_output").resolve()
     assert captured_create_kwargs.get("method") == "best_channels"
@@ -3044,40 +3066,41 @@ def test_capture_merge_state_snapshot_records_analyzer_policy_fields(tmp_path: P
         _fake_load_or_recompute,
     )
 
-    snapshot = spikesort_runner._capture_merge_state_snapshot(
-        well_out_dir=well_out_dir,
-        stage_output_root_dir=stage_output_root_dir,
-        output_rel_root="spikesort_outputs",
-        stage_config=SimpleNamespace(
-            sorter="kilosort4",
-            slay_sorter_output_relpath=None,
-            merge_analyzer_compute_sparsity=False,
-            merge_template_random_spikes_method="percentage",
-            merge_template_random_spikes_percentage=0.75,
-            merge_template_random_spikes_min_spikes_per_unit=1000,
-            merge_template_random_spikes_log_before_after_spike_counts=True,
-            merge_template_random_spikes_max_spikes_per_unit=321,
-            merge_template_random_spikes_margin_size=17,
-            merge_template_random_spikes_seed=42,
-            merge_analyzer_sparsity_method="best_channels",
-            merge_analyzer_sparsity_num_channels=8,
-            merge_analyzer_sparsity_radius_um=100.0,
-            merge_analyzer_sparsity_threshold=5.0,
-            merge_analyzer_sparsity_peak_sign="both",
-            merge_analyzer_sparsity_num_spikes_for_sparsity=222,
-            merge_analyzer_sparsity_by_property=None,
-            merge_analyzer_n_jobs=2,
-            merge_analyzer_chunk_duration="0.5s",
-            merge_analyzer_waveforms_ms_before=0.75,
-            merge_analyzer_waveforms_ms_after=1.5,
-            merge_analyzer_waveforms_dtype="float32",
-            n_jobs=None,
-            chunk_duration=None,
-        ),
-        capture_label="after_merge",
-        include_unit_locations=False,
-        allow_analyzer_recompute=True,
-    )
+    with task_slot_context(_TEST_TASK_SLOT):
+        snapshot = spikesort_runner._capture_merge_state_snapshot(
+            well_out_dir=well_out_dir,
+            stage_output_root_dir=stage_output_root_dir,
+            output_rel_root="spikesort_outputs",
+            stage_config=SimpleNamespace(
+                sorter="kilosort4",
+                slay_sorter_output_relpath=None,
+                merge_analyzer_compute_sparsity=False,
+                merge_template_random_spikes_method="percentage",
+                merge_template_random_spikes_percentage=0.75,
+                merge_template_random_spikes_min_spikes_per_unit=1000,
+                merge_template_random_spikes_log_before_after_spike_counts=True,
+                merge_template_random_spikes_max_spikes_per_unit=321,
+                merge_template_random_spikes_margin_size=17,
+                merge_template_random_spikes_seed=42,
+                merge_analyzer_sparsity_method="best_channels",
+                merge_analyzer_sparsity_num_channels=8,
+                merge_analyzer_sparsity_radius_um=100.0,
+                merge_analyzer_sparsity_threshold=5.0,
+                merge_analyzer_sparsity_peak_sign="both",
+                merge_analyzer_sparsity_num_spikes_for_sparsity=222,
+                merge_analyzer_sparsity_by_property=None,
+                merge_analyzer_n_jobs=2,
+                merge_analyzer_chunk_duration="0.5s",
+                merge_analyzer_waveforms_ms_before=0.75,
+                merge_analyzer_waveforms_ms_after=1.5,
+                merge_analyzer_waveforms_dtype="float32",
+                n_jobs=None,
+                chunk_duration=None,
+            ),
+            capture_label="after_merge",
+            include_unit_locations=False,
+            allow_analyzer_recompute=True,
+        )
 
     assert snapshot.get("analyzer", {}).get("requested_compute_sparsity") is False
     assert snapshot.get("analyzer", {}).get("requested_template_random_spikes_method") == "percentage"
@@ -7546,15 +7569,16 @@ def test_run_spikesort_merge_stage_force_replot_only_reuses_existing_analyzer_wh
         merge_template_random_spikes_method="all",
     )
 
-    result = run_spikesort_merge_stage(
-        h5_path=h5_path,
-        stream_id="well001",
-        mea_output_root=tmp_path,
-        output_rel_root="spikesort_outputs",
-        stage_config=stage_cfg,
-        force_restart=False,
-        force_replot=True,
-    )
+    with task_slot_context(_TEST_TASK_SLOT):
+        result = run_spikesort_merge_stage(
+            h5_path=h5_path,
+            stream_id="well001",
+            mea_output_root=tmp_path,
+            output_rel_root="spikesort_outputs",
+            stage_config=stage_cfg,
+            force_restart=False,
+            force_replot=True,
+        )
 
     summary = _read_json(result.summary_json)
 

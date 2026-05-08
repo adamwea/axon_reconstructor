@@ -21,6 +21,7 @@ from .config import (
 from .cpu_allocation import (
 	ContainerAffinityReadiness,
 	TaskAllocationPlan,
+	TaskSlot,
 	_THREAD_ENV_VARS,
 	apply_thread_env_context,
 	build_task_allocation_plan,
@@ -629,6 +630,22 @@ def _distribute_runtime_targets(
 
 	plan = getattr(parallelism, "task_allocation_plan", None)
 	task_slots = tuple(getattr(plan, "slots", ()) or ()) if plan is not None else ()
+	# In MPI mode the launcher binds each rank to a CPU subset; build a synthetic slot
+	# so resolve_inner_worker_count reads the rank's actual CPU count inside workers.
+	if not task_slots and mpi_context is not None and int(getattr(mpi_context, "size", 1)) > 1:
+		_mpi_affinity_topo = detect_cpu_topology(logger=LOGGER)
+		_mpi_use_ht_slot = bool(getattr(parallelism, "use_hyperthreads", False))
+		_mpi_slot_cpus = (
+			_mpi_affinity_topo.visible_cpus
+			if _mpi_use_ht_slot
+			else tuple(core.logical_cpus[0] for core in _mpi_affinity_topo.cores if core.logical_cpus)
+		)
+		task_slots = (TaskSlot(
+			slot_id=int(getattr(mpi_context, "rank", 0)),
+			logical_cpus=_mpi_slot_cpus,
+			core_ids=tuple(core.core_id for core in _mpi_affinity_topo.cores),
+			package_ids=_mpi_affinity_topo.package_ids,
+		),)
 	apply_task_affinity = bool(
 		plan is not None
 		and str(getattr(plan, "backend", "none")) == "local_affinity"

@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
 
@@ -1014,13 +1015,15 @@ def _resolve_preprocess_phase_n_jobs(
 	phase_name: str,
 	phase_plot_cfg: PreprocessPlotConfig,
 ) -> int:
-	base_n_jobs = max(1, int(inputs.n_jobs))
-	if phase_name == "prepare_raw_binaries":
-		return max(1, int(inputs.phases.prepare_raw_binaries.outputs.segment_save_n_jobs or base_n_jobs))
-	if phase_name == "preprocess_segments":
-		return base_n_jobs
-	if phase_name == "concat_segments":
-		return max(1, int(inputs.phases.concat_segments.outputs.concat_save_n_jobs or base_n_jobs))
+	_si_njobs_phases = {"prepare_raw_binaries", "preprocess_segments", "concat_segments"}
+	if phase_name in _si_njobs_phases:
+		_budget = current_phase_budget("preprocess", phase_name)
+		return resolve_inner_worker_count(
+			nested_shape="si_njobs",
+			phase_cpus_per_task=getattr(_budget, "cpus_per_task", None) if _budget else None,
+			yaml_n_jobs_override=None,
+			work_item_count=None,
+		)
 	if phase_name in {
 		"plot_segment_traces",
 		"plot_segment_channel_layouts",
@@ -3064,13 +3067,20 @@ def _run_preprocess_phase_sequence(
 							selected_segment_h5_path,
 							selected_source_h5_path,
 						)
+					_ps_budget = current_phase_budget("preprocess", "preprocess_segments")
+					_ps_n_jobs = resolve_inner_worker_count(
+						nested_shape="si_njobs",
+						phase_cpus_per_task=getattr(_ps_budget, "cpus_per_task", None) if _ps_budget else None,
+						yaml_n_jobs_override=None,
+						work_item_count=None,
+					)
 					payload = run_preprocess_segments_core(
 						h5_path=selected_segment_h5_path,
 						source_h5_path=selected_source_h5_path,
 						stream_id=str(inputs.stream_id),
 						output_mode=str(effective_segment_output_mode),
 						lazy_source=str(selected_lazy_source),
-						n_jobs=max(1, int(inputs.n_jobs)),
+						n_jobs=_ps_n_jobs,
 						segment_epochs_path=recording_metadata_paths.segment_epochs_path,
 						contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
 						sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
@@ -3128,6 +3138,13 @@ def _run_preprocess_phase_sequence(
 					)
 					payload["phase"] = "plot_segment_channel_layouts"
 				elif payload is None and phase_name == "concat_segments":
+					_cs_budget = current_phase_budget("preprocess", "concat_segments")
+					_cs_n_jobs = resolve_inner_worker_count(
+						nested_shape="si_njobs",
+						phase_cpus_per_task=getattr(_cs_budget, "cpus_per_task", None) if _cs_budget else None,
+						yaml_n_jobs_override=None,
+						work_item_count=None,
+					)
 					payload = run_concat_segments_core(
 						stream_id=str(inputs.stream_id),
 						segment_manifest_path=paths.per_segment_manifest_path,
@@ -3135,7 +3152,7 @@ def _run_preprocess_phase_sequence(
 						concat_manifest_path=paths.concat_manifest_path,
 						overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
 						output_mode=str(inputs.phases.concat_segments.output_mode),
-						n_jobs=max(1, int(inputs.phases.concat_segments.outputs.concat_save_n_jobs or inputs.n_jobs)),
+						n_jobs=_cs_n_jobs,
 						chunk_duration=str(inputs.phases.concat_segments.outputs.save_chunk_duration),
 						progress_bar=bool(inputs.phases.concat_segments.outputs.save_progress_bar),
 						logger=phase_logger,

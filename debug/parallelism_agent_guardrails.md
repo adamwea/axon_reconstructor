@@ -67,6 +67,7 @@ Rules:
 - Read/write/disk-heavy phases must respect disk and H5 slots.
 - Plot/report phases must respect plot slots and memory-heavy resource classes.
 - Analyzer phases must respect analyzer slots and inner `n_jobs` settings.
+- SpikeInterface `n_jobs` for any analyzer/sorter/save/concat call is computed by `resolve_inner_worker_count(...)` from the active task slot and phase budget. Direct reads of `inputs.n_jobs` from phase code are forbidden.
 
 ## Thread And Process Telemetry
 

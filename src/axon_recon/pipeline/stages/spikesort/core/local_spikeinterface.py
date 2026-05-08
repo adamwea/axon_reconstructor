@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 from typing import Any
 
+from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.stages.preprocess.constants import (
 	LEGACY_PREPROCESS_OUTPUTS_DIRNAME,
 	PREPROCESS_OUTPUTS_DIRNAME,
@@ -153,8 +154,13 @@ def _load_recording(*, si_module: Any, recording_dir: Path) -> Any:
 
 def _set_global_job_kwargs(*, si_module: Any, inputs: SpikesortInputs, logger: logging.Logger) -> None:
 	job_kwargs: dict[str, Any] = {}
-	if inputs.n_jobs is not None:
-		job_kwargs["n_jobs"] = int(inputs.n_jobs)
+	_sort_budget = current_phase_budget("spikesort", "sort")
+	job_kwargs["n_jobs"] = resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=getattr(_sort_budget, "cpus_per_task", None) if _sort_budget else None,
+		yaml_n_jobs_override=None,
+		work_item_count=None,
+	)
 	if inputs.chunk_duration is not None:
 		job_kwargs["chunk_duration"] = str(inputs.chunk_duration)
 	job_kwargs["progress_bar"] = bool(inputs.progress_bar)

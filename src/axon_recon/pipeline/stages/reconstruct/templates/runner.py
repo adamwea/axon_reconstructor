@@ -1669,7 +1669,13 @@ def _templates_analyzer_policy_log_fields(policy: Any) -> dict[str, Any]:
 
 
 def _templates_runtime_n_jobs(inputs: TemplatesInputs) -> int:
-	return max(1, int(getattr(inputs, "n_jobs", 1) or 1))
+	_budget = current_phase_budget("reconstruct", "analyzers")
+	return resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=getattr(_budget, "cpus_per_task", None) if _budget else None,
+		yaml_n_jobs_override=None,
+		work_item_count=None,
+	)
 
 
 def _resolve_analyzer_policy_runtime_n_jobs(inputs: TemplatesInputs, policy: Any) -> Any:

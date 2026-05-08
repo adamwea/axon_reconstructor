@@ -804,3 +804,46 @@ def test_phase_budgets_context_lookup_returns_entry_for_stage_phase() -> None:
 def test_phase_budgets_context_with_none_clears_lookup() -> None:
 	with phase_budgets_context(None):
 		assert current_phase_budget("any", "phase") is None
+
+
+# ---------------------------------------------------------------------------
+# Slice 6: SI n_jobs derivation integration tests
+# ---------------------------------------------------------------------------
+
+
+def test_si_n_jobs_inherits_slot_cpu_count_when_no_phase_clamp() -> None:
+	"""A si_njobs phase with no cpus_per_task clamp passes slot.cpu_count to SI."""
+	from axon_recon.pipeline.resources import PhaseResourceClassConfig
+
+	slot = TaskSlot(slot_id=0, logical_cpus=tuple(range(10)), core_ids=tuple(range(10)), package_ids=(0,))
+	budgets = {
+		"reconstruct.analyzers": PhaseResourceClassConfig(nested_shape="si_njobs", cpus_per_task=None),
+	}
+	with task_slot_context(slot), phase_budgets_context(budgets):
+		budget = current_phase_budget("reconstruct", "analyzers")
+		n_jobs = resolve_inner_worker_count(
+			nested_shape="si_njobs",
+			phase_cpus_per_task=getattr(budget, "cpus_per_task", None) if budget else None,
+			yaml_n_jobs_override=None,
+			work_item_count=None,
+		)
+	assert n_jobs == 10
+
+
+def test_si_n_jobs_clamped_by_phase_budget_cpus_per_task() -> None:
+	"""A si_njobs phase with cpus_per_task=4 clamps SI n_jobs to 4 even with slot=10."""
+	from axon_recon.pipeline.resources import PhaseResourceClassConfig
+
+	slot = TaskSlot(slot_id=0, logical_cpus=tuple(range(10)), core_ids=tuple(range(10)), package_ids=(0,))
+	budgets = {
+		"reconstruct.plot_recons": PhaseResourceClassConfig(nested_shape="si_njobs", cpus_per_task=4),
+	}
+	with task_slot_context(slot), phase_budgets_context(budgets):
+		budget = current_phase_budget("reconstruct", "plot_recons")
+		n_jobs = resolve_inner_worker_count(
+			nested_shape="si_njobs",
+			phase_cpus_per_task=getattr(budget, "cpus_per_task", None) if budget else None,
+			yaml_n_jobs_override=None,
+			work_item_count=None,
+		)
+	assert n_jobs == 4
