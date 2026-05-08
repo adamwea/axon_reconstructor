@@ -192,8 +192,8 @@ def resolve_inner_worker_count(
 			result,
 			extra={
 				"event": "phase_parallelism",
-				"stage": str(stage_name),
-				"phase": str(phase_name),
+				"phase_parallelism_stage": str(stage_name),
+				"phase_parallelism_phase": str(phase_name),
 				"nested_shape": str(nested_shape),
 				"slot_cpus": slot_cpus,
 				"phase_cap": phase_cpus_per_task,
