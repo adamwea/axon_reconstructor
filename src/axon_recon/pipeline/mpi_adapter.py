@@ -89,6 +89,12 @@ def _get_mpi_context() -> MPIContext | None:
 
 	Returns None if MPI is not available or process is not an MPI rank.
 	"""
+	# Prefer launcher-provided environment variables first. This avoids importing
+	# mpi4py in mixed MPI stacks (e.g., OpenMPI launcher with MPICH-linked mpi4py),
+	# which can abort the process before Python can catch an exception.
+	env_context = _context_from_mpi_env()
+	if env_context is not None:
+		return env_context
 	if _is_mpi4py_available():
 		try:
 			from mpi4py import MPI
@@ -100,7 +106,7 @@ def _get_mpi_context() -> MPIContext | None:
 				return MPIContext(rank=rank, size=size, comm=comm, is_fake=False)
 		except Exception:
 			pass
-	return _context_from_mpi_env()
+	return None
 
 
 _CURRENT_MPI_CONTEXT: MPIContext | None = None

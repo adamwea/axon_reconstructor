@@ -14,7 +14,7 @@
 #   --target-dataset 11, 12 --limit-wells 1 --alloc
 
 # this does not.
-mpirun -np 2 \
+/usr/bin/mpirun -np 2 \
   --map-by ppr:2:node:pe=10 \
   --bind-to core \
   --report-bindings \
@@ -23,4 +23,4 @@ mpirun -np 2 \
   -x OPENBLAS_NUM_THREADS=10 \
   -x NUMEXPR_NUM_THREADS=10 \
   axon-recon stages preprocess --config debug/debug.runtime.yml \
-  --target-dataset 11, 12 --limit-wells 1 --alloc --task-backend mpi
+  --target-dataset 11,12 --limit-wells 1 --alloc --task-backend mpi
