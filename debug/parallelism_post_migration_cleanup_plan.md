@@ -407,7 +407,15 @@ git grep -nE "well_workers|max_stage_workers|divide_stage_workers" debug/paralle
   3. Replace `phase_resource_classes` keys with `phase_budgets`.
   4. Re-run.
 - **`reconstruct/runner.py:1509` `replace()` bug**. Independent of the migration; the input mock yields a non-dataclass `templates_inputs`, and `dataclasses.replace` chokes. Needs a real fix in either the test fixture or the runner.
-- **Container + mpirun "runs double"**. Each `mpirun -np 2 axon-recon-container` spawns two independent containers each with `MPI_COMM_WORLD` of size 1. Either fix MPI passthrough (`--ipc=host`, PMIx mounts) or document that container is single-rank only and use mpirun directly with the host axon-recon for multi-rank work.
+- **Container + mpirun "runs double"**. Each `mpirun -np 2 axon-recon-container` spawns two independent containers each with `MPI_COMM_WORLD` of size 1. Either fix MPI passthrough (`--ipc=host`, PMIx mounts) or document that container is single-rank only and use mpirun directly with the host axon-recon for multi-rank work. Strategy options captured in `debug/container_mpi_strategy_note.md`; recommendation is to stay on Option C (single-rank container for sort, host mpirun for everything else) until lab patterns force a change.
+
+- **Retire `plot_templates` (v1) phase**. The `plot_templates_v2` phase replaces it; v1 is commented out of `debug/debug.runtime.yml` phase_sequence (line 1125) but the YAML block at lines 1406+, the parser, and the runner all still exist for v1. A future cleanup slice should:
+  1. Confirm no other `phase_sequence` (in any sibling runtime YAML or test fixture) still references `plot_templates` (the v1 name).
+  2. Delete the `phases.plot_templates:` YAML block in `debug/debug.runtime.yml`.
+  3. Delete `stages/reconstruct/phases/plot_templates.py` and the parser branch in `stages/reconstruct/templates/config.py` for `plot_templates` (keep `plot_templates_v2`).
+  4. Delete the `plot_templates`-specific aliases in `_RECONSTRUCT_PHASE_ALIASES` (or wherever the alias map lives) — keep only `plot_templates_v2` and its synonyms.
+  5. Update tests that exercise the v1 path (`test_run_reconstruct_templates_plot_templates_phase_writes_circle_plots_only_and_cleans_stale_artifacts` is one such; there are likely more).
+  6. Update guardrails doc to mention only v2.
 
 ---
 

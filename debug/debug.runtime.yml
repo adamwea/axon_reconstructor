@@ -1123,7 +1123,7 @@ stages:
       - build_templates
       #- compute_template_similarity
       #- plot_templates
-      #- plot_templates_v2
+      - plot_templates_v2
       - report_templates
       - generate_gtrs
       - plot_recons
