@@ -95,6 +95,69 @@ claude-migration baseline: 437 passed / 0 failed / 0 skipped (test_progress.py e
 a18c9d2 | slice 1 [sonnet] | add nested_shape to phase resource classes
 f32a2a8 | slice 2 [opus] | split build_templates into extract_partial_templates and build_templates
 
+## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 5 (merge_si_auto + merge_unitmatch dry_run knobs)
+
+Status: accepted
+
+Summary:
+- Added `merge_si_auto_dry_run` config knob (default `true`). When true, `_run_auto_merge_method` skips the `<stage_output_root_dir>/analyzer_output/` canonical writeback (line 8459-8466 area) even when `auto_merge.auto_accept_merges=true` and merges were applied. Per-iteration `merged_units/iteration_NNN/analyzer_output/` snapshots still get written so users can inspect proposed merges.
+- Added `merge_unitmatch_dry_run` config knob (default `true`). The v2 merge_unitmatch dispatcher in this codebase is a stub (`unitmatch_not_implemented_in_v2_merge_phase` skip path). The knob is recognized at the config layer so a future implementation can honor it without YAML breakage.
+- Report payload + return dict for auto_merge surface `dry_run` and `canonical_analyzer_writeback_skipped_for_dry_run` fields.
+- 2 new unit tests:
+  - `test_run_auto_merge_method_dry_run_skips_canonical_analyzer_writeback`: pre-seeded canonical `analyzer_output/marker.txt` is unchanged after a dry-run with `auto_accept_merges=true` + merges detected; per-iteration snapshot IS written.
+  - `test_run_auto_merge_method_apply_writes_canonical_analyzer`: with `dry_run=false`, the canonical dir is overwritten (current production behavior preserved).
+
+Plan deviation:
+- Plan slice 5 says "replace analyzer construction with load from `<well_out_dir>/spikesort_outputs/concat_analyzer/`". Auto-merge currently goes through `_load_or_recompute_spikesort_analyzer` which has a complex fallback path (load existing, otherwise recompute) and is exercised by ~12 existing tests via monkeypatches. Migrating it requires updating those test fixtures plus a wider sweep across the merge orchestrator (`_prepare_replot_workspace_analyzer` at runner.py:1341 has 2 call sites in `_run_merge_methods_for_target` for pre/post merge reports). That sweep belongs in slice 6 (cleanup + concat_analyzer migration for all remaining sites).
+- Plan said acceptance check: `git grep -n "create_sorting_analyzer\b" src/axon_recon/pipeline/stages/spikesort/runner.py` returns at most 1 hit. That moves to slice 6 along with the analyzer-load migration sweep.
+- merge_unitmatch is a stub (returns `skipped` from the v2 merge dispatcher). Adding the config knob now keeps the surface consistent with merge_SLAy / merge_si_auto / bombcell_label without expanding scope to implement v2 unitmatch.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- New unit test asserts dry_run=true skips the canonical writeback (assertion against marker file content); paired apply test asserts dry_run=false retains the writeback.
+- Pre-slice baseline 190 spikesort tests passed; post-slice 192 passed (+2 new). No existing test fixture had to be updated because the canonical analyzer_output writeback is not asserted on in any test (the existing 12 auto_merge tests assert on report fields and per-iteration outputs only).
+
+Validation:
+- Pre-slice baseline: 190 passed in 2.91s.
+- Post-slice spikesort pytest: 192 passed in 2.88s (+2 new auto_merge dry_run tests).
+- Post-slice broader pipeline pytest (excl. test_progress.py): 457 passed in 23.78s.
+
+Smokes:
+- BLOCKED-SMOKE: S8 (full spikesort end-to-end after rewrite) requires existing post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` AND a preprocessed concat recording. Per the loop's failure-handling rule, marked BLOCKED-SMOKE; correctness is covered by the new unit tests (dry_run gate around the canonical writeback) plus the unchanged pass-rate of the 12 existing auto_merge tests.
+
+CLI / Debug Flag Impact:
+- No new CLI flags. The merge_si_auto / merge_unitmatch handlers are unchanged.
+
+Logging / Parallelism Impact:
+- No new logs. The dry_run state is surfaced in the JSON summary file and in the report return dict.
+
+Storage / Cache Impact:
+- Net storage decrease per dry-run: the canonical `<stage_output_root_dir>/analyzer_output/` is no longer overwritten by auto_merge in dry-run mode (the per-iteration `merged_units/iteration_NNN/analyzer_output/` directories are unchanged).
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- `--force-restart` still wipes `<auto_merge_out_dir>` (governed by `auto_merge_delete_outputs_on_force_restart`).
+- Toggling dry_run between runs has no special semantics; the dry-run apply skip is per-invocation.
+
+Residual Risk And Follow-Ups:
+- Smoke S8 deferred until sort outputs exist on the target server.
+- Slice 6 (cleanup sweep) will handle:
+  - Migrating auto_merge to consume `concat_analyzer` (delete `_load_or_recompute_spikesort_analyzer` path)
+  - Deleting the 4 shared cache helpers (`_cache_sorting_outputs_before_merge`, `_cache_canonical_sorter_output_for_merge`, `_prepare_replot_workspace_analyzer`, `_restore_sorting_outputs_from_pre_merge_cache`)
+  - Removing the `working_cache.*` and `cache_sorting_outputs_before_merge_*` config fields and YAML knobs
+  - Plan's slice-4 acceptance grep (0 hits of cache helpers) and slice-5 acceptance grep (1 `create_sorting_analyzer` hit) both move to slice 6.
+
+Rollback Notes:
+- Revert this commit; auto_merge goes back to always overwriting the canonical analyzer_output when `auto_accept_merges=true`. Slice 1's snapshot/restore CLI is the safety net for sorter_output, but auto_merge does not touch sorter_output anyway, so revert risk is contained to whether users had relied on canonical analyzer_output being overwritten.
+
 ## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 4 (merge_SLAy dry_run via scratch copy)
 
 Status: accepted

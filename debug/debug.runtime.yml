@@ -826,6 +826,14 @@ stages:
         force_restart: false
         force_replot: false
 
+        # Slice 5: when dry_run=true (default), the per-iteration
+        # merged_units/iteration_NNN/analyzer_output/ snapshots still get
+        # written so users can inspect proposed merges, but the canonical
+        # <stage_output_root_dir>/analyzer_output/ overwrite is suppressed
+        # (even with auto_merge.auto_accept_merges=true). Flip to false to
+        # apply.
+        dry_run: true
+
         working_cache:
           enabled: true
           relpath: cache/merge_workspace
@@ -968,6 +976,12 @@ stages:
         delete_outputs_on_force_restart: true
         force_restart: false
         force_replot: false
+
+        # Slice 5: dry_run knob exposed at the phase level (instead of buried
+        # in um_kwargs). The v2 merge_unitmatch dispatcher is currently a stub
+        # (returns skipped); this knob is recognized by config so a future
+        # implementation can honor it without breaking YAML.
+        dry_run: true
 
         working_cache:
           enabled: true

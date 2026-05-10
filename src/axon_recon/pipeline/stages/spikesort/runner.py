@@ -8336,6 +8336,11 @@ def _run_auto_merge_method(
 		template_diff_thresholds = (0.25,)
 
 	auto_accept_merges = bool(getattr(stage_config, "auto_merge_auto_accept_merges", False))
+	# Slice 5: dry_run gates the canonical analyzer writeback. Per-iteration
+	# `merged_units/iteration_NNN/analyzer_output/` snapshots still get written
+	# (those are dry-run inspection artifacts); only the canonical
+	# `<stage_output_root_dir>/analyzer_output/` overwrite is suppressed.
+	dry_run = bool(getattr(stage_config, "merge_si_auto_dry_run", True))
 	candidate_pairs_root = auto_merge_out_dir / str(getattr(stage_config, "auto_merge_candidate_pairs_reldir", "recommended_merge_candidates"))
 	merged_units_root = auto_merge_out_dir / str(getattr(stage_config, "auto_merge_merged_units_reldir", "merged_units"))
 	candidate_pairs_root.mkdir(parents=True, exist_ok=True)
@@ -8456,14 +8461,21 @@ def _run_auto_merge_method(
 			if units_after >= units_before:
 				continue_iterations = False
 
+	canonical_analyzer_writeback_skipped_for_dry_run = False
 	if auto_accept_merges and total_applied_groups > 0:
-		try:
-			canonical_analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
-			if canonical_analyzer_dir.exists():
-				shutil.rmtree(canonical_analyzer_dir, ignore_errors=True)
-			current_analyzer.save_as(format="binary_folder", folder=canonical_analyzer_dir)
-		except Exception:
-			pass
+		if bool(dry_run):
+			# Dry-run: keep the canonical <stage_output_root_dir>/analyzer_output
+			# untouched. Per-iteration snapshots in merged_units/.../analyzer_output
+			# are the inspection artifacts.
+			canonical_analyzer_writeback_skipped_for_dry_run = True
+		else:
+			try:
+				canonical_analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
+				if canonical_analyzer_dir.exists():
+					shutil.rmtree(canonical_analyzer_dir, ignore_errors=True)
+				current_analyzer.save_as(format="binary_folder", folder=canonical_analyzer_dir)
+			except Exception:
+				pass
 
 	outputs: dict[str, str] = {
 		"auto_merge.summary_json": str(summary_json),
@@ -8484,6 +8496,8 @@ def _run_auto_merge_method(
 		"delete_outputs_on_force_restart": bool(delete_on_force_restart),
 		"removed_on_force_restart": list(removed_on_force_restart),
 		"auto_accept_merges": bool(auto_accept_merges),
+		"dry_run": bool(dry_run),
+		"canonical_analyzer_writeback_skipped_for_dry_run": bool(canonical_analyzer_writeback_skipped_for_dry_run),
 		"template_diff_thresholds": [float(v) for v in template_diff_thresholds],
 		"n_iterations": int(len(iteration_payloads)),
 		"n_candidate_groups_total": int(total_merge_groups),
@@ -8502,6 +8516,10 @@ def _run_auto_merge_method(
 		"out_dir": str(auto_merge_out_dir),
 		"summary_json": str(summary_json),
 		"outputs": outputs,
+		"dry_run": bool(dry_run),
+		"canonical_analyzer_writeback_skipped_for_dry_run": bool(
+			canonical_analyzer_writeback_skipped_for_dry_run
+		),
 		"n_candidate_groups_total": int(total_merge_groups),
 		"n_candidate_pairs_total": int(total_candidate_pairs),
 		"n_applied_groups_total": int(total_applied_groups),

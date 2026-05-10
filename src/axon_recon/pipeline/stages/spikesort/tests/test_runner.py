@@ -4790,6 +4790,162 @@ def test_run_slay_merge_method_writes_outputs_under_merge_rel_output_root(tmp_pa
     assert (expected_out_dir / "slay_method_summary.json").exists()
 
 
+def test_run_auto_merge_method_dry_run_skips_canonical_analyzer_writeback(tmp_path: Path, monkeypatch) -> None:
+    """auto_merge with dry_run=true must NOT overwrite the canonical
+    <stage_output_root_dir>/analyzer_output directory even when
+    auto_accept_merges=true and merges are applied. Per-iteration
+    merged_units/iteration_NNN/analyzer_output snapshots still get written.
+    """
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    output_rel_root = "spikesort_outputs"
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / output_rel_root
+    sorter_output_dir = stage_output_root_dir / "sorter_output"
+    sorter_output_dir.mkdir(parents=True, exist_ok=True)
+
+    canonical_analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
+    # Seed with a marker so we can detect overwrite.
+    canonical_analyzer_dir.mkdir(parents=True, exist_ok=True)
+    (canonical_analyzer_dir / "marker.txt").write_text("canonical-untouched", encoding="utf-8")
+
+    class _FakeAnalyzer:
+        def __init__(self, n_units: int = 3):
+            self._n = n_units
+            self.unit_ids = list(range(self._n))
+
+        def get_unit_ids(self):
+            return list(self.unit_ids)
+
+        def merge_units(self, **kwargs):
+            return _FakeAnalyzer(n_units=max(1, self._n - 1))
+
+        def save_as(self, *, format, folder):
+            folder = Path(folder)
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "save_as_marker.txt").write_text("written-by-fake-save_as", encoding="utf-8")
+
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_or_recompute_spikesort_analyzer",
+        lambda **kwargs: (_FakeAnalyzer(), kwargs["stage_output_root_dir"] / "analyzer_output", False),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_compute_auto_merge_groups",
+        lambda *, sorting_analyzer, template_diff_thresh: [["1", "2"]],
+    )
+
+    stage_cfg = SimpleNamespace(
+        merge_rel_output_root=None,
+        auto_merge_enabled=True,
+        auto_merge_relpath="automerge_outputs",
+        auto_merge_delete_outputs_on_force_restart=True,
+        auto_merge_candidate_pairs_reldir="recommended_merge_candidates",
+        auto_merge_merged_units_reldir="merged_units",
+        auto_merge_auto_accept_merges=True,
+        auto_merge_template_diff_thresholds=(0.25,),
+        merge_si_auto_dry_run=True,  # the knob under test
+    )
+
+    report = spikesort_runner._run_auto_merge_method(
+        well_out_dir=well_out_dir,
+        stage_output_root_dir=stage_output_root_dir,
+        output_rel_root=output_rel_root,
+        stage_config=stage_cfg,
+        force_restart=False,
+        sorter_output_dir=sorter_output_dir,
+    )
+
+    # Canonical analyzer_output marker is still the original — NO overwrite happened.
+    marker_text = (canonical_analyzer_dir / "marker.txt").read_text(encoding="utf-8")
+    assert marker_text == "canonical-untouched", "dry_run must NOT overwrite canonical analyzer_output"
+    assert not (canonical_analyzer_dir / "save_as_marker.txt").exists()
+
+    # Per-iteration snapshot WAS written so the user can inspect proposed merges.
+    iter_analyzer_dir = (
+        well_out_dir / output_rel_root / "automerge_outputs" / "merged_units" / "iteration_001" / "analyzer_output"
+    )
+    assert iter_analyzer_dir.exists()
+    assert (iter_analyzer_dir / "save_as_marker.txt").exists()
+
+    assert report.get("dry_run") is True
+    assert report.get("canonical_analyzer_writeback_skipped_for_dry_run") is True
+    assert report.get("status") == "ok"
+
+
+def test_run_auto_merge_method_apply_writes_canonical_analyzer(tmp_path: Path, monkeypatch) -> None:
+    """auto_merge with dry_run=false + auto_accept_merges=true MUST overwrite
+    the canonical analyzer_output dir (current production behavior).
+    """
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    output_rel_root = "spikesort_outputs"
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / output_rel_root
+    sorter_output_dir = stage_output_root_dir / "sorter_output"
+    sorter_output_dir.mkdir(parents=True, exist_ok=True)
+    canonical_analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
+    canonical_analyzer_dir.mkdir(parents=True, exist_ok=True)
+    (canonical_analyzer_dir / "marker.txt").write_text("canonical-stale", encoding="utf-8")
+
+    class _FakeAnalyzer:
+        def __init__(self, n_units: int = 3):
+            self._n = n_units
+            self.unit_ids = list(range(self._n))
+
+        def get_unit_ids(self):
+            return list(self.unit_ids)
+
+        def merge_units(self, **kwargs):
+            return _FakeAnalyzer(n_units=max(1, self._n - 1))
+
+        def save_as(self, *, format, folder):
+            folder = Path(folder)
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / "save_as_marker.txt").write_text("written-by-fake-save_as", encoding="utf-8")
+
+    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_load_or_recompute_spikesort_analyzer",
+        lambda **kwargs: (_FakeAnalyzer(), kwargs["stage_output_root_dir"] / "analyzer_output", False),
+    )
+    monkeypatch.setattr(
+        spikesort_runner,
+        "_compute_auto_merge_groups",
+        lambda *, sorting_analyzer, template_diff_thresh: [["1", "2"]],
+    )
+
+    stage_cfg = SimpleNamespace(
+        merge_rel_output_root=None,
+        auto_merge_enabled=True,
+        auto_merge_relpath="automerge_outputs",
+        auto_merge_delete_outputs_on_force_restart=True,
+        auto_merge_candidate_pairs_reldir="recommended_merge_candidates",
+        auto_merge_merged_units_reldir="merged_units",
+        auto_merge_auto_accept_merges=True,
+        auto_merge_template_diff_thresholds=(0.25,),
+        merge_si_auto_dry_run=False,
+    )
+
+    report = spikesort_runner._run_auto_merge_method(
+        well_out_dir=well_out_dir,
+        stage_output_root_dir=stage_output_root_dir,
+        output_rel_root=output_rel_root,
+        stage_config=stage_cfg,
+        force_restart=False,
+        sorter_output_dir=sorter_output_dir,
+    )
+
+    # rmtree+save_as: stale marker is gone, save_as marker is present.
+    assert not (canonical_analyzer_dir / "marker.txt").exists()
+    assert (canonical_analyzer_dir / "save_as_marker.txt").exists()
+    assert report.get("dry_run") is False
+    assert report.get("canonical_analyzer_writeback_skipped_for_dry_run") is False
+
+
 def test_run_slay_merge_method_dry_run_preserves_canonical_sorter_output(tmp_path: Path, monkeypatch) -> None:
     """SLAy with dry_run=true must NOT mutate canonical sorter_output. SLAy is
     pointed at a per-run scratch copy, and artifacts land under

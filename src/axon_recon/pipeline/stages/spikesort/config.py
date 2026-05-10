@@ -572,6 +572,8 @@ class SpikesortStageConfig:
 	merge_slay_force_restart: bool
 	merge_slay_force_replot: bool
 	merge_slay_dry_run: bool
+	merge_si_auto_dry_run: bool
+	merge_unitmatch_dry_run: bool
 	merge_slay_use_canonical_workspace: bool
 	merge_slay_canonical_workspace_relpath: str
 	merge_slay_canonical_workspace_refresh_on_run: bool
@@ -2128,6 +2130,20 @@ def parse_spikesort_stage_config(
 	merge_slay_dry_run = _as_bool(
 		_coalesce(
 			merge_slay_phase_cfg.get("dry_run", None),
+			True,
+		),
+		True,
+	)
+	merge_si_auto_dry_run = _as_bool(
+		_coalesce(
+			merge_si_auto_phase_cfg.get("dry_run", None),
+			True,
+		),
+		True,
+	)
+	merge_unitmatch_dry_run = _as_bool(
+		_coalesce(
+			merge_unitmatch_phase_cfg.get("dry_run", None),
 			True,
 		),
 		True,
@@ -3835,6 +3851,8 @@ def parse_spikesort_stage_config(
 		merge_slay_force_restart=bool(merge_slay_phase_settings["force_restart"]),
 		merge_slay_force_replot=bool(merge_slay_phase_settings["force_replot"]),
 		merge_slay_dry_run=bool(merge_slay_dry_run),
+		merge_si_auto_dry_run=bool(merge_si_auto_dry_run),
+		merge_unitmatch_dry_run=bool(merge_unitmatch_dry_run),
 		merge_slay_use_canonical_workspace=bool(merge_slay_phase_settings["use_canonical_workspace"]),
 		merge_slay_canonical_workspace_relpath=str(
 			merge_slay_phase_settings["canonical_workspace_relpath"]
