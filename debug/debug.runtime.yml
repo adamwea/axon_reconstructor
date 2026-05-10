@@ -635,6 +635,14 @@ stages:
         force_restart: false
         force_replot: false
 
+        # Slice 4: when dry_run=true, sorter_output is copied to a per-run scratch
+        # at <merge_out_dir>/dry_run/sorter_output_scratch and SLAy is pointed
+        # there. SLAy artifacts (run-output.json, recommended_merge_groups.json,
+        # automerge/, candidates.tsv) land under <merge_out_dir>/dry_run/. The
+        # canonical sorter_output stays byte-identical. Flip to false once you
+        # want SLAy to apply merges (with auto_accept_merges=true).
+        dry_run: true
+
         # Work on a sorter-output copy so the stage's canonical sorter output is only
         # replaced after SLAy completes successfully. Analyzer outputs are not copied.
         working_cache:

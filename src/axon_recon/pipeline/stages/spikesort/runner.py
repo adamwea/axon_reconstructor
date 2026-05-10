@@ -7951,11 +7951,38 @@ def _run_slay_merge_method(
 			"Configure stages.spikesort.phases.merge_units.SLAy.sorter_output_relpath if needed."
 		)
 
+	# Slice 4: when dry_run=true, copy sorter_output to a per-run scratch dir and
+	# point SLAy at the scratch. SLAy may rewrite spike_clusters / new2old.json /
+	# automerge content under its KS_folder; running on the scratch keeps
+	# the canonical sorter_output byte-identical. SLAy artifacts (run-output.json,
+	# merge groups + candidates, automerge snapshot, summary) land under
+	# <merge_out_dir>/dry_run/ instead of <merge_out_dir>/ so a non-dry-run
+	# follow-up doesn't mix dry-run artifacts with applied artifacts.
+	dry_run = bool(getattr(stage_config, "merge_slay_dry_run", True))
+	canonical_ks_dir = ks_dir
+	if dry_run:
+		dry_run_out_dir = (merge_out_dir / "dry_run").resolve()
+		dry_run_out_dir.mkdir(parents=True, exist_ok=True)
+		scratch_ks_dir = (dry_run_out_dir / "sorter_output_scratch").resolve()
+		if scratch_ks_dir.exists():
+			shutil.rmtree(scratch_ks_dir, ignore_errors=False)
+		shutil.copytree(ks_dir, scratch_ks_dir)
+		_log_phase_step_start(
+			"SLAy dry-run scratch copy",
+			well_out_dir=well_out_dir,
+			canonical_ks_dir=canonical_ks_dir,
+			scratch_ks_dir=scratch_ks_dir,
+		)
+		ks_dir = scratch_ks_dir
+		artifact_root_dir = dry_run_out_dir
+	else:
+		artifact_root_dir = merge_out_dir
+
 	run_slay = _import_slay_run_function(
 		allow_numpy_fallback=bool(getattr(stage_config, "slay_allow_numpy_fallback", True)),
 	)
 
-	run_output_json = merge_out_dir / str(getattr(stage_config, "slay_output_json_relpath", "run-output.json"))
+	run_output_json = artifact_root_dir / str(getattr(stage_config, "slay_output_json_relpath", "run-output.json"))
 	run_output_json.parent.mkdir(parents=True, exist_ok=True)
 	preprocess_recording_dir = _resolve_existing_slay_preferred_recording_dir(
 		well_out_dir=well_out_dir,
@@ -8053,7 +8080,7 @@ def _run_slay_merge_method(
 	run_slay(run_args)
 
 	automerge_dir = (ks_dir / "automerge").resolve()
-	automerge_snapshot_dir = merge_out_dir / "automerge"
+	automerge_snapshot_dir = artifact_root_dir / "automerge"
 	if bool(getattr(stage_config, "slay_copy_automerge_artifacts", True)) and automerge_dir.exists():
 		if automerge_snapshot_dir.exists():
 			shutil.rmtree(automerge_snapshot_dir, ignore_errors=True)
@@ -8073,7 +8100,7 @@ def _run_slay_merge_method(
 	if merge_groups_src.exists():
 		merge_groups_payload = json.loads(merge_groups_src.read_text(encoding="utf-8"))
 
-	merge_groups_out = merge_out_dir / str(getattr(stage_config, "slay_merge_groups_relpath", "recommended_merge_groups.json"))
+	merge_groups_out = artifact_root_dir / str(getattr(stage_config, "slay_merge_groups_relpath", "recommended_merge_groups.json"))
 	_write_json(
 		merge_groups_out,
 		{
@@ -8087,7 +8114,7 @@ def _run_slay_merge_method(
 		merge_groups=merge_groups_payload,
 		metrics_lookup=metrics_lookup,
 	)
-	candidates_out = merge_out_dir / str(getattr(stage_config, "slay_candidate_pairs_relpath", "recommended_merge_candidates.tsv"))
+	candidates_out = artifact_root_dir / str(getattr(stage_config, "slay_candidate_pairs_relpath", "recommended_merge_candidates.tsv"))
 	_write_candidate_pairs_tsv(candidates_out, candidate_rows)
 
 	outputs: dict[str, str] = {
@@ -8122,6 +8149,9 @@ def _run_slay_merge_method(
 		"stage_output_root_dir": str(stage_output_root_dir),
 		"merge_out_dir": str(merge_out_dir),
 		"ks_dir": str(ks_dir),
+		"canonical_ks_dir": str(canonical_ks_dir),
+		"dry_run": bool(dry_run),
+		"artifact_root_dir": str(artifact_root_dir),
 		"n_merge_groups": int(len(merge_groups_payload)),
 		"n_candidate_pairs": int(len(candidate_rows)),
 		"run_args": {
@@ -8157,7 +8187,12 @@ def _run_slay_merge_method(
 		"n_merge_groups": int(len(merge_groups_payload)),
 		"n_candidate_pairs": int(len(candidate_rows)),
 		"ks_dir": str(ks_dir),
-		"applied_merges": bool(auto_accept_merges),
+		"canonical_ks_dir": str(canonical_ks_dir),
+		"dry_run": bool(dry_run),
+		# When dry_run=true, applied_merges is always False from the canonical
+		# sorter_output's perspective — even if auto_accept_merges=true, the
+		# mutation only happened in the scratch copy.
+		"applied_merges": bool(auto_accept_merges) and not bool(dry_run),
 		"plot_files_generated": int(plot_files_generated),
 		"plot_files_generated_in_snapshot": int(plot_files_generated_in_snapshot),
 		"slay_model_cache_use_cached_model": bool(slay_model_cache_use_cached_model),

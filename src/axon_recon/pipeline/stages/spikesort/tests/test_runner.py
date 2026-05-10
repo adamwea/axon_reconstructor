@@ -2463,6 +2463,7 @@ def test_build_merge_metadata_summary_uses_before_after_set_delta_for_added_ids(
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_auto_accept_merges=True,
         auto_merge_enabled=False,
         auto_merge_auto_accept_merges=False,
@@ -2510,6 +2511,7 @@ def test_build_merge_metadata_summary_keeps_mapping_target_gaps_as_diagnostics_o
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_auto_accept_merges=True,
         auto_merge_enabled=False,
         auto_merge_auto_accept_merges=False,
@@ -4125,6 +4127,7 @@ def test_run_spikesort_merge_stage_writes_recommended_candidate_outputs(tmp_path
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
@@ -4233,6 +4236,7 @@ def test_run_spikesort_merge_stage_working_cache_is_sorter_only_and_lazy_analyze
             merge_sequence=["slay"],
             merge_rel_output_root="merge_SLAy",
             slay_enabled=True,
+            merge_slay_dry_run=False,
             slay_auto_accept_merges=True,
             slay_recompute_analyzer=False,
             slay_sorter_output_relpath=None,
@@ -4447,6 +4451,7 @@ def test_run_spikesort_merge_stage_fails_fast_when_slay_binary_input_is_missing(
         merge_units_enabled=True,
         merge_sequence=("SLAy",),
         slay_enabled=True,
+        merge_slay_dry_run=False,
         merge_rel_output_root="merge_output",
         cache_sorting_outputs_before_merge_use_canonical_workspace=True,
         cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
@@ -4514,6 +4519,7 @@ def test_run_spikesort_merge_stage_reports_plot_generation_note_when_auto_accept
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
@@ -4650,6 +4656,7 @@ def test_run_spikesort_merge_stage_releases_pre_merge_analyzer_before_slay(tmp_p
             merge_units_enabled=True,
             merge_sequence=["slay"],
             slay_enabled=True,
+            merge_slay_dry_run=False,
             slay_relpath="SLAy_outputs",
             slay_auto_accept_merges=False,
             slay_recompute_analyzer=False,
@@ -4756,6 +4763,7 @@ def test_run_slay_merge_method_writes_outputs_under_merge_rel_output_root(tmp_pa
     stage_cfg = SimpleNamespace(
         merge_rel_output_root="merge_outputs",
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
@@ -4782,6 +4790,116 @@ def test_run_slay_merge_method_writes_outputs_under_merge_rel_output_root(tmp_pa
     assert (expected_out_dir / "slay_method_summary.json").exists()
 
 
+def test_run_slay_merge_method_dry_run_preserves_canonical_sorter_output(tmp_path: Path, monkeypatch) -> None:
+    """SLAy with dry_run=true must NOT mutate canonical sorter_output. SLAy is
+    pointed at a per-run scratch copy, and artifacts land under
+    <merge_out_dir>/dry_run/.
+    """
+    import hashlib
+
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    output_rel_root = "spikesort_outputs"
+    well_out_dir = tmp_path / "well001"
+    stage_output_root_dir = well_out_dir / output_rel_root
+    canonical_ks_dir = stage_output_root_dir / "sorter_output" / "sorter_output"
+    canonical_ks_dir.mkdir(parents=True, exist_ok=True)
+    (canonical_ks_dir / "params.py").write_text(
+        "dat_path = 'data.bin'\n"
+        "n_channels_dat = 4\n"
+        "dtype = 'int16'\n"
+        "sample_rate = 30000\n",
+        encoding="utf-8",
+    )
+    (canonical_ks_dir / "data.bin").write_bytes(b"\x00" * 64)
+    (canonical_ks_dir / "spike_clusters.npy").write_bytes(b"\x01" * 32)
+
+    captured_ks_folders: list[Path] = []
+
+    def _fake_import_slay_run_function(*, allow_numpy_fallback):
+        def _fake_run_slay(args):
+            ks_folder = Path(args["KS_folder"])
+            captured_ks_folders.append(ks_folder.resolve())
+            # Mutate the KS_folder as SLAy would in auto_accept_merges mode.
+            (ks_folder / "spike_clusters.npy").write_bytes(b"\x99" * 32)
+            (ks_folder / "params.py").write_text("MUTATED\n", encoding="utf-8")
+            automerge_dir = ks_folder / "automerge"
+            automerge_dir.mkdir(parents=True, exist_ok=True)
+            (automerge_dir / "new2old.json").write_text(
+                json.dumps({"100": [1, 2]}), encoding="utf-8"
+            )
+            (automerge_dir / "metrics.tsv").write_text(
+                "Cluster 1\tCluster 2\tSimilarity\tCross-correlation Significance\tRefractory Period Penalty\tFinal Metric\n"
+                "1\t2\t0.91\t0.11\t0.01\t0.73\n",
+                encoding="utf-8",
+            )
+            Path(args["output_json"]).write_text(
+                json.dumps({"num_merges": 1}), encoding="utf-8"
+            )
+
+        return _fake_run_slay
+
+    monkeypatch.setattr(spikesort_runner, "_import_slay_run_function", _fake_import_slay_run_function)
+
+    def _hash_dir(root: Path) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for p in sorted(root.rglob("*")):
+            if p.is_file():
+                out[str(p.relative_to(root))] = hashlib.sha256(p.read_bytes()).hexdigest()
+        return out
+
+    pre_hashes = _hash_dir(canonical_ks_dir)
+    assert "spike_clusters.npy" in pre_hashes  # sanity
+
+    stage_cfg = SimpleNamespace(
+        merge_rel_output_root="merge_outputs",
+        slay_enabled=True,
+        merge_slay_dry_run=True,  # the knob under test
+        slay_relpath="SLAy_outputs",
+        slay_sorter_output_relpath=None,
+        slay_output_json_relpath="run-output.json",
+        slay_candidate_pairs_relpath="recommended_merge_candidates.tsv",
+        slay_merge_groups_relpath="recommended_merge_groups.json",
+        slay_allow_numpy_fallback=True,
+        slay_plot_merges=False,
+        slay_auto_accept_merges=True,  # SLAy WOULD mutate; dry_run protects us
+        slay_copy_automerge_artifacts=True,
+        slay_delete_outputs_on_force_restart=True,
+        slay_params=None,
+    )
+
+    report = spikesort_runner._run_slay_merge_method(
+        well_out_dir=well_out_dir,
+        stage_output_root_dir=stage_output_root_dir,
+        output_rel_root=output_rel_root,
+        stage_config=stage_cfg,
+        force_restart=False,
+    )
+
+    # 1. Canonical sorter_output must be byte-identical.
+    post_hashes = _hash_dir(canonical_ks_dir)
+    assert post_hashes == pre_hashes, "dry_run must not mutate canonical sorter_output"
+
+    # 2. SLAy was pointed at the scratch, not the canonical KS_folder.
+    expected_merge_out_dir = (
+        well_out_dir / output_rel_root / "merge_outputs" / "SLAy_outputs"
+    ).resolve()
+    expected_scratch_dir = (expected_merge_out_dir / "dry_run" / "sorter_output_scratch").resolve()
+    assert captured_ks_folders == [expected_scratch_dir]
+
+    # 3. Artifacts land under <merge_out_dir>/dry_run/.
+    dry_run_dir = (expected_merge_out_dir / "dry_run").resolve()
+    assert (dry_run_dir / "run-output.json").exists()
+    assert (dry_run_dir / "recommended_merge_groups.json").exists()
+    assert (dry_run_dir / "automerge" / "new2old.json").exists()
+
+    # 4. Report surface fields show dry_run state.
+    assert report.get("dry_run") is True
+    assert Path(str(report.get("ks_dir"))).resolve() == expected_scratch_dir
+    assert Path(str(report.get("canonical_ks_dir"))).resolve() == canonical_ks_dir.resolve()
+    assert report.get("applied_merges") is False  # canonical un-mutated even with auto_accept_merges=true
+
+
 def test_run_slay_merge_method_normalizes_wrapper_sorter_output_path(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
@@ -4805,6 +4923,7 @@ def test_run_slay_merge_method_normalizes_wrapper_sorter_output_path(tmp_path: P
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
@@ -4859,6 +4978,7 @@ def test_run_slay_merge_method_disables_model_cache_read_and_write_when_knobs_fa
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
@@ -4928,6 +5048,7 @@ def test_run_slay_merge_method_retrains_without_using_existing_cached_model_when
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",
@@ -4995,6 +5116,7 @@ def test_run_spikesort_merge_stage_skips_entire_phase_when_merge_units_disabled(
     stage_cfg = SimpleNamespace(
         merge_units_enabled=False,
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
     )
 
@@ -5247,6 +5369,7 @@ def test_run_spikesort_merge_stage_cleans_up_cache_on_success_when_enabled(tmp_p
         cache_sorting_outputs_before_merge_use_cache_on_force_restart=False,
         merge_sequence=("SLAy",),
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
     )
 
@@ -5418,6 +5541,7 @@ def test_run_spikesort_merge_stage_asserts_slay_uses_working_cache_by_default(
         cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=False,
         cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure=False,
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
     )
 
@@ -5496,6 +5620,7 @@ def test_run_spikesort_merge_stage_asserts_auto_merge_uses_working_cache_by_defa
         cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure=False,
         cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace=False,
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
         auto_merge_enabled=True,
     )
@@ -5735,6 +5860,7 @@ def test_run_spikesort_merge_stage_preserves_existing_outputs_when_delete_disabl
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
+        merge_slay_dry_run=False,
         slay_relpath="SLAy_outputs",
         slay_sorter_output_relpath=None,
         slay_output_json_relpath="run-output.json",

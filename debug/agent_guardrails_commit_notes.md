@@ -95,6 +95,67 @@ claude-migration baseline: 437 passed / 0 failed / 0 skipped (test_progress.py e
 a18c9d2 | slice 1 [sonnet] | add nested_shape to phase resource classes
 f32a2a8 | slice 2 [opus] | split build_templates into extract_partial_templates and build_templates
 
+## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 4 (merge_SLAy dry_run via scratch copy)
+
+Status: accepted
+
+Summary:
+- Added new `merge_slay_dry_run` config knob (default `true`). When true, `_run_slay_merge_method` copies the resolved kilosort folder to `<merge_out_dir>/dry_run/sorter_output_scratch/` and points SLAy at the scratch. SLAy artifacts (run-output.json, recommended_merge_groups.json, automerge/, candidates.tsv) all land under `<merge_out_dir>/dry_run/` instead of the merge output root, so a non-dry-run follow-up doesn't mix dry-run artifacts with applied artifacts.
+- When `dry_run=false`, behavior is byte-for-byte the same as today (SLAy operates on canonical sorter_output via the working_cache dispatcher).
+- Report payload now surfaces `dry_run`, `canonical_ks_dir`, `artifact_root_dir`. `applied_merges` is forced to `False` whenever `dry_run=true` (even if `auto_accept_merges=true`) since the mutation only happened in scratch.
+- New unit test `test_run_slay_merge_method_dry_run_preserves_canonical_sorter_output`: pre/post sha256 of canonical KS_folder must match (mutation-safety contract); SLAy receives the scratch path, not the canonical path; artifacts land under `dry_run/`.
+- Updated 16 pre-existing SLAy tests to set `merge_slay_dry_run=False` so they continue to exercise the apply behavior they always have.
+
+Plan deviation:
+- Slice 4 in the plan describes a much wider refactor: delete `_cache_sorting_outputs_before_merge`, `_cache_canonical_sorter_output_for_merge`, `_prepare_replot_workspace_analyzer`, `_restore_sorting_outputs_from_pre_merge_cache`, and rewire all merge methods (SLAy + si_auto + unitmatch) to consume `concat_analyzer`. After auditing the code, those four helpers are SHARED by all three merge methods (the merge orchestrator builds working_cache before dispatching to any of them). Deleting them in slice 4 would silently break si_auto and unitmatch, which slice 5 hasn't migrated yet. Doing the deletion + the SLAy refactor + the si_auto migration + the unitmatch migration in a single iteration exceeds the one-coherent-commit envelope.
+- This slice therefore reduces scope to the SLAy-specific dry_run wiring. The shared cache helpers stay in place to keep si_auto / unitmatch working. Slice 6 (cleanup sweep) will delete them once slices 5 and 6 have migrated all three methods to consume `concat_analyzer`. Slice 4's `grep -rn "_cache_sorting_outputs_before_merge|..." src/` will NOT yet be 0 hits — that acceptance check moves to slice 6.
+- Plan also said "load analyzer from concat_analyzer dir; raise if missing" for SLAy. After reading `_run_slay_merge_method`, SLAy itself does NOT consume a SortingAnalyzer — it operates on a kilosort folder via its own `run_slay()` API. The analyzer is only needed by merge REPORTS that follow SLAy, not by SLAy execution. The dry_run scratch-copy already gives the mutation-safety guarantee the plan was after. No analyzer load was added to `_run_slay_merge_method`.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- New unit test asserts dry_run mutation-safety (sha256(canonical KS_folder) before == after, even with auto_accept_merges=true) AND that SLAy was pointed at the scratch path AND that artifacts landed under dry_run/.
+- Pre-slice baseline 189 spikesort tests; post-slice 190 (1 new test added; 16 existing SLAy tests updated to opt out of dry_run via `merge_slay_dry_run=False`).
+- Pipeline tests (excl. test_progress.py): 457 passed.
+
+Validation:
+- Pre-slice baseline: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/ --tb=no` → 189 passed in 2.80s.
+- Post-slice spikesort pytest: 190 passed in 2.89s.
+- Post-slice pipeline pytest: 457 passed in 23.86s.
+
+Smokes:
+- BLOCKED-SMOKE: S6 (dry-run mutation-safety) and S7 (apply) require existing post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` AND a preprocessed concat recording. No fixture available on the target server. Per the loop's failure-handling rule, marked BLOCKED-SMOKE; correctness is covered by the new dry_run mutation-safety unit test (sha256 before/after) plus the 16 updated apply-behavior tests.
+
+CLI / Debug Flag Impact:
+- No new CLI flags. The merge_SLAy handler shape is unchanged.
+
+Logging / Parallelism Impact:
+- New phase-step log: "SLAy dry-run scratch copy" (logged once per dry-run invocation with canonical_ks_dir + scratch_ks_dir).
+
+Storage / Cache Impact:
+- Per-dry-run: temporary scratch under `<merge_out_dir>/dry_run/sorter_output_scratch/` (size = sorter_output size; deleted on next dry-run).
+- The pre-existing `working_cache` / `pre_merge_cache` infrastructure is untouched (slice 6 will deal with that).
+
+Container / NERSC / MPI Impact:
+- None. Pure-python file I/O via `shutil.copytree` / `shutil.rmtree`.
+
+Resume / Force-Restart Impact:
+- `--force-restart` still wipes `<merge_out_dir>` (governed by `slay_delete_outputs_on_force_restart`) which transitively wipes `<merge_out_dir>/dry_run/`.
+- The scratch is recreated from canonical KS_folder on every dry-run invocation, so the dry-run is always against fresh sorter_output state.
+
+Residual Risk And Follow-Ups:
+- Smoke S6/S7 deferred until sort outputs exist. The mutation-safety regression test gives strong unit-level confidence.
+- Slice 5 (`merge_si_auto` and `merge_unitmatch` consume concat_analyzer + uniform `dry_run`) follows the same pattern. Will reuse `_load_concat_analyzer_for_phase` from slice 3 and the dry_run/scratch pattern from this slice.
+- Slice 6 (cleanup sweep) will delete the shared cache helpers (`_cache_sorting_outputs_before_merge`, `_cache_canonical_sorter_output_for_merge`, `_prepare_replot_workspace_analyzer`, `_restore_sorting_outputs_from_pre_merge_cache`) once all three merge methods are migrated. The plan's slice-4 acceptance grep moves to slice 6.
+
+Rollback Notes:
+- Revert this commit; SLAy goes back to mutating canonical sorter_output when `auto_accept_merges=true`. Slice 1's snapshot/restore CLI is the safety net for users who already set `auto_accept_merges=true` — they can still recover via `axon-recon stages spikesort.restore_sorter_output --confirm`.
+
 ## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 3 (bombcell_label dry_run + concat_analyzer)
 
 Status: accepted
