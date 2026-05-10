@@ -8008,10 +8008,9 @@ def test_run_auto_merge_method_deletes_only_auto_merge_output_dir_when_enabled(t
     assert (unrelated_dir / "keep.txt").exists()
 
 
-def test_run_bombcell_label_phase_updates_kilosort_label_files(tmp_path: Path, monkeypatch) -> None:
+def _seed_bombcell_test_fixture(*, tmp_path: Path):
+    """Set up sorter_output + concat_analyzer dir for bombcell phase tests."""
     import numpy as np
-
-    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     well_out_dir = tmp_path / "well001"
     stage_output_root_dir = well_out_dir / "spikesort_outputs"
@@ -8037,6 +8036,38 @@ def test_run_bombcell_label_phase_updates_kilosort_label_files(tmp_path: Path, m
         encoding="utf-8",
     )
 
+    concat_analyzer_dir = stage_output_root_dir / "concat_analyzer"
+    concat_analyzer_dir.mkdir(parents=True, exist_ok=True)
+    (concat_analyzer_dir / "marker.txt").write_text("analyzer", encoding="utf-8")
+
+    return well_out_dir, stage_output_root_dir, sorter_output_dir, ks_dir, concat_analyzer_dir
+
+
+def _bombcell_test_stage_cfg(**overrides):
+    base = dict(
+        sorter="kilosort4",
+        merge_rel_output_root=None,
+        bombcell_label_enabled=True,
+        bombcell_label_relpath="bombcell_label_outputs",
+        bombcell_label_delete_outputs_on_force_restart=True,
+        bombcell_label_dry_run=True,
+        bombcell_label_thresholds=None,
+        bombcell_label_thresholds_path=None,
+        bombcell_label_label_non_somatic=True,
+        bombcell_label_split_non_somatic_good_mua=True,
+        bombcell_label_apply_to_sorter_output=True,
+        bombcell_label_write_cluster_group=True,
+        bombcell_label_reports_enabled=True,
+        bombcell_label_reports_summary_json_enabled=True,
+        bombcell_label_reports_summary_json_relpath="bombcell_label_summary.json",
+        concat_analyzer_relpath="concat_analyzer",
+        preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _install_bombcell_test_monkeypatches(*, monkeypatch, spikesort_runner, concat_analyzer_dir):
     class _FakeAnalyzer:
         def has_extension(self, name: str) -> bool:
             return name in {"quality_metrics", "template_metrics"}
@@ -8047,16 +8078,9 @@ def test_run_bombcell_label_phase_updates_kilosort_label_files(tmp_path: Path, m
     monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
     monkeypatch.setattr(
         spikesort_runner,
-        "_load_or_recompute_bombcell_sorting_analyzer",
-        lambda **kwargs: (
-            _FakeAnalyzer(),
-            stage_output_root_dir / "bombcell_label_outputs" / "analyzer_output",
-            False,
-            None,
-        ),
+        "_load_concat_analyzer_for_phase",
+        lambda **kwargs: (_FakeAnalyzer(), Path(concat_analyzer_dir).resolve()),
     )
-
-    bombcell_calls: dict[str, object] = {}
 
     class _FakeLabels:
         def iterrows(self):
@@ -8072,9 +8096,6 @@ def test_run_bombcell_label_phase_updates_kilosort_label_files(tmp_path: Path, m
             split_non_somatic_good_mua=False,
             external_metrics=None,
         ):
-            bombcell_calls["label_non_somatic"] = bool(label_non_somatic)
-            bombcell_calls["split_non_somatic_good_mua"] = bool(split_non_somatic_good_mua)
-            bombcell_calls["thresholds"] = thresholds
             return _FakeLabels()
 
     original_import_module = spikesort_runner.importlib.import_module
@@ -8086,22 +8107,23 @@ def test_run_bombcell_label_phase_updates_kilosort_label_files(tmp_path: Path, m
 
     monkeypatch.setattr(spikesort_runner.importlib, "import_module", _fake_import_module)
 
-    stage_cfg = SimpleNamespace(
-        sorter="kilosort4",
-        merge_rel_output_root=None,
-        bombcell_label_enabled=True,
-        bombcell_label_relpath="bombcell_label_outputs",
-        bombcell_label_delete_outputs_on_force_restart=True,
-        bombcell_label_thresholds=None,
-        bombcell_label_thresholds_path=None,
-        bombcell_label_label_non_somatic=True,
-        bombcell_label_split_non_somatic_good_mua=True,
-        bombcell_label_apply_to_sorter_output=True,
-        bombcell_label_write_cluster_group=True,
-        bombcell_label_reports_enabled=True,
-        bombcell_label_reports_summary_json_enabled=True,
+
+def test_run_bombcell_label_phase_apply_writes_cluster_files(tmp_path: Path, monkeypatch) -> None:
+    """Phase with dry_run=False mutates cluster_KSLabel.tsv / cluster_group.tsv."""
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir, stage_output_root_dir, sorter_output_dir, ks_dir, concat_analyzer_dir = (
+        _seed_bombcell_test_fixture(tmp_path=tmp_path)
+    )
+    _install_bombcell_test_monkeypatches(
+        monkeypatch=monkeypatch,
+        spikesort_runner=spikesort_runner,
+        concat_analyzer_dir=concat_analyzer_dir,
+    )
+
+    stage_cfg = _bombcell_test_stage_cfg(
+        bombcell_label_dry_run=False,
         bombcell_label_reports_summary_json_relpath="reports/custom_bombcell_summary.json",
-        preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
     )
 
     report = spikesort_runner._run_bombcell_label_phase(
@@ -8115,13 +8137,12 @@ def test_run_bombcell_label_phase_updates_kilosort_label_files(tmp_path: Path, m
 
     assert report.get("status") == "ok"
     assert report.get("n_units_labeled") == 2
-    assert bombcell_calls.get("label_non_somatic") is True
-    assert bombcell_calls.get("split_non_somatic_good_mua") is True
+    assert report.get("dry_run") is False
     summary_json = Path(str(report.get("summary_json")))
     assert summary_json.name == "custom_bombcell_summary.json"
     assert summary_json.exists()
     assert report.get("outputs", {}).get("bombcell_label.summary_json") == str(summary_json)
-    assert str(report.get("analyzer_dir", "")).endswith("bombcell_label_outputs/analyzer_output")
+    assert str(report.get("analyzer_dir", "")).endswith("concat_analyzer")
 
     kslabel_text = (ks_dir / "cluster_KSLabel.tsv").read_text(encoding="utf-8")
     group_text = (ks_dir / "cluster_group.tsv").read_text(encoding="utf-8")
@@ -8131,111 +8152,76 @@ def test_run_bombcell_label_phase_updates_kilosort_label_files(tmp_path: Path, m
     assert "1\tnon_soma_good" in group_text
 
 
-def test_run_bombcell_label_phase_uses_cached_sorter_output_workspace(tmp_path: Path, monkeypatch) -> None:
-    import numpy as np
+def test_run_bombcell_label_phase_dry_run_preserves_sorter_output(tmp_path: Path, monkeypatch) -> None:
+    """Phase with dry_run=true must NOT mutate sorter_output and must write a preview."""
+    import hashlib
 
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
-    well_out_dir = tmp_path / "well001"
-    stage_output_root_dir = well_out_dir / "spikesort_outputs"
-    sorter_output_dir = stage_output_root_dir / "sorter_output"
-    canonical_ks_dir = sorter_output_dir / "sorter_output"
-    canonical_ks_dir.mkdir(parents=True, exist_ok=True)
-
-    (canonical_ks_dir / "params.py").write_text("sample_rate = 30000\n", encoding="utf-8")
-    np.save(canonical_ks_dir / "spike_times.npy", np.array([0, 1, 2, 3], dtype=np.int64))
-    np.save(canonical_ks_dir / "spike_clusters.npy", np.array([1, 1, 2, 3], dtype=np.int64))
-    (canonical_ks_dir / "cluster_KSLabel.tsv").write_text(
-        "cluster_id\tKSLabel\n"
-        "1\tgood\n"
-        "2\tmua\n"
-        "3\tgood\n",
-        encoding="utf-8",
+    well_out_dir, stage_output_root_dir, sorter_output_dir, ks_dir, concat_analyzer_dir = (
+        _seed_bombcell_test_fixture(tmp_path=tmp_path)
     )
-    (canonical_ks_dir / "cluster_group.tsv").write_text(
-        "cluster_id\tgroup\n"
-        "1\tgood\n"
-        "2\tmua\n"
-        "3\tgood\n",
-        encoding="utf-8",
+    _install_bombcell_test_monkeypatches(
+        monkeypatch=monkeypatch,
+        spikesort_runner=spikesort_runner,
+        concat_analyzer_dir=concat_analyzer_dir,
     )
 
-    canonical_analyzer_dir = stage_output_root_dir / "analyzer_output"
-    canonical_analyzer_dir.mkdir(parents=True, exist_ok=True)
-    (canonical_analyzer_dir / "marker.txt").write_text("canonical", encoding="utf-8")
+    def _hash_dir(root: Path) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for p in sorted(root.rglob("*")):
+            if p.is_file():
+                out[str(p.relative_to(root))] = hashlib.sha256(p.read_bytes()).hexdigest()
+        return out
 
-    class _FakeAnalyzer:
-        def has_extension(self, name: str) -> bool:
-            return name in {"quality_metrics", "template_metrics"}
+    pre_hashes = _hash_dir(sorter_output_dir)
+    stage_cfg = _bombcell_test_stage_cfg(bombcell_label_dry_run=True)
 
-        def compute(self, extension_name, **kwargs):
-            return None
+    report = spikesort_runner._run_bombcell_label_phase(
+        well_out_dir=well_out_dir,
+        stage_output_root_dir=stage_output_root_dir,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_cfg,
+        force_restart=False,
+        sorter_output_dir=sorter_output_dir,
+    )
 
-    captured_sorter_dirs: list[Path] = []
+    assert report.get("status") == "ok"
+    assert report.get("dry_run") is True
+    post_hashes = _hash_dir(sorter_output_dir)
+    assert post_hashes == pre_hashes, "dry_run must not mutate sorter_output"
 
-    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
+    bombcell_out_dir = Path(str(report.get("out_dir")))
+    preview_kslabel = bombcell_out_dir / "dry_run" / "proposed_cluster_KSLabel.tsv"
+    preview_group = bombcell_out_dir / "dry_run" / "proposed_cluster_group.tsv"
+    assert preview_kslabel.exists()
+    assert preview_group.exists()
+    preview_text = preview_kslabel.read_text(encoding="utf-8")
+    assert "1\tnon_soma_good" in preview_text
+    assert "2\tmua" in preview_text
+    outputs = dict(report.get("outputs", {}))
+    assert outputs.get("bombcell_label.dry_run_cluster_kslabel_tsv") == str(preview_kslabel)
+    assert outputs.get("bombcell_label.dry_run_cluster_group_tsv") == str(preview_group)
 
-    def _fake_load_or_recompute_bombcell_sorting_analyzer(**kwargs):
-        captured_sorter_dirs.append(Path(kwargs["sorter_output_dir"]).resolve())
-        return (
-            _FakeAnalyzer(),
-            stage_output_root_dir / "merge_output" / "bombcell_label_outputs" / "analyzer_output",
-            False,
-            None,
-        )
+
+def test_run_bombcell_label_phase_requires_concat_analyzer(tmp_path: Path, monkeypatch) -> None:
+    """When concat_analyzer dir is absent, the phase must fail with a clear error."""
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+
+    well_out_dir, stage_output_root_dir, sorter_output_dir, _ks_dir, concat_analyzer_dir = (
+        _seed_bombcell_test_fixture(tmp_path=tmp_path)
+    )
+    # Remove the analyzer dir so the loader raises.
+    import shutil
+
+    shutil.rmtree(concat_analyzer_dir)
 
     monkeypatch.setattr(
-        spikesort_runner,
-        "_load_or_recompute_bombcell_sorting_analyzer",
-        _fake_load_or_recompute_bombcell_sorting_analyzer,
+        spikesort_runner, "_import_spikeinterface_full_module", lambda: object()
     )
-
-    class _FakeLabels:
-        def iterrows(self):
-            yield 1, {"bombcell_label": "non_soma_good"}
-            yield 2, {"bombcell_label": "mua"}
-
-    class _FakeCurationModule:
-        @staticmethod
-        def bombcell_label_units(
-            sorting_analyzer=None,
-            thresholds=None,
-            label_non_somatic=True,
-            split_non_somatic_good_mua=False,
-            external_metrics=None,
-        ):
-            return _FakeLabels()
-
-    original_import_module = spikesort_runner.importlib.import_module
-
-    def _fake_import_module(name: str):
-        if name == "spikeinterface.curation":
-            return _FakeCurationModule()
-        return original_import_module(name)
-
-    monkeypatch.setattr(spikesort_runner.importlib, "import_module", _fake_import_module)
-
-    stage_cfg = SimpleNamespace(
-        sorter="kilosort4",
-        merge_rel_output_root=None,
-        bombcell_label_enabled=True,
-        bombcell_label_relpath="merge_output/bombcell_label_outputs",
-        bombcell_label_delete_outputs_on_force_restart=True,
-        bombcell_label_cache_sorter_output_before_analyzer_gen=True,
-        bombcell_label_publish_cached_sorter_output_on_success=False,
-        bombcell_label_publish_cached_analyzer_on_success=False,
-        bombcell_label_cleanup_analyzer_on_success=False,
-        bombcell_label_cleanup_cached_sorter_output_on_success=False,
-        bombcell_label_thresholds=None,
-        bombcell_label_thresholds_path=None,
-        bombcell_label_label_non_somatic=True,
-        bombcell_label_split_non_somatic_good_mua=True,
-        bombcell_label_apply_to_sorter_output=True,
-        bombcell_label_write_cluster_group=True,
-        bombcell_label_reports_enabled=True,
-        bombcell_label_reports_summary_json_enabled=True,
-        bombcell_label_reports_summary_json_relpath="bombcell_label_summary.json",
-        preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
+    stage_cfg = _bombcell_test_stage_cfg(
+        bombcell_label_dry_run=True,
+        bombcell_label_fail_on_error=True,
     )
 
     report = spikesort_runner._run_bombcell_label_phase(
@@ -8247,154 +8233,8 @@ def test_run_bombcell_label_phase_uses_cached_sorter_output_workspace(tmp_path: 
         sorter_output_dir=sorter_output_dir,
     )
 
-    cached_sorter_output_dir = (
-        stage_output_root_dir / "merge_output" / "bombcell_label_outputs" / "cache" / "sorter_output"
-    ).resolve()
-    cached_ks_dir = (cached_sorter_output_dir / "sorter_output").resolve()
-
-    assert report.get("status") == "ok"
-    assert captured_sorter_dirs == [cached_sorter_output_dir]
-    assert Path(str(report.get("sorter_output_dir"))).resolve() == cached_sorter_output_dir
-    assert Path(str(report.get("canonical_sorter_output_dir"))).resolve() == sorter_output_dir.resolve()
-    assert Path(str(report.get("ks_dir"))).resolve() == cached_ks_dir
-    assert Path(str(report.get("canonical_ks_dir"))).resolve() == canonical_ks_dir.resolve()
-
-    canonical_kslabel_text = (canonical_ks_dir / "cluster_KSLabel.tsv").read_text(encoding="utf-8")
-    cached_kslabel_text = (cached_ks_dir / "cluster_KSLabel.tsv").read_text(encoding="utf-8")
-    assert "1\tgood" in canonical_kslabel_text
-    assert "1\tnon_soma_good" not in canonical_kslabel_text
-    assert "1\tnon_soma_good" in cached_kslabel_text
-    assert (canonical_analyzer_dir / "marker.txt").read_text(encoding="utf-8") == "canonical"
-
-
-def test_run_bombcell_label_phase_publishes_cached_workspace_outputs_on_success(
-    tmp_path: Path, monkeypatch
-) -> None:
-    import numpy as np
-
-    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
-
-    well_out_dir = tmp_path / "well001"
-    stage_output_root_dir = well_out_dir / "spikesort_outputs"
-    sorter_output_dir = stage_output_root_dir / "sorter_output"
-    canonical_ks_dir = sorter_output_dir / "sorter_output"
-    canonical_ks_dir.mkdir(parents=True, exist_ok=True)
-
-    (canonical_ks_dir / "params.py").write_text("sample_rate = 30000\n", encoding="utf-8")
-    np.save(canonical_ks_dir / "spike_times.npy", np.array([0, 1, 2, 3], dtype=np.int64))
-    np.save(canonical_ks_dir / "spike_clusters.npy", np.array([1, 1, 2, 3], dtype=np.int64))
-    (canonical_ks_dir / "cluster_KSLabel.tsv").write_text(
-        "cluster_id\tKSLabel\n"
-        "1\tgood\n"
-        "2\tmua\n"
-        "3\tgood\n",
-        encoding="utf-8",
-    )
-    (canonical_ks_dir / "cluster_group.tsv").write_text(
-        "cluster_id\tgroup\n"
-        "1\tgood\n"
-        "2\tmua\n"
-        "3\tgood\n",
-        encoding="utf-8",
-    )
-
-    canonical_analyzer_dir = stage_output_root_dir / "analyzer_output"
-    canonical_analyzer_dir.mkdir(parents=True, exist_ok=True)
-    (canonical_analyzer_dir / "marker.txt").write_text("canonical", encoding="utf-8")
-
-    bombcell_analyzer_dir = stage_output_root_dir / "merge_output" / "bombcell_label_outputs" / "analyzer_output"
-    bombcell_analyzer_dir.mkdir(parents=True, exist_ok=True)
-    (bombcell_analyzer_dir / "marker.txt").write_text("bombcell", encoding="utf-8")
-
-    class _FakeAnalyzer:
-        def has_extension(self, name: str) -> bool:
-            return name in {"quality_metrics", "template_metrics"}
-
-        def compute(self, extension_name, **kwargs):
-            return None
-
-    monkeypatch.setattr(spikesort_runner, "_import_spikeinterface_full_module", lambda: object())
-
-    def _fake_load_or_recompute_bombcell_sorting_analyzer(**kwargs):
-        return _FakeAnalyzer(), bombcell_analyzer_dir, False, None
-
-    monkeypatch.setattr(
-        spikesort_runner,
-        "_load_or_recompute_bombcell_sorting_analyzer",
-        _fake_load_or_recompute_bombcell_sorting_analyzer,
-    )
-
-    class _FakeLabels:
-        def iterrows(self):
-            yield 1, {"bombcell_label": "non_soma_good"}
-            yield 2, {"bombcell_label": "mua"}
-
-    class _FakeCurationModule:
-        @staticmethod
-        def bombcell_label_units(
-            sorting_analyzer=None,
-            thresholds=None,
-            label_non_somatic=True,
-            split_non_somatic_good_mua=False,
-            external_metrics=None,
-        ):
-            return _FakeLabels()
-
-    original_import_module = spikesort_runner.importlib.import_module
-
-    def _fake_import_module(name: str):
-        if name == "spikeinterface.curation":
-            return _FakeCurationModule()
-        return original_import_module(name)
-
-    monkeypatch.setattr(spikesort_runner.importlib, "import_module", _fake_import_module)
-
-    stage_cfg = SimpleNamespace(
-        sorter="kilosort4",
-        merge_rel_output_root=None,
-        bombcell_label_enabled=True,
-        bombcell_label_relpath="merge_output/bombcell_label_outputs",
-        bombcell_label_delete_outputs_on_force_restart=True,
-        bombcell_label_cache_sorter_output_before_analyzer_gen=True,
-        bombcell_label_publish_cached_sorter_output_on_success=True,
-        bombcell_label_publish_cached_analyzer_on_success=True,
-        bombcell_label_cleanup_analyzer_on_success=True,
-        bombcell_label_cleanup_cached_sorter_output_on_success=True,
-        bombcell_label_thresholds=None,
-        bombcell_label_thresholds_path=None,
-        bombcell_label_label_non_somatic=True,
-        bombcell_label_split_non_somatic_good_mua=True,
-        bombcell_label_apply_to_sorter_output=True,
-        bombcell_label_write_cluster_group=True,
-        bombcell_label_reports_enabled=True,
-        bombcell_label_reports_summary_json_enabled=True,
-        bombcell_label_reports_summary_json_relpath="bombcell_label_summary.json",
-        preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
-    )
-
-    report = spikesort_runner._run_bombcell_label_phase(
-        well_out_dir=well_out_dir,
-        stage_output_root_dir=stage_output_root_dir,
-        output_rel_root="spikesort_outputs",
-        stage_config=stage_cfg,
-        force_restart=False,
-        sorter_output_dir=sorter_output_dir,
-    )
-
-    canonical_kslabel_text = (canonical_ks_dir / "cluster_KSLabel.tsv").read_text(encoding="utf-8")
-    cached_sorter_output_dir = (
-        stage_output_root_dir / "merge_output" / "bombcell_label_outputs" / "cache" / "sorter_output"
-    ).resolve()
-
-    assert report.get("status") == "ok"
-    assert "1\tnon_soma_good" in canonical_kslabel_text
-    assert (canonical_analyzer_dir / "marker.txt").read_text(encoding="utf-8") == "bombcell"
-    assert not cached_sorter_output_dir.exists()
-    assert not bombcell_analyzer_dir.exists()
-    removed_on_success = report.get("removed_on_success")
-    assert isinstance(removed_on_success, dict)
-    assert Path(str(removed_on_success.get("cached_sorter_output_dir"))).resolve() == cached_sorter_output_dir
-    assert Path(str(removed_on_success.get("analyzer_dir"))).resolve() == bombcell_analyzer_dir.resolve()
+    assert report.get("status") == "error"
+    assert "concat_analyzer" in str(report.get("error", ""))
 
 
 def test_run_spikesort_merge_stage_does_not_invoke_bombcell_when_enabled(tmp_path: Path, monkeypatch) -> None:

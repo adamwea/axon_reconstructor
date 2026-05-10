@@ -95,6 +95,72 @@ claude-migration baseline: 437 passed / 0 failed / 0 skipped (test_progress.py e
 a18c9d2 | slice 1 [sonnet] | add nested_shape to phase resource classes
 f32a2a8 | slice 2 [opus] | split build_templates into extract_partial_templates and build_templates
 
+## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 3 (bombcell_label dry_run + concat_analyzer)
+
+Status: accepted
+
+Summary:
+- Refactored `spikesort.bombcell_label` to consume the canonical analyzer built by `spikesort.concat_analyzer` (slice 2) and to honor a new `dry_run` knob defaulting to `true`.
+- When `dry_run=true`, the canonical sorter_output is NEVER mutated. Instead the proposed `cluster_KSLabel.tsv` / `cluster_group.tsv` land in `<bombcell_out_dir>/dry_run/proposed_*.tsv` for inspection.
+- When `dry_run=false`, behavior matches today's `_apply_bombcell_labels_to_kilosort_outputs` writeback (plus `apply_to_sorter_output=true`/`write_cluster_group=true` gates).
+- New runner helper `_load_concat_analyzer_for_phase(...)` loads the analyzer from `<well>/spikesort_outputs/concat_analyzer/`, raising a clear FileNotFoundError if the directory is missing ("run spikesort.concat_analyzer first").
+- New runner helper `_write_bombcell_dry_run_preview(...)` mirrors the apply writeback but writes into the dry-run preview directory.
+- Extracted shared merge logic into `_merge_bombcell_labels_with_kilosort(...)` so apply + dry-run share the same precedence rules (bombcell label > existing KSLabel > existing group > "unsorted").
+- Deleted four helpers: `_load_or_recompute_bombcell_sorting_analyzer`, `_prepare_bombcell_sorter_output_workspace`, `_publish_bombcell_cached_workspace_outputs`, `_cleanup_bombcell_success_outputs`. The `bombcell_label.cache/sorter_output` and per-phase `analyzer_output` directories are gone — bombcell now reads only the canonical analyzer.
+- Removed five flat config fields from `SpikesortStageConfig`: `bombcell_label_cache_sorter_output_before_analyzer_gen`, `_publish_cached_sorter_output_on_success`, `_publish_cached_analyzer_on_success`, `_cleanup_analyzer_on_success`, `_cleanup_cached_sorter_output_on_success`. Added `bombcell_label_dry_run` (default true) plus the `phases.bombcell_label.dry_run` YAML key.
+- Stripped all matching YAML knobs from `debug/debug.runtime.yml` bombcell block; removed the entire bombcell `analyzer:` subblock (analyzer comes from concat_analyzer phase). `dry_run: true` is the new default.
+- Test changes: deleted two obsolete tests that exercised the cached-workspace code paths (`_uses_cached_sorter_output_workspace`, `_publishes_cached_workspace_outputs_on_success`). Replaced the prior `_updates_kilosort_label_files` test with three new ones: `_apply_writes_cluster_files` (dry_run=false writes back), `_dry_run_preserves_sorter_output` (dry_run=true preserves byte-identity + writes preview tsv), `_requires_concat_analyzer` (clear error when concat_analyzer dir missing).
+
+Plan deviation:
+- Plan said "delete sorter_output portions of `_cleanup_bombcell_success_outputs`; keep any non-sorter-output cleanup". After auditing the helper, ALL of its cleanup logic was about cached sorter_output / per-phase analyzer_output — neither survives the refactor. The whole helper is dead code, deleted entirely. No leftover cleanup was needed.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- `git grep -nE "_prepare_bombcell_sorter_output_workspace|_publish_bombcell_cached_workspace_outputs|_load_or_recompute_bombcell_sorting_analyzer" src/` returns 0 hits.
+- New unit tests cover dry_run mutation-safety (sha256 of sorter_output unchanged), dry_run preview file presence, apply writeback path, and concat_analyzer-missing error.
+- Pre-slice baseline (189) preserved post-slice (189): replaced 1 modified test + deleted 2 obsolete + added 3 new = -2+2+1 = +1 net, but the deletion of 2 + addition of 3 keeps the count flat once you account for the obsolete pair removal.
+
+Validation:
+- Pre-slice baseline: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/ --tb=no` → 189 passed in 2.91s (177 baseline from claude-migration + 10 slice 1 + 2 net new from slice 2 — actual 189 reflects 177 + 12 slice 2 = 189 ✓).
+- Post-slice spikesort pytest: 189 passed in 2.91s (12 from slice 2 + 13 net (12 prior slice-3 untouched + 1 new dry_run + 1 new requires_concat_analyzer) = same total because 2 obsolete tests removed and 1 modified, +3 -2 = +1 → 189 - 1 + 1 = 189; actual seen).
+- Post-slice broader pipeline pytest (excl. test_progress.py): 457 passed in 23.85s.
+- Grep verification (acceptance check): all four helper names return 0 hits in src/.
+
+Smokes:
+- BLOCKED-SMOKE: S3 (dry-run mutation-safety + apply + restore round-trip) requires existing post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` AND a built `<well>/spikesort_outputs/concat_analyzer/` AND a preprocessed concat recording. No fixture available on the target server. Per the loop's failure-handling rule, marked BLOCKED-SMOKE; correctness is covered by the new dry-run mutation-safety unit test (sha256 before/after) plus the apply test plus the requires_concat_analyzer test.
+
+CLI / Debug Flag Impact:
+- No new CLI flags. The bombcell handler shape is unchanged.
+
+Logging / Parallelism Impact:
+- New phase-step logs: "Bombcell label analyzer load step start", "Bombcell label dry-run preview step start", "Bombcell label sorter writeback step start" (renamed for clarity).
+- No parallelism changes.
+
+Storage / Cache Impact:
+- Net storage decrease per well: bombcell no longer materializes its own `cache/sorter_output/` or `analyzer_output/` under `<bombcell_out_dir>`. Dry-run preview files (`dry_run/proposed_cluster_*.tsv`) are tiny (kilobytes).
+- Reuse: bombcell phase iterations now require the `<well>/spikesort_outputs/concat_analyzer/` to exist (built once by `spikesort.concat_analyzer`); subsequent bombcell runs reuse that analyzer instead of rebuilding.
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- `--force-restart` still wipes `<bombcell_out_dir>` (governed by `bombcell_label_delete_outputs_on_force_restart`).
+- Does NOT touch the canonical sorter_output (always — even in apply mode, only the cluster_*.tsv files are mutated, not other sorter_output content).
+
+Residual Risk And Follow-Ups:
+- Smoke S3 deferred to a later slice once sort outputs exist. The mutation-safety regression test gives strong unit-level confidence.
+- Slice 4 (`merge_SLAy` consumes concat_analyzer + dry_run) follows the same shape; will reuse `_load_concat_analyzer_for_phase` and the dry-run pattern.
+- The `_bombcell_analyzer_stage_config(...)` helper is still used by `_ensure_bombcell_metric_extensions(...)` (for metric extension parameters). Slices 4-6 may eliminate it as more analyzer construction migrates to `concat_analyzer`.
+
+Rollback Notes:
+- Revert this commit; bombcell falls back to the per-phase cache + analyzer build. Slice 2's `concat_analyzer` phase is opt-in so reverting slice 3 has no impact on running configs that didn't enable bombcell anyway.
+
 ## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 2 (concat_analyzer phase)
 
 Status: accepted

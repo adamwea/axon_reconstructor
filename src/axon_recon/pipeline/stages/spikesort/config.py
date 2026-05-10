@@ -506,11 +506,7 @@ class SpikesortStageConfig:
 	bombcell_label_enabled: bool
 	bombcell_label_relpath: str
 	bombcell_label_delete_outputs_on_force_restart: bool
-	bombcell_label_cache_sorter_output_before_analyzer_gen: bool
-	bombcell_label_publish_cached_sorter_output_on_success: bool
-	bombcell_label_publish_cached_analyzer_on_success: bool
-	bombcell_label_cleanup_analyzer_on_success: bool
-	bombcell_label_cleanup_cached_sorter_output_on_success: bool
+	bombcell_label_dry_run: bool
 	bombcell_label_thresholds: dict[str, Any] | None
 	bombcell_label_thresholds_path: str | None
 	bombcell_label_label_non_somatic: bool
@@ -2908,49 +2904,12 @@ def parse_spikesort_stage_config(
 			"bombcell_label_summary.json",
 		)
 	) or "bombcell_label_summary.json"
-	bombcell_label_cache_sorter_output_before_analyzer_gen = _as_bool(
+	bombcell_label_dry_run = _as_bool(
 		_coalesce(
-			bombcell_phase_cfg.get("cache_sorter_output_before_analyzer_gen", None),
-			False,
+			bombcell_phase_cfg.get("dry_run", None),
+			True,
 		),
-		False,
-	)
-	bombcell_label_publish_cached_sorter_output_on_success = _as_bool(
-		_coalesce(
-			bombcell_phase_cfg.get("publish_cached_sorter_output_on_success", None),
-			False,
-		),
-		False,
-	)
-	bombcell_label_publish_cached_analyzer_on_success = _as_bool(
-		_coalesce(
-			bombcell_phase_cfg.get("publish_cached_analyzer_on_success", None),
-			False,
-		),
-		False,
-	)
-	bombcell_label_cleanup_analyzer_on_success = _as_bool(
-		_coalesce(
-			bombcell_cleanup_on_success_cfg.get("analyzer", None),
-			bombcell_cleanup_on_success_cfg.get("analyzer_output", None),
-			bombcell_phase_cfg.get("cleanup_analyzer_on_success", None),
-			bombcell_phase_cfg.get("cleanup_analyzer_output_on_success", None),
-			bombcell_phase_cfg.get("wipe_analyzer_on_success", None),
-			False,
-		),
-		False,
-	)
-	bombcell_label_cleanup_cached_sorter_output_on_success = _as_bool(
-		_coalesce(
-			bombcell_cleanup_on_success_cfg.get("cached_sorter_output", None),
-			bombcell_cleanup_on_success_cfg.get("sorter_output_cache", None),
-			bombcell_cleanup_on_success_cfg.get("sorter_output", None),
-			bombcell_phase_cfg.get("cleanup_cached_sorter_output_on_success", None),
-			bombcell_phase_cfg.get("cleanup_sorter_output_cache_on_success", None),
-			bombcell_phase_cfg.get("wipe_cached_sorter_output_on_success", None),
-			False,
-		),
-		False,
+		True,
 	)
 	bombcell_label_analyzer_regenerate_on_replot = _as_bool(
 		_coalesce(
@@ -3798,19 +3757,7 @@ def parse_spikesort_stage_config(
 		bombcell_label_enabled=bool(bombcell_label_enabled),
 		bombcell_label_relpath=str(bombcell_label_relpath),
 		bombcell_label_delete_outputs_on_force_restart=bool(bombcell_label_delete_outputs_on_force_restart),
-		bombcell_label_cache_sorter_output_before_analyzer_gen=bool(
-			bombcell_label_cache_sorter_output_before_analyzer_gen
-		),
-		bombcell_label_publish_cached_sorter_output_on_success=bool(
-			bombcell_label_publish_cached_sorter_output_on_success
-		),
-		bombcell_label_publish_cached_analyzer_on_success=bool(
-			bombcell_label_publish_cached_analyzer_on_success
-		),
-		bombcell_label_cleanup_analyzer_on_success=bool(bombcell_label_cleanup_analyzer_on_success),
-		bombcell_label_cleanup_cached_sorter_output_on_success=bool(
-			bombcell_label_cleanup_cached_sorter_output_on_success
-		),
+		bombcell_label_dry_run=bool(bombcell_label_dry_run),
 		bombcell_label_thresholds=(dict(bombcell_label_thresholds) if isinstance(bombcell_label_thresholds, dict) else None),
 		bombcell_label_thresholds_path=(str(bombcell_label_thresholds_path) if bombcell_label_thresholds_path is not None else None),
 		bombcell_label_label_non_somatic=bool(bombcell_label_label_non_somatic),

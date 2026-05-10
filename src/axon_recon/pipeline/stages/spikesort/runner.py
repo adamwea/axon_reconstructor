@@ -1437,121 +1437,36 @@ def _prepare_replot_workspace_analyzer(
 	return analyzer_obj, analyzer_dir, policy_info, regenerated, regen_reason
 
 
-def _load_or_recompute_bombcell_sorting_analyzer(
+def _load_concat_analyzer_for_phase(
 	*,
 	si_module: Any,
 	well_out_dir: Path,
-	bombcell_out_dir: Path,
-	sorter_output_dir: Path,
+	output_rel_root: str,
 	stage_config: Any,
-) -> tuple[Any, Path, bool, str | None]:
-	bombcell_stage_config = _bombcell_analyzer_stage_config(stage_config)
-	analyzer_obj, analyzer_dir, _policy_info, regenerated, regen_reason = _prepare_replot_workspace_analyzer(
-		si_module=si_module,
-		well_out_dir=well_out_dir,
-		sorter_output_dir=sorter_output_dir,
-		stage_config=bombcell_stage_config,
-		analyzer_dir=(Path(bombcell_out_dir).resolve() / "analyzer_output"),
-		regenerate_on_replot=bool(
-			getattr(stage_config, "bombcell_label_analyzer_regenerate_on_replot", False)
-		),
-		check_if_regen_is_needed=bool(
-			getattr(stage_config, "bombcell_label_analyzer_check_if_regen_is_needed", True)
-		),
-	)
-	return analyzer_obj, analyzer_dir, regenerated, regen_reason
+	phase_name: str,
+) -> tuple[Any, Path]:
+	"""Load the canonical concat-level SortingAnalyzer.
 
-
-def _prepare_bombcell_sorter_output_workspace(
-	*,
-	stage_output_root_dir: Path,
-	bombcell_out_dir: Path,
-	sorter_output_dir: Path,
-	stage_config: Any,
-) -> dict[str, Any]:
-	canonical_sorter_output_dir = Path(sorter_output_dir).resolve()
-	canonical_analyzer_dir = (Path(stage_output_root_dir).resolve() / "analyzer_output").resolve()
-	cache_sorter_output_before_analyzer_gen = bool(
-		getattr(stage_config, "bombcell_label_cache_sorter_output_before_analyzer_gen", False)
+	Built once by `spikesort.concat_analyzer` (slice 2). Phases that consume
+	it (bombcell_label, merge_SLAy, merge_si_auto, merge_unitmatch — slices
+	3-5) must call this loader and refuse to run if it is missing.
+	"""
+	analyzer_relpath = str(getattr(stage_config, "concat_analyzer_relpath", None) or "concat_analyzer")
+	analyzer_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=Path(well_out_dir),
+		output_rel_root=str(output_rel_root or "spikesort_outputs"),
+		relpath=analyzer_relpath,
 	)
-	publish_cached_sorter_output_on_success = bool(
-		getattr(stage_config, "bombcell_label_publish_cached_sorter_output_on_success", False)
-	)
-	publish_cached_analyzer_on_success = bool(
-		getattr(stage_config, "bombcell_label_publish_cached_analyzer_on_success", False)
-	)
-	cleanup_analyzer_on_success = bool(
-		getattr(stage_config, "bombcell_label_cleanup_analyzer_on_success", False)
-	)
-	cleanup_cached_sorter_output_on_success = bool(
-		getattr(stage_config, "bombcell_label_cleanup_cached_sorter_output_on_success", False)
-	)
-	cached_sorter_output_dir: Path | None = None
-	effective_sorter_output_dir = canonical_sorter_output_dir
-	if cache_sorter_output_before_analyzer_gen:
-		cached_sorter_output_dir = (Path(bombcell_out_dir).resolve() / "cache" / "sorter_output").resolve()
-		_copy_path_to_destination(src=canonical_sorter_output_dir, dst=cached_sorter_output_dir)
-		effective_sorter_output_dir = cached_sorter_output_dir
-	return {
-		"cache_sorter_output_before_analyzer_gen": bool(cache_sorter_output_before_analyzer_gen),
-		"publish_cached_sorter_output_on_success": bool(publish_cached_sorter_output_on_success),
-		"publish_cached_analyzer_on_success": bool(publish_cached_analyzer_on_success),
-		"cleanup_analyzer_on_success": bool(cleanup_analyzer_on_success),
-		"cleanup_cached_sorter_output_on_success": bool(cleanup_cached_sorter_output_on_success),
-		"canonical_sorter_output_dir": canonical_sorter_output_dir,
-		"effective_sorter_output_dir": effective_sorter_output_dir,
-		"cached_sorter_output_dir": cached_sorter_output_dir,
-		"canonical_analyzer_dir": canonical_analyzer_dir,
-	}
-
-
-def _publish_bombcell_cached_workspace_outputs(
-	*,
-	workspace_info: dict[str, Any],
-	analyzer_dir: Path,
-) -> dict[str, str]:
-	if not bool(workspace_info.get("cache_sorter_output_before_analyzer_gen", False)):
-		return {}
-	published: dict[str, str] = {}
-	effective_sorter_output_dir = workspace_info.get("effective_sorter_output_dir", None)
-	canonical_sorter_output_dir = workspace_info.get("canonical_sorter_output_dir", None)
-	if bool(workspace_info.get("publish_cached_sorter_output_on_success", False)):
-		if isinstance(effective_sorter_output_dir, Path) and isinstance(canonical_sorter_output_dir, Path):
-			_copy_path_to_destination(src=effective_sorter_output_dir, dst=canonical_sorter_output_dir)
-			published["sorter_output_dir"] = str(canonical_sorter_output_dir)
-	canonical_analyzer_dir = workspace_info.get("canonical_analyzer_dir", None)
-	if bool(workspace_info.get("publish_cached_analyzer_on_success", False)):
-		if isinstance(canonical_analyzer_dir, Path):
-			_copy_path_to_destination(src=Path(analyzer_dir).resolve(), dst=canonical_analyzer_dir)
-			published["analyzer_dir"] = str(canonical_analyzer_dir)
-	return published
-
-
-def _cleanup_bombcell_success_outputs(
-	*,
-	workspace_info: dict[str, Any],
-	analyzer_dir: Path,
-) -> dict[str, str]:
-	removed: dict[str, str] = {}
-	if bool(workspace_info.get("cleanup_analyzer_on_success", False)):
-		resolved_analyzer_dir = Path(analyzer_dir).resolve()
-		if resolved_analyzer_dir.exists():
-			if resolved_analyzer_dir.is_dir():
-				shutil.rmtree(resolved_analyzer_dir, ignore_errors=True)
-			else:
-				resolved_analyzer_dir.unlink(missing_ok=True)
-			removed["analyzer_dir"] = str(resolved_analyzer_dir)
-	if bool(workspace_info.get("cleanup_cached_sorter_output_on_success", False)):
-		cached_sorter_output_dir = workspace_info.get("cached_sorter_output_dir", None)
-		if isinstance(cached_sorter_output_dir, Path):
-			resolved_cached_sorter_output_dir = cached_sorter_output_dir.resolve()
-			if resolved_cached_sorter_output_dir.exists():
-				if resolved_cached_sorter_output_dir.is_dir():
-					shutil.rmtree(resolved_cached_sorter_output_dir, ignore_errors=True)
-				else:
-					resolved_cached_sorter_output_dir.unlink(missing_ok=True)
-				removed["cached_sorter_output_dir"] = str(resolved_cached_sorter_output_dir)
-	return removed
+	if not analyzer_dir.exists():
+		raise FileNotFoundError(
+			f"{phase_name}: concat_analyzer not found at {analyzer_dir}. "
+			"Run `axon-recon stages spikesort.concat_analyzer ...` (with phases.concat_analyzer.enabled=true) first."
+		)
+	load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
+	if not callable(load_sorting_analyzer):
+		raise RuntimeError(f"{phase_name}: spikeinterface.load_sorting_analyzer is unavailable")
+	analyzer = load_sorting_analyzer(analyzer_dir)
+	return analyzer, analyzer_dir
 
 
 def _release_loaded_analyzer_extensions(
@@ -2630,12 +2545,17 @@ def _write_kilosort_cluster_labels_tsv(*, path: Path, label_column: str, labels_
 			f.write(f"{unit_id}\t{label}\n")
 
 
-def _apply_bombcell_labels_to_kilosort_outputs(
+def _merge_bombcell_labels_with_kilosort(
 	*,
 	ks_dir: Path,
 	bombcell_labels_by_unit: dict[str, str],
-	write_cluster_group: bool,
-) -> dict[str, Any]:
+) -> tuple[dict[str, str], str, str]:
+	"""Read existing kilosort labels and produce the merged label dict.
+
+	Returns ``(merged_labels_by_unit, ks_label_column, group_label_column)``.
+	bombcell labels take priority; falls back to existing KSLabel, then group,
+	then "unsorted". Used by both apply (sorter writeback) and dry-run preview.
+	"""
 	kslabel_path = (ks_dir / "cluster_KSLabel.tsv").resolve()
 	group_path = (ks_dir / "cluster_group.tsv").resolve()
 
@@ -2665,6 +2585,21 @@ def _apply_bombcell_labels_to_kilosort_outputs(
 		label_text = str(label).strip()
 		if label_text:
 			merged_labels_by_unit[unit_id] = label_text
+	return merged_labels_by_unit, ks_label_col, group_label_col
+
+
+def _apply_bombcell_labels_to_kilosort_outputs(
+	*,
+	ks_dir: Path,
+	bombcell_labels_by_unit: dict[str, str],
+	write_cluster_group: bool,
+) -> dict[str, Any]:
+	kslabel_path = (ks_dir / "cluster_KSLabel.tsv").resolve()
+	group_path = (ks_dir / "cluster_group.tsv").resolve()
+	merged_labels_by_unit, ks_label_col, group_label_col = _merge_bombcell_labels_with_kilosort(
+		ks_dir=ks_dir,
+		bombcell_labels_by_unit=bombcell_labels_by_unit,
+	)
 
 	_write_kilosort_cluster_labels_tsv(
 		path=kslabel_path,
@@ -2684,6 +2619,47 @@ def _apply_bombcell_labels_to_kilosort_outputs(
 		"cluster_kslabel_tsv": str(kslabel_path),
 		"cluster_group_tsv": (str(group_path) if write_cluster_group else None),
 		"n_units_written": int(len(merged_labels_by_unit)),
+	}
+
+
+def _write_bombcell_dry_run_preview(
+	*,
+	ks_dir: Path,
+	bombcell_labels_by_unit: dict[str, str],
+	dry_run_dir: Path,
+	write_cluster_group: bool,
+) -> dict[str, Any]:
+	"""Write the proposed cluster_KSLabel.tsv / cluster_group.tsv preview.
+
+	Mirrors `_apply_bombcell_labels_to_kilosort_outputs` but writes into
+	``dry_run_dir`` instead of mutating ks_dir. The canonical sorter_output
+	stays byte-identical when dry_run=true.
+	"""
+	dry_run_dir = Path(dry_run_dir).resolve()
+	dry_run_dir.mkdir(parents=True, exist_ok=True)
+	preview_kslabel = dry_run_dir / "proposed_cluster_KSLabel.tsv"
+	preview_group = dry_run_dir / "proposed_cluster_group.tsv"
+	merged_labels_by_unit, ks_label_col, group_label_col = _merge_bombcell_labels_with_kilosort(
+		ks_dir=ks_dir,
+		bombcell_labels_by_unit=bombcell_labels_by_unit,
+	)
+	_write_kilosort_cluster_labels_tsv(
+		path=preview_kslabel,
+		label_column=ks_label_col,
+		labels_by_unit=merged_labels_by_unit,
+	)
+	if write_cluster_group:
+		_write_kilosort_cluster_labels_tsv(
+			path=preview_group,
+			label_column=group_label_col,
+			labels_by_unit=merged_labels_by_unit,
+		)
+	return {
+		"ks_dir": str(ks_dir),
+		"dry_run_dir": str(dry_run_dir),
+		"cluster_kslabel_tsv": str(preview_kslabel),
+		"cluster_group_tsv": (str(preview_group) if write_cluster_group else None),
+		"n_units_proposed": int(len(merged_labels_by_unit)),
 	}
 
 
@@ -2914,17 +2890,9 @@ def _run_bombcell_label_phase(
 			stage_config=stage_config,
 		)
 	)
-	bombcell_workspace_info = _prepare_bombcell_sorter_output_workspace(
-		stage_output_root_dir=stage_output_root_dir,
-		bombcell_out_dir=bombcell_out_dir,
-		sorter_output_dir=resolved_sorter_output_dir,
-		stage_config=stage_config,
-	)
-	effective_sorter_output_dir = Path(
-		bombcell_workspace_info.get("effective_sorter_output_dir", resolved_sorter_output_dir)
-	).resolve()
-	ks_dir = _normalize_slay_kilosort_dir(sorter_output_dir=effective_sorter_output_dir)
-	canonical_ks_dir = _normalize_slay_kilosort_dir(sorter_output_dir=resolved_sorter_output_dir)
+	ks_dir = _normalize_slay_kilosort_dir(sorter_output_dir=resolved_sorter_output_dir)
+
+	dry_run = bool(getattr(stage_config, "bombcell_label_dry_run", True))
 
 	labels_payload_json = bombcell_out_dir / "bombcell_labels.json"
 	labels_payload_tsv = bombcell_out_dir / "bombcell_labels.tsv"
@@ -2939,25 +2907,9 @@ def _run_bombcell_label_phase(
 		"force_restart": bool(force_restart),
 		"delete_outputs_on_force_restart": bool(delete_on_force_restart),
 		"removed_on_force_restart": list(removed_on_force_restart),
-		"sorter_output_dir": str(effective_sorter_output_dir),
-		"canonical_sorter_output_dir": str(resolved_sorter_output_dir),
+		"sorter_output_dir": str(resolved_sorter_output_dir),
 		"ks_dir": str(ks_dir),
-		"canonical_ks_dir": str(canonical_ks_dir),
-		"cache_sorter_output_before_analyzer_gen": bool(
-			bombcell_workspace_info.get("cache_sorter_output_before_analyzer_gen", False)
-		),
-		"publish_cached_sorter_output_on_success": bool(
-			bombcell_workspace_info.get("publish_cached_sorter_output_on_success", False)
-		),
-		"publish_cached_analyzer_on_success": bool(
-			bombcell_workspace_info.get("publish_cached_analyzer_on_success", False)
-		),
-		"cleanup_analyzer_on_success": bool(
-			bombcell_workspace_info.get("cleanup_analyzer_on_success", False)
-		),
-		"cleanup_cached_sorter_output_on_success": bool(
-			bombcell_workspace_info.get("cleanup_cached_sorter_output_on_success", False)
-		),
+		"dry_run": bool(dry_run),
 		"label_non_somatic": bool(getattr(stage_config, "bombcell_label_label_non_somatic", True)),
 		"split_non_somatic_good_mua": bool(
 			getattr(stage_config, "bombcell_label_split_non_somatic_good_mua", True)
@@ -2965,30 +2917,24 @@ def _run_bombcell_label_phase(
 		"apply_to_sorter_output": bool(getattr(stage_config, "bombcell_label_apply_to_sorter_output", True)),
 		"write_cluster_group": bool(getattr(stage_config, "bombcell_label_write_cluster_group", True)),
 	}
-	cached_sorter_output_dir = bombcell_workspace_info.get("cached_sorter_output_dir", None)
-	if isinstance(cached_sorter_output_dir, Path):
-		payload["cached_sorter_output_dir"] = str(cached_sorter_output_dir)
 
 	try:
 		with suppress_spikesort_external_debug_output(enabled=bool(getattr(stage_config, "debug_outputs", False))):
 			_log_phase_step_start(
-				"Bombcell label analyzer metrics step start",
+				"Bombcell label analyzer load step start",
 				well_out_dir=well_out_dir,
 				ks_dir=ks_dir,
-				canonical_ks_dir=(canonical_ks_dir if ks_dir != canonical_ks_dir else None),
+				dry_run=bool(dry_run),
 			)
 			si_module = _import_spikeinterface_full_module()
-			analyzer, loaded_analyzer_dir, analyzer_rebuilt, analyzer_regen_reason = _load_or_recompute_bombcell_sorting_analyzer(
+			analyzer, loaded_analyzer_dir = _load_concat_analyzer_for_phase(
 				si_module=si_module,
 				well_out_dir=well_out_dir,
-				bombcell_out_dir=bombcell_out_dir,
-				sorter_output_dir=effective_sorter_output_dir,
+				output_rel_root=output_rel_root,
 				stage_config=stage_config,
+				phase_name="spikesort.bombcell_label",
 			)
 			payload["analyzer_dir"] = str(loaded_analyzer_dir)
-			payload["analyzer_rebuilt"] = bool(analyzer_rebuilt)
-			if analyzer_regen_reason is not None:
-				payload["analyzer_regen_reason"] = str(analyzer_regen_reason)
 
 			computed_extensions = _ensure_bombcell_metric_extensions(
 				analyzer=analyzer,
@@ -3051,39 +2997,44 @@ def _run_bombcell_label_phase(
 		payload["labels_tsv"] = str(labels_payload_tsv)
 
 		sorter_label_update: dict[str, Any] | None = None
-		if bool(getattr(stage_config, "bombcell_label_apply_to_sorter_output", True)):
-			_log_phase_step_start(
-				"Bombcell label sorter writeback step start",
-				well_out_dir=well_out_dir,
-				ks_dir=ks_dir,
-				canonical_ks_dir=(canonical_ks_dir if ks_dir != canonical_ks_dir else None),
-			)
-			sorter_label_update = _apply_bombcell_labels_to_kilosort_outputs(
-				ks_dir=ks_dir,
-				bombcell_labels_by_unit=labels_by_unit,
-				write_cluster_group=bool(getattr(stage_config, "bombcell_label_write_cluster_group", True)),
-			)
-			payload["sorter_label_update"] = dict(sorter_label_update)
-
-		published_workspace_outputs = _publish_bombcell_cached_workspace_outputs(
-			workspace_info=bombcell_workspace_info,
-			analyzer_dir=Path(loaded_analyzer_dir),
-		)
-		if published_workspace_outputs:
-			payload["published_workspace_outputs"] = dict(published_workspace_outputs)
+		dry_run_preview: dict[str, Any] | None = None
+		apply_to_sorter_output = bool(getattr(stage_config, "bombcell_label_apply_to_sorter_output", True))
+		write_cluster_group = bool(getattr(stage_config, "bombcell_label_write_cluster_group", True))
+		if apply_to_sorter_output:
+			if dry_run:
+				dry_run_dir = (bombcell_out_dir / "dry_run").resolve()
+				dry_run_dir.mkdir(parents=True, exist_ok=True)
+				_log_phase_step_start(
+					"Bombcell label dry-run preview step start",
+					well_out_dir=well_out_dir,
+					ks_dir=ks_dir,
+					dry_run_dir=dry_run_dir,
+				)
+				dry_run_preview = _write_bombcell_dry_run_preview(
+					ks_dir=ks_dir,
+					bombcell_labels_by_unit=labels_by_unit,
+					dry_run_dir=dry_run_dir,
+					write_cluster_group=write_cluster_group,
+				)
+				payload["dry_run_preview"] = dict(dry_run_preview)
+			else:
+				_log_phase_step_start(
+					"Bombcell label sorter writeback step start",
+					well_out_dir=well_out_dir,
+					ks_dir=ks_dir,
+				)
+				sorter_label_update = _apply_bombcell_labels_to_kilosort_outputs(
+					ks_dir=ks_dir,
+					bombcell_labels_by_unit=labels_by_unit,
+					write_cluster_group=write_cluster_group,
+				)
+				payload["sorter_label_update"] = dict(sorter_label_update)
 
 		released_extensions = _release_loaded_analyzer_extensions(analyzer=analyzer)
 		if released_extensions:
 			payload["released_analyzer_extensions"] = list(released_extensions)
 		analyzer = None
 		gc.collect()
-
-		removed_on_success = _cleanup_bombcell_success_outputs(
-			workspace_info=bombcell_workspace_info,
-			analyzer_dir=Path(loaded_analyzer_dir),
-		)
-		if removed_on_success:
-			payload["removed_on_success"] = dict(removed_on_success)
 
 		if summary_json is not None:
 			_write_json(summary_json, payload)
@@ -3101,6 +3052,13 @@ def _run_bombcell_label_phase(
 				outputs["bombcell_label.cluster_kslabel_tsv"] = str(cluster_kslabel_tsv)
 			if cluster_group_tsv:
 				outputs["bombcell_label.cluster_group_tsv"] = str(cluster_group_tsv)
+		if isinstance(dry_run_preview, dict):
+			preview_kslabel_tsv = dry_run_preview.get("cluster_kslabel_tsv", None)
+			preview_group_tsv = dry_run_preview.get("cluster_group_tsv", None)
+			if preview_kslabel_tsv:
+				outputs["bombcell_label.dry_run_cluster_kslabel_tsv"] = str(preview_kslabel_tsv)
+			if preview_group_tsv:
+				outputs["bombcell_label.dry_run_cluster_group_tsv"] = str(preview_group_tsv)
 
 		return {
 			"name": "bombcell_label",
@@ -3110,14 +3068,12 @@ def _run_bombcell_label_phase(
 			"analyzer_dir": str(loaded_analyzer_dir),
 			"summary_json": (str(summary_json) if summary_json is not None else None),
 			"outputs": outputs,
-			"sorter_output_dir": str(effective_sorter_output_dir),
-			"canonical_sorter_output_dir": str(resolved_sorter_output_dir),
+			"sorter_output_dir": str(resolved_sorter_output_dir),
 			"ks_dir": str(ks_dir),
-			"canonical_ks_dir": str(canonical_ks_dir),
+			"dry_run": bool(dry_run),
 			"n_units_labeled": int(len(labels_by_unit)),
 			"counts_by_label": dict(payload.get("counts_by_label", {})),
 			"removed_on_force_restart": list(removed_on_force_restart),
-			"removed_on_success": dict(payload.get("removed_on_success", {})),
 		}
 	except Exception as exc:
 		payload["status"] = "error"
@@ -3137,10 +3093,9 @@ def _run_bombcell_label_phase(
 			"analyzer_dir": payload.get("analyzer_dir", None),
 			"summary_json": (str(summary_json) if summary_json is not None else None),
 			"outputs": outputs,
-			"sorter_output_dir": str(effective_sorter_output_dir),
-			"canonical_sorter_output_dir": str(resolved_sorter_output_dir),
+			"sorter_output_dir": str(resolved_sorter_output_dir),
 			"ks_dir": str(ks_dir),
-			"canonical_ks_dir": str(canonical_ks_dir),
+			"dry_run": bool(dry_run),
 			"removed_on_force_restart": list(removed_on_force_restart),
 		}
 
