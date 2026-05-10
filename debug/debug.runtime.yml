@@ -554,6 +554,15 @@ stages:
         emit_logs: true
         generate_artifacts: false
 
+      snapshot_sorter_output:
+        # Cheap recursive copy of <well>/spikesort_outputs/sorter_output taken once after
+        # summarize_sort. Lets bombcell_label / merge_SLAy iterate without re-running sort.
+        # Restore via the spikesort.restore_sorter_output CLI utility (--confirm required).
+        enabled: false
+        resource_class: template_build
+        relpath: sorter_output_snapshot
+        skip_if_exists: true
+
       bombcell_label:
         enabled: true
         resource_class: spikeinterface_analyzer_concat

@@ -3568,6 +3568,176 @@ def run_spikesort_cleanup_concat_binary_stage(
 	)
 
 
+def run_spikesort_snapshot_sorter_output_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	from .core.snapshot_sorter_output import run_snapshot_sorter_output_phase
+
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+
+	snapshot_relpath = str(
+		getattr(stage_config, "snapshot_sorter_output_relpath", None)
+		or "sorter_output_snapshot"
+	)
+	snapshot_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=str(output_rel_root or "spikesort_outputs"),
+		relpath=snapshot_relpath,
+	)
+	summary_json = (stage_output_root_dir / "snapshot_sorter_output_summary.json").resolve()
+
+	if not bool(getattr(stage_config, "snapshot_sorter_output_enabled", False)):
+		payload = {
+			"status": "skipped",
+			"reason": "snapshot_sorter_output_disabled",
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"snapshot_dir": str(snapshot_dir),
+			"outputs": {"summary_json": str(summary_json)},
+		}
+		_write_json(summary_json, payload)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={"summary_json": str(summary_json)},
+		)
+
+	sorter_output_dir = _resolve_existing_sorter_output_dir(stage_output_root_dir=stage_output_root_dir)
+	skip_if_exists = bool(getattr(stage_config, "snapshot_sorter_output_skip_if_exists", True))
+	# force_restart overrides skip_if_exists so users can force a fresh snapshot.
+	if bool(force_restart):
+		skip_if_exists = False
+
+	_log_phase_step_start(
+		"Spikesort snapshot_sorter_output step start",
+		stream_id=str(stream_id),
+		sorter_output_dir=str(sorter_output_dir),
+		snapshot_dir=str(snapshot_dir),
+		skip_if_exists=bool(skip_if_exists),
+		force_restart=bool(force_restart),
+	)
+
+	core_payload = run_snapshot_sorter_output_phase(
+		sorter_output_dir=sorter_output_dir,
+		snapshot_dir=snapshot_dir,
+		skip_if_exists=bool(skip_if_exists),
+		logger=LOGGER,
+	)
+
+	outputs = {
+		"summary_json": str(summary_json),
+		"snapshot_sorter_output.snapshot_dir": str(snapshot_dir),
+		"snapshot_sorter_output.snapshot_summary_json": str(core_payload.get("summary_json", "")),
+	}
+	payload = {
+		"status": str(core_payload.get("status", "ok")),
+		"reason": core_payload.get("reason", None),
+		"well_out_dir": str(well_out_dir),
+		"stage_output_root_dir": str(stage_output_root_dir),
+		"sorter_output_dir": str(sorter_output_dir),
+		"snapshot_dir": str(snapshot_dir),
+		"file_count": int(core_payload.get("file_count", 0) or 0),
+		"total_bytes": int(core_payload.get("total_bytes", 0) or 0),
+		"force_restart": bool(force_restart),
+		"skip_if_exists": bool(skip_if_exists),
+		"outputs": outputs,
+	}
+	_write_json(summary_json, payload)
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
+def run_spikesort_restore_sorter_output_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool = False,
+) -> SpikesortResult:
+	from .core.snapshot_sorter_output import run_restore_sorter_output_from_snapshot
+
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+
+	snapshot_relpath = str(
+		getattr(stage_config, "snapshot_sorter_output_relpath", None)
+		or "sorter_output_snapshot"
+	)
+	snapshot_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=str(output_rel_root or "spikesort_outputs"),
+		relpath=snapshot_relpath,
+	)
+	canonical_sorter_output_dir = (stage_output_root_dir / "sorter_output").resolve()
+	summary_json = (stage_output_root_dir / "restore_sorter_output_summary.json").resolve()
+
+	_log_phase_step_start(
+		"Spikesort restore_sorter_output step start",
+		stream_id=str(stream_id),
+		snapshot_dir=str(snapshot_dir),
+		sorter_output_dir=str(canonical_sorter_output_dir),
+	)
+
+	core_payload = run_restore_sorter_output_from_snapshot(
+		snapshot_dir=snapshot_dir,
+		sorter_output_dir=canonical_sorter_output_dir,
+		logger=LOGGER,
+	)
+
+	outputs = {
+		"summary_json": str(summary_json),
+		"restore_sorter_output.sorter_output_dir": str(canonical_sorter_output_dir),
+		"restore_sorter_output.snapshot_dir": str(snapshot_dir),
+	}
+	payload = {
+		"status": str(core_payload.get("status", "ok")),
+		"well_out_dir": str(well_out_dir),
+		"stage_output_root_dir": str(stage_output_root_dir),
+		"sorter_output_dir": str(canonical_sorter_output_dir),
+		"snapshot_dir": str(snapshot_dir),
+		"file_count": int(core_payload.get("file_count", 0) or 0),
+		"total_bytes": int(core_payload.get("total_bytes", 0) or 0),
+		"outputs": outputs,
+	}
+	_write_json(summary_json, payload)
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
 def _spikesort_preprocessed_recording_relpath(stage_config: Any) -> str:
 	return str(
 		getattr(stage_config, "preprocess_concat_recording_relpath", None)

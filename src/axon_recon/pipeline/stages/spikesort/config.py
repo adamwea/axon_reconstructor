@@ -268,6 +268,7 @@ DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
 	"bootstrap_concat_binary",
 	"sort",
 	"summarize_sort",
+	"snapshot_sorter_output",
 	"bombcell_label",
 	"merge_SLAy",
 	"merge_si_auto",
@@ -287,6 +288,10 @@ _SPIKESORT_PHASE_ALIASES: dict[str, str] = {
 	"summarise_sort": "summarize_sort",
 	"sort_summary": "summarize_sort",
 	"summary": "summarize_sort",
+	"snapshot_sorter_output": "snapshot_sorter_output",
+	"snapshot": "snapshot_sorter_output",
+	"snapshot_sorter": "snapshot_sorter_output",
+	"sorter_output_snapshot": "snapshot_sorter_output",
 	"bombcell_label": "bombcell_label",
 	"bombcell": "bombcell_label",
 	"label_bombcell": "bombcell_label",
@@ -406,6 +411,7 @@ class SpikesortStageConfig:
 	bootstrap_concat_binary_resource_class: str | None
 	sort_resource_class: str | None
 	summarize_sort_resource_class: str | None
+	snapshot_sorter_output_resource_class: str | None
 	bombcell_label_resource_class: str | None
 	merge_slay_resource_class: str | None
 	merge_si_auto_resource_class: str | None
@@ -481,6 +487,9 @@ class SpikesortStageConfig:
 	summarize_sort_enabled: bool
 	summarize_sort_emit_logs: bool
 	summarize_sort_generate_artifacts: bool
+	snapshot_sorter_output_enabled: bool
+	snapshot_sorter_output_relpath: str
+	snapshot_sorter_output_skip_if_exists: bool
 	bombcell_label_enabled: bool
 	bombcell_label_relpath: str
 	bombcell_label_delete_outputs_on_force_restart: bool
@@ -805,6 +814,7 @@ def parse_spikesort_stage_config(
 		merge_analyzer_cfg.get("template_extraction", {})
 	)
 	summarize_sort_phase_cfg = _as_section(phases_cfg.get("summarize_sort", {}))
+	snapshot_sorter_output_phase_cfg = _as_section(phases_cfg.get("snapshot_sorter_output", {}))
 	bombcell_phase_cfg_raw = phases_cfg.get("bombcell_label", None)
 	bombcell_phase_cfg = _as_section(bombcell_phase_cfg_raw)
 	bombcell_analyzer_cfg = _as_section(bombcell_phase_cfg.get("analyzer", {}))
@@ -833,6 +843,9 @@ def parse_spikesort_stage_config(
 	)
 	sort_resource_class = _phase_resource_class(sort_phase_cfg, "sort")
 	summarize_sort_resource_class = _phase_resource_class(summarize_sort_phase_cfg, "summarize_sort")
+	snapshot_sorter_output_resource_class = _phase_resource_class(
+		snapshot_sorter_output_phase_cfg, "snapshot_sorter_output"
+	)
 	bombcell_label_resource_class = _phase_resource_class(bombcell_phase_cfg, "bombcell_label")
 	merge_slay_resource_class = _phase_resource_class(merge_slay_phase_cfg, "merge_SLAy")
 	merge_si_auto_resource_class = _phase_resource_class(merge_si_auto_phase_cfg, "merge_si_auto")
@@ -1389,6 +1402,27 @@ def parse_spikesort_stage_config(
 			False,
 		),
 		False,
+	)
+	snapshot_sorter_output_enabled = _as_bool(
+		_coalesce(
+			snapshot_sorter_output_phase_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	snapshot_sorter_output_relpath = _normalize_optional_relpath(
+		_coalesce(
+			snapshot_sorter_output_phase_cfg.get("relpath", None),
+			snapshot_sorter_output_phase_cfg.get("output_relpath", None),
+			"sorter_output_snapshot",
+		)
+	) or "sorter_output_snapshot"
+	snapshot_sorter_output_skip_if_exists = _as_bool(
+		_coalesce(
+			snapshot_sorter_output_phase_cfg.get("skip_if_exists", None),
+			True,
+		),
+		True,
 	)
 	unitmatch_enabled = _as_bool(
 		_coalesce(
@@ -3523,6 +3557,7 @@ def parse_spikesort_stage_config(
 		bootstrap_concat_binary_resource_class=bootstrap_concat_binary_resource_class,
 		sort_resource_class=sort_resource_class,
 		summarize_sort_resource_class=summarize_sort_resource_class,
+		snapshot_sorter_output_resource_class=snapshot_sorter_output_resource_class,
 		bombcell_label_resource_class=bombcell_label_resource_class,
 		merge_slay_resource_class=merge_slay_resource_class,
 		merge_si_auto_resource_class=merge_si_auto_resource_class,
@@ -3677,6 +3712,9 @@ def parse_spikesort_stage_config(
 		summarize_sort_enabled=bool(summarize_sort_enabled),
 		summarize_sort_emit_logs=bool(summarize_sort_emit_logs),
 		summarize_sort_generate_artifacts=bool(summarize_sort_generate_artifacts),
+		snapshot_sorter_output_enabled=bool(snapshot_sorter_output_enabled),
+		snapshot_sorter_output_relpath=str(snapshot_sorter_output_relpath),
+		snapshot_sorter_output_skip_if_exists=bool(snapshot_sorter_output_skip_if_exists),
 		bombcell_label_enabled=bool(bombcell_label_enabled),
 		bombcell_label_relpath=str(bombcell_label_relpath),
 		bombcell_label_delete_outputs_on_force_restart=bool(bombcell_label_delete_outputs_on_force_restart),

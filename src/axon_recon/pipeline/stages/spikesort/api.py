@@ -10,6 +10,8 @@ from .orchestrators import (
 	run_spikesort_bootstrap_concat_binary,
 	run_spikesort_cleanup_concat_binary,
 	run_spikesort_merge_units,
+	run_spikesort_restore_sorter_output,
+	run_spikesort_snapshot_sorter_output,
 	run_spikesort_sort,
 	run_spikesort_summarize,
 )
@@ -92,6 +94,44 @@ def cleanup_spikesort_concat_binary(
 	force_restart: bool,
 ) -> SpikesortResult:
 	return run_spikesort_cleanup_concat_binary(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		force_restart=force_restart,
+	)
+
+
+def snapshot_spikesort_sorter_output(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	return run_spikesort_snapshot_sorter_output(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		force_restart=force_restart,
+	)
+
+
+def restore_spikesort_sorter_output(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool = False,
+) -> SpikesortResult:
+	return run_spikesort_restore_sorter_output(
 		h5_path=h5_path,
 		stream_id=stream_id,
 		mea_output_root=mea_output_root,

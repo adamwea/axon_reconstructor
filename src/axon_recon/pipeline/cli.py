@@ -113,6 +113,12 @@ from .stages.spikesort.cli import (
 	_run_merge_unitmatch_from_args as _run_spikesort_merge_unitmatch_from_args,
 )
 from .stages.spikesort.cli import (
+	_run_restore_sorter_output_from_args as _run_spikesort_restore_sorter_output_from_args,
+)
+from .stages.spikesort.cli import (
+	_run_snapshot_sorter_output_from_args as _run_spikesort_snapshot_sorter_output_from_args,
+)
+from .stages.spikesort.cli import (
 	_run_summarize_sort_from_args as _run_spikesort_summarize_sort_from_args,
 )
 from .stages.spikesort.orchestrators import _run_sort_from_args as _run_spikesort_sort_from_args
@@ -170,6 +176,8 @@ _STAGE_ALIASES: dict[str, str] = {
 	"merge_si_auto": "spikesort.merge_si_auto",
 	"merge_unitmatch": "spikesort.merge_unitmatch",
 	"spikesort.summary": "spikesort.summarize_sort",
+	"spikesort.snapshot": "spikesort.snapshot_sorter_output",
+	"spikesort.restore": "spikesort.restore_sorter_output",
 	"spikesort.merge_units": "spikesort.merge",
 	"spikesort.merge.slay": "spikesort.merge_SLAy",
 	"spikesort.merge_SLAy": "spikesort.merge_SLAy",
@@ -272,6 +280,8 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"spikesort.sort": _run_spikesort_sort_from_args,
 	"spikesort.bombcell_label": _run_spikesort_bombcell_from_args,
 	"spikesort.summarize_sort": _run_spikesort_summarize_sort_from_args,
+	"spikesort.snapshot_sorter_output": _run_spikesort_snapshot_sorter_output_from_args,
+	"spikesort.restore_sorter_output": _run_spikesort_restore_sorter_output_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
 	"spikesort.merge_SLAy": _run_spikesort_merge_slay_from_args,
 	"spikesort.merge_si_auto": _run_spikesort_merge_si_auto_from_args,
@@ -534,6 +544,14 @@ def _register_stage_sequence_parser(
 		"--alloc",
 		action="store_true",
 		help="Print allocation details that would be used by the selected stage(s), without running stage work",
+	)
+	parser.add_argument(
+		"--confirm",
+		action="store_true",
+		help=(
+			"Confirm a destructive stage action. Required by stages that overwrite canonical state, "
+			"such as spikesort.restore_sorter_output."
+		),
 	)
 	parser.set_defaults(handler=_run_stage_sequence_from_args)
 

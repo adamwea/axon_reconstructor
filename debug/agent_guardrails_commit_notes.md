@@ -95,6 +95,67 @@ claude-migration baseline: 437 passed / 0 failed / 0 skipped (test_progress.py e
 a18c9d2 | slice 1 [sonnet] | add nested_shape to phase resource classes
 f32a2a8 | slice 2 [opus] | split build_templates into extract_partial_templates and build_templates
 
+## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 1 (snapshot_sorter_output + restore CLI)
+
+Status: accepted
+
+Summary:
+- Added new `spikesort.snapshot_sorter_output` phase: cheap recursive copy of `<well>/spikesort_outputs/sorter_output` into `<well>/spikesort_outputs/sorter_output_snapshot/` with `snapshot_summary.json` (file_count, total_bytes, ISO timestamp). Idempotent when `skip_if_exists` (default True); honors `--force-restart` to refresh.
+- Added new `spikesort.restore_sorter_output` CLI utility (NOT a phase): copies snapshot back over the canonical sorter_output dir. Refuses to run without `--confirm`; refuses if `snapshot_summary.json` is missing from the snapshot dir.
+- Inserted `snapshot_sorter_output` into `DEFAULT_SPIKESORT_PHASE_SEQUENCE` between `summarize_sort` and `bombcell_label`. Default `enabled=false` in YAML so existing pipelines remain unchanged until the operator opts in.
+- Plan deviation: spikesort/config.py uses a single flat `SpikesortStageConfig` dataclass with phase-prefixed fields (e.g., `bombcell_label_*`), not per-phase dataclasses as the plan sketched. Adapted by adding flat `snapshot_sorter_output_enabled / _relpath / _skip_if_exists / _resource_class` fields, parsed alongside the existing summarize_sort block, and registering the phase in `_spikesort_phase_resource_classes_from_labels` and the `_SpikesortRuntimePhase` available_phases dispatch table.
+- Wired CLI: handlers `spikesort.snapshot_sorter_output` and `spikesort.restore_sorter_output` in `pipeline/cli.py:_STAGE_HANDLERS`; aliases `spikesort.snapshot` / `spikesort.restore`. Registered `--confirm` flag globally on the stages parser (consumed only by restore today; ignored by other handlers).
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- New unit tests exercise snapshot creation, idempotent skip-if-exists, force-refresh, missing-source rejection, restore round-trip (byte-identical), restore-missing-summary refusal, restore-CLI-missing-confirm refusal, config parsing (default + overridden), and phase-sequence ordering.
+- `git grep -n "snapshot_sorter_output" src/axon_recon/pipeline/stages/spikesort/` lights up new code.
+- Phase is opt-in (default disabled in YAML); existing 437-test baseline remains green.
+
+Validation:
+- Pre-slice baseline pytest (after stashing unrelated reconstruct/runner edits): `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/ --tb=no` → 167 passed in 2.99s, 0 failed.
+- Post-slice spikesort tests: 177 passed in 2.85s (167 baseline + 10 new tests, 0 failed).
+- Post-slice broader pipeline tests: `python -m pytest src/axon_recon/pipeline/tests/ --ignore=test_progress.py --tb=no` → 457 passed in 23.77s.
+- CLI registration verified: `axon-recon stages spikesort.snapshot_sorter_output --help` prints help and `--confirm` appears in the global flags. `_STAGE_HANDLERS` dict contains both new keys.
+
+Smokes:
+- BLOCKED-SMOKE: S0/S1/S5 require an existing post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` directory. Output root `/mnt/ben-shalom_nas/.../Media_Density_T5_02182026_AR_axon_analysis_AW` contains no sorter_output directories yet (verified via `find ... -name sorter_output`). Per the loop's failure-handling rule, recording as BLOCKED-SMOKE; correctness is covered by the 10 new unit tests (snapshot byte-identity, restore round-trip, missing-summary refusal, etc.). The smoke will run as part of slice 3/4/5/6 once the dependent phases are exercised end-to-end.
+
+CLI / Debug Flag Impact:
+- New stage handlers: `spikesort.snapshot_sorter_output`, `spikesort.restore_sorter_output`.
+- New aliases: `spikesort.snapshot`, `spikesort.restore`.
+- New global stages-parser flag: `--confirm` (action="store_true"; consumed only by `spikesort.restore_sorter_output` today).
+
+Logging / Parallelism Impact:
+- Snapshot phase emits a phase-step-start log via the existing `_log_phase_step_start` helper with stream_id, source/target paths, and skip_if_exists/force_restart flags.
+- Phase resource_class plumbing extended: `snapshot_sorter_output` is now resolvable in `_spikesort_phase_resource_classes_from_labels`. Default `resource_class` is `template_build` (cheap CPU phase) in the YAML sample but stays optional.
+
+Storage / Cache Impact:
+- Per-well snapshot doubles `sorter_output` disk usage. On NERSC scratch this may matter; today disabled by default in YAML so opt-in only.
+
+Container / NERSC / MPI Impact:
+- None. Pure-python file I/O via `shutil.copytree`. No GPU or container path touched.
+
+Resume / Force-Restart Impact:
+- `--force-restart` overrides `skip_if_exists` to refresh the snapshot.
+- `restore_sorter_output` always overwrites canonical sorter_output (with `--confirm`); preserved snapshot_summary.json is excluded from the restore copy so the canonical tree stays clean.
+
+Residual Risk And Follow-Ups:
+- Smoke S1/S5 deferred to a later slice once sort outputs exist on the target server.
+- Stash `spikesort-loop-baseline` holds reconstruct/runner edits unrelated to this slice; popped after the commit.
+- Slice 2 (concat_analyzer) will introduce the canonical analyzer; slices 3-4 wire bombcell_label and merge_SLAy onto it.
+
+Rollback Notes:
+- Revert this commit; the new phase is opt-in (`enabled: false` in YAML) so reverting has no behavioral impact on running configs.
+
+
+
 ## 2026-05-07 15:51 - 76f63a7 - ai: slice 6 nested thread env + richer alloc preview
 
 Status: accepted

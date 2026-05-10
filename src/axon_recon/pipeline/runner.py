@@ -105,9 +105,11 @@ from .stages.reconstruct.templates.config import (
 from .stages.spikesort.api import (
 	bootstrap_spikesort_concat_binary,
 	cleanup_spikesort_concat_binary,
+	restore_spikesort_sorter_output,
 	run_spikesort,
 	run_spikesort_bombcell,
 	run_spikesort_merge,
+	snapshot_spikesort_sorter_output,
 	summarize_spikesort,
 )
 from .stages.spikesort.config import (
@@ -443,6 +445,7 @@ def _spikesort_phase_resource_classes_from_labels(
 		"bootstrap_concat_binary": "bootstrap_concat_binary_resource_class",
 		"sort": "sort_resource_class",
 		"summarize_sort": "summarize_sort_resource_class",
+		"snapshot_sorter_output": "snapshot_sorter_output_resource_class",
 		"bombcell_label": "bombcell_label_resource_class",
 		"merge_slay": "merge_slay_resource_class",
 		"merge_si_auto": "merge_si_auto_resource_class",
@@ -2971,6 +2974,19 @@ def _enabled_spikesort_runtime_phase_plan(
 				resource_class=getattr(stage_config, "summarize_sort_resource_class", None),
 			)
 		)
+	if bool(getattr(stage_config, "snapshot_sorter_output_enabled", False)):
+		available_phases["snapshot_sorter_output"] = (
+			_SpikesortRuntimePhase(
+				name="spikesort.snapshot_sorter_output",
+				phase_label="snapshot_sorter_output",
+				debug_enabled_attr="snapshot_sorter_output_debug_mode_enabled",
+				debug_limit_datasets_attr="snapshot_sorter_output_debug_limit_datasets",
+				debug_limit_wells_attr="snapshot_sorter_output_debug_limit_wells",
+				target_runner=_run_spikesort_snapshot_sorter_output_target,
+				debug_limit_wells_per_dataset_attr="snapshot_sorter_output_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "snapshot_sorter_output_resource_class", None),
+			)
+		)
 	if bool(getattr(stage_config, "bombcell_label_enabled", False)):
 		available_phases["bombcell_label"] = (
 			_SpikesortRuntimePhase(
@@ -3102,6 +3118,17 @@ def _run_spikesort_summarize_sort_target(*, target: Any, stage_config: Any, unit
 		unit_workers=int(unit_workers),
 	)
 	return summarize_spikesort(inputs)
+
+
+def _run_spikesort_snapshot_sorter_output_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
+	return snapshot_spikesort_sorter_output(
+		h5_path=target.h5_path,
+		stream_id=target.stream_id,
+		mea_output_root=target.mea_output_root,
+		output_rel_root=_spikesort_output_rel_root(stage_config),
+		stage_config=stage_config,
+		force_restart=bool(getattr(stage_config, "force_restart", False) or getattr(stage_config, "force_replot", False)),
+	)
 
 
 def _run_spikesort_bombcell_label_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortBombcellResult:
@@ -3467,6 +3494,68 @@ def run_spikesort_cleanup_concat_binary_from_runtime(
 		debug_limit_wells_attr="cleanup_concat_binary_debug_limit_wells",
 		debug_limit_wells_per_dataset_attr="cleanup_concat_binary_debug_limit_wells_per_dataset",
 		publish_after_run=True,
+	)
+
+
+def run_spikesort_snapshot_sorter_output_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	return _run_spikesort_concat_binary_phase_from_runtime(
+		config_path=config_path,
+		stage_name="spikesort.snapshot_sorter_output",
+		runner_fn=snapshot_spikesort_sorter_output,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		target_datasets_override=target_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
+		debug_phase_label="snapshot_sorter_output",
+		debug_enabled_attr="snapshot_sorter_output_debug_mode_enabled",
+		debug_limit_datasets_attr="snapshot_sorter_output_debug_limit_datasets",
+		debug_limit_wells_attr="snapshot_sorter_output_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="snapshot_sorter_output_debug_limit_wells_per_dataset",
+		publish_after_run=False,
+	)
+
+
+def run_spikesort_restore_sorter_output_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	return _run_spikesort_concat_binary_phase_from_runtime(
+		config_path=config_path,
+		stage_name="spikesort.restore_sorter_output",
+		runner_fn=restore_spikesort_sorter_output,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		target_datasets_override=target_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
+		debug_phase_label="restore_sorter_output",
+		debug_enabled_attr="restore_sorter_output_debug_mode_enabled",
+		debug_limit_datasets_attr="restore_sorter_output_debug_limit_datasets",
+		debug_limit_wells_attr="restore_sorter_output_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="restore_sorter_output_debug_limit_wells_per_dataset",
+		publish_after_run=False,
 	)
 
 
