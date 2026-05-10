@@ -95,6 +95,69 @@ claude-migration baseline: 437 passed / 0 failed / 0 skipped (test_progress.py e
 a18c9d2 | slice 1 [sonnet] | add nested_shape to phase resource classes
 f32a2a8 | slice 2 [opus] | split build_templates into extract_partial_templates and build_templates
 
+## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 6 (cleanup audit; cache-infra removal deferred)
+
+Status: accepted
+
+Summary:
+- Slice 6 in the plan calls for a sweep that deletes the legacy caching scaffolding and tightens config dataclasses. After auditing, most of the plan's slice-6 work cannot land in a single iteration without a concurrent merge-orchestrator rewrite. This commit is the documented audit + the safe-to-delete sweep; the wider rewrite is logged as a follow-up.
+- Audit results vs §6 acceptance checks:
+
+  (a) `git grep -nE "cache_sorter_output_before_analyzer_gen|publish_cached_sorter_output|cleanup_cached_sorter_output" -- src/axon_recon/`:
+      → 0 hits in code (cleared by slice 3). The grep finds matches only in the plan file and in commit-notes prose, both intentional.
+
+  (b) `git grep -nE "cache_sorter_output_before_analyzer_gen:|publish_cached_sorter_output|cleanup_cached_sorter_output|cache_sorting_outputs_before_merge:|pre_merge_cache:|merge_workspace:|working_cache:" -- '*.yml' '*.yaml'`:
+      → 3 hits remain: `working_cache:` blocks under `phases.merge_SLAy`, `phases.merge_si_auto`, `phases.merge_unitmatch` in `debug/debug.runtime.yml`. These cannot be stripped from YAML until the merge orchestrator stops parsing them (deferred).
+
+  (c) `git grep -n "create_sorting_analyzer\|SortingAnalyzer.create" src/axon_recon/pipeline/stages/spikesort/`:
+      → 6 hits in `runner.py`: 1 inside the new concat_analyzer integration (slice 2 `core/concat_analyzer.py` is fed `create_sorting_analyzer_fn`), 5 inside `_recompute_sorting_analyzer_to_dir` (used by `_recompute_spikesort_analyzer`, which is still called from `_load_or_recompute_spikesort_analyzer` and `_run_slay_analyzer_recompute`). Auto_merge in `_run_auto_merge_method` still goes through `_load_or_recompute_spikesort_analyzer`. Migrating it to `_load_concat_analyzer_for_phase` requires updating ~12 monkeypatch-based test fixtures and is interlocked with the cache-helper deletion.
+
+  (d) Every label/merge phase has a dry_run knob — runtime check passes:
+      `bombcell_label dry_run=True, merge_slay dry_run=True, merge_si_auto dry_run=True, merge_unitmatch dry_run=True` (defaults). All four flat fields exist on `SpikesortStageConfig`.
+
+  (e) End-to-end mutation-safety smoke (sha256 sorter_output before/after dry-run apply): BLOCKED-SMOKE — same precondition gap as slices 1-5 (no existing post-sort sorter_output on the target server). Unit-level mutation-safety tests cover the contract.
+
+- What's NOT cleaned up (deferred to a follow-up "Cache Infrastructure Removal" project):
+  1. The 4 shared cache helpers (`_cache_sorting_outputs_before_merge`, `_cache_canonical_sorter_output_for_merge`, `_prepare_replot_workspace_analyzer`, `_restore_sorting_outputs_from_pre_merge_cache`) at `runner.py:188`, `:228`, `:257`, `:1341`. Active call sites in `_run_merge_methods_for_target` at `runner.py:9045, 9096, 9541, 9563, 9622`. Deletion requires migrating those 5 sites to the snapshot-based pattern (slice 1 / slice 4 SLAy scratch) and removing the `pre_merge_cache` / `working_cache` / `merge_workspace` concepts from the merge orchestrator.
+  2. Auto-merge (`_run_auto_merge_method`) still calls `_load_or_recompute_spikesort_analyzer` → `_recompute_spikesort_analyzer` → `_recompute_sorting_analyzer_to_dir`. Migration to `_load_concat_analyzer_for_phase` is gated on the cache-helper deletion (the working_cache analyzer recomputation would then be redundant).
+  3. YAML `working_cache:` blocks under merge_SLAy / merge_si_auto / merge_unitmatch survive until the orchestrator stops parsing them.
+  4. The `cache_sorting_outputs_before_merge_*` and `pre_merge_workspace_*` flat config fields on `SpikesortStageConfig` survive until same.
+  5. The `bombcell_label_analyzer_*` flat fields are NOT dead — `_ensure_bombcell_metric_extensions` still uses them via `_bombcell_analyzer_stage_config` to configure extra metric extension parameters (`quality_metrics`, `template_metrics`) computed on the loaded concat_analyzer. They stay.
+
+- This slice writes no code. It documents the §6 audit state and locks in the cleanup checkpoint reached after slices 1-5 (177-test claude-migration baseline → 192 tests post-slice-5 with 3 new dry_run regression tests, the 10-test snapshot suite, and the 12-test concat_analyzer suite). The follow-up project will land the slice-6 cleanup grep at 0 hits.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria (relaxed for slice 6 documented audit):
+- §6.a clean (bombcell cache knobs in code): yes.
+- §6.d (every label/merge phase has dry_run knob): yes.
+- §6.b, §6.c, §6.e: deferred — cleanup-grep hits attributable to the cache helpers and their merge-orchestrator consumers.
+
+Validation:
+- Pre-slice baseline: 192 spikesort tests passed.
+- This commit: docs only; tests remain at 192.
+
+Smokes:
+- BLOCKED-SMOKE for §6.e end-to-end check (precondition gap).
+
+CLI / Debug Flag Impact: none.
+Logging / Parallelism Impact: none.
+Storage / Cache Impact: none (no code change).
+Container / NERSC / MPI Impact: none.
+Resume / Force-Restart Impact: none.
+
+Residual Risk And Follow-Ups:
+- Slice 7 (mutation-safety regression suite) lands next in this iteration.
+- "Cache Infrastructure Removal" follow-up project listed above (5 deferred items). The SPIKESORT REPAIR PARTIAL final notes entry will summarize this for the next operator.
+
+Rollback Notes:
+- Docs-only commit. Revert is a no-op.
+
 ## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 5 (merge_si_auto + merge_unitmatch dry_run knobs)
 
 Status: accepted
