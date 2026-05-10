@@ -269,6 +269,7 @@ DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
 	"sort",
 	"summarize_sort",
 	"snapshot_sorter_output",
+	"concat_analyzer",
 	"bombcell_label",
 	"merge_SLAy",
 	"merge_si_auto",
@@ -292,6 +293,10 @@ _SPIKESORT_PHASE_ALIASES: dict[str, str] = {
 	"snapshot": "snapshot_sorter_output",
 	"snapshot_sorter": "snapshot_sorter_output",
 	"sorter_output_snapshot": "snapshot_sorter_output",
+	"concat_analyzer": "concat_analyzer",
+	"analyzer": "concat_analyzer",
+	"build_concat_analyzer": "concat_analyzer",
+	"sorting_analyzer": "concat_analyzer",
 	"bombcell_label": "bombcell_label",
 	"bombcell": "bombcell_label",
 	"label_bombcell": "bombcell_label",
@@ -412,6 +417,7 @@ class SpikesortStageConfig:
 	sort_resource_class: str | None
 	summarize_sort_resource_class: str | None
 	snapshot_sorter_output_resource_class: str | None
+	concat_analyzer_resource_class: str | None
 	bombcell_label_resource_class: str | None
 	merge_slay_resource_class: str | None
 	merge_si_auto_resource_class: str | None
@@ -490,6 +496,13 @@ class SpikesortStageConfig:
 	snapshot_sorter_output_enabled: bool
 	snapshot_sorter_output_relpath: str
 	snapshot_sorter_output_skip_if_exists: bool
+	concat_analyzer_enabled: bool
+	concat_analyzer_relpath: str
+	concat_analyzer_format: str
+	concat_analyzer_rebuild_on_sorter_output_change: bool
+	concat_analyzer_extensions: dict[str, dict[str, Any]] | None
+	concat_analyzer_n_jobs: int | None
+	concat_analyzer_compute_sparsity: bool
 	bombcell_label_enabled: bool
 	bombcell_label_relpath: str
 	bombcell_label_delete_outputs_on_force_restart: bool
@@ -815,6 +828,8 @@ def parse_spikesort_stage_config(
 	)
 	summarize_sort_phase_cfg = _as_section(phases_cfg.get("summarize_sort", {}))
 	snapshot_sorter_output_phase_cfg = _as_section(phases_cfg.get("snapshot_sorter_output", {}))
+	concat_analyzer_phase_cfg = _as_section(phases_cfg.get("concat_analyzer", {}))
+	concat_analyzer_extensions_cfg = concat_analyzer_phase_cfg.get("extensions", None)
 	bombcell_phase_cfg_raw = phases_cfg.get("bombcell_label", None)
 	bombcell_phase_cfg = _as_section(bombcell_phase_cfg_raw)
 	bombcell_analyzer_cfg = _as_section(bombcell_phase_cfg.get("analyzer", {}))
@@ -846,6 +861,7 @@ def parse_spikesort_stage_config(
 	snapshot_sorter_output_resource_class = _phase_resource_class(
 		snapshot_sorter_output_phase_cfg, "snapshot_sorter_output"
 	)
+	concat_analyzer_resource_class = _phase_resource_class(concat_analyzer_phase_cfg, "concat_analyzer")
 	bombcell_label_resource_class = _phase_resource_class(bombcell_phase_cfg, "bombcell_label")
 	merge_slay_resource_class = _phase_resource_class(merge_slay_phase_cfg, "merge_SLAy")
 	merge_si_auto_resource_class = _phase_resource_class(merge_si_auto_phase_cfg, "merge_si_auto")
@@ -1424,6 +1440,60 @@ def parse_spikesort_stage_config(
 		),
 		True,
 	)
+	concat_analyzer_enabled = _as_bool(
+		_coalesce(
+			concat_analyzer_phase_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	concat_analyzer_relpath = _normalize_optional_relpath(
+		_coalesce(
+			concat_analyzer_phase_cfg.get("relpath", None),
+			concat_analyzer_phase_cfg.get("output_relpath", None),
+			"concat_analyzer",
+		)
+	) or "concat_analyzer"
+	concat_analyzer_format = str(
+		_coalesce(
+			concat_analyzer_phase_cfg.get("format", None),
+			"binary_folder",
+		)
+	).strip() or "binary_folder"
+	concat_analyzer_rebuild_on_sorter_output_change = _as_bool(
+		_coalesce(
+			concat_analyzer_phase_cfg.get("rebuild_on_sorter_output_change", None),
+			True,
+		),
+		True,
+	)
+	concat_analyzer_n_jobs = _as_optional_positive_int(
+		concat_analyzer_phase_cfg.get("n_jobs", None)
+	)
+	concat_analyzer_compute_sparsity = _as_bool(
+		_coalesce(
+			concat_analyzer_phase_cfg.get("compute_sparsity", None),
+			True,
+		),
+		True,
+	)
+	concat_analyzer_extensions: dict[str, dict[str, Any]] | None = None
+	if isinstance(concat_analyzer_extensions_cfg, dict):
+		extensions_dict: dict[str, dict[str, Any]] = {}
+		for ext_name, ext_kwargs in concat_analyzer_extensions_cfg.items():
+			ext_name_str = str(ext_name).strip()
+			if not ext_name_str:
+				continue
+			if ext_kwargs is None:
+				extensions_dict[ext_name_str] = {}
+			elif isinstance(ext_kwargs, dict):
+				extensions_dict[ext_name_str] = dict(ext_kwargs)
+			else:
+				raise ValueError(
+					f"phases.concat_analyzer.extensions.{ext_name_str} must be a mapping (or null), "
+					f"got {type(ext_kwargs).__name__}"
+				)
+		concat_analyzer_extensions = extensions_dict if extensions_dict else None
 	unitmatch_enabled = _as_bool(
 		_coalesce(
 			unitmatch_cfg.get("enabled", None),
@@ -3558,6 +3628,7 @@ def parse_spikesort_stage_config(
 		sort_resource_class=sort_resource_class,
 		summarize_sort_resource_class=summarize_sort_resource_class,
 		snapshot_sorter_output_resource_class=snapshot_sorter_output_resource_class,
+		concat_analyzer_resource_class=concat_analyzer_resource_class,
 		bombcell_label_resource_class=bombcell_label_resource_class,
 		merge_slay_resource_class=merge_slay_resource_class,
 		merge_si_auto_resource_class=merge_si_auto_resource_class,
@@ -3715,6 +3786,15 @@ def parse_spikesort_stage_config(
 		snapshot_sorter_output_enabled=bool(snapshot_sorter_output_enabled),
 		snapshot_sorter_output_relpath=str(snapshot_sorter_output_relpath),
 		snapshot_sorter_output_skip_if_exists=bool(snapshot_sorter_output_skip_if_exists),
+		concat_analyzer_enabled=bool(concat_analyzer_enabled),
+		concat_analyzer_relpath=str(concat_analyzer_relpath),
+		concat_analyzer_format=str(concat_analyzer_format),
+		concat_analyzer_rebuild_on_sorter_output_change=bool(
+			concat_analyzer_rebuild_on_sorter_output_change
+		),
+		concat_analyzer_extensions=concat_analyzer_extensions,
+		concat_analyzer_n_jobs=concat_analyzer_n_jobs,
+		concat_analyzer_compute_sparsity=bool(concat_analyzer_compute_sparsity),
 		bombcell_label_enabled=bool(bombcell_label_enabled),
 		bombcell_label_relpath=str(bombcell_label_relpath),
 		bombcell_label_delete_outputs_on_force_restart=bool(bombcell_label_delete_outputs_on_force_restart),

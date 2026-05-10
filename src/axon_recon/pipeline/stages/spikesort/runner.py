@@ -3738,6 +3738,137 @@ def run_spikesort_restore_sorter_output_stage(
 	)
 
 
+def run_spikesort_concat_analyzer_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	from .core.concat_analyzer import (
+		DEFAULT_CONCAT_ANALYZER_EXTENSIONS,
+		run_concat_analyzer_phase,
+	)
+
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+
+	analyzer_relpath = str(getattr(stage_config, "concat_analyzer_relpath", None) or "concat_analyzer")
+	analyzer_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=str(output_rel_root or "spikesort_outputs"),
+		relpath=analyzer_relpath,
+	)
+	summary_json = (stage_output_root_dir / "concat_analyzer_summary.json").resolve()
+
+	if not bool(getattr(stage_config, "concat_analyzer_enabled", False)):
+		payload = {
+			"status": "skipped",
+			"reason": "concat_analyzer_disabled",
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"analyzer_dir": str(analyzer_dir),
+			"outputs": {"summary_json": str(summary_json)},
+		}
+		_write_json(summary_json, payload)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={"summary_json": str(summary_json)},
+		)
+
+	sorter_output_dir = _resolve_existing_sorter_output_dir(stage_output_root_dir=stage_output_root_dir)
+
+	si_module = _import_spikeinterface_full_module()
+	recording_relpath = _spikesort_preprocessed_recording_relpath(stage_config)
+	recording_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath=recording_relpath)
+	recording = _load_preprocessed_recording_from_dir(si_module=si_module, recording_dir=recording_dir)
+	sorting = _load_sorting_from_sorter_output_dir(
+		si_module=si_module,
+		sorter_output_dir=sorter_output_dir,
+		sorter_name=str(getattr(stage_config, "sorter", "kilosort4") or "kilosort4"),
+	)
+
+	configured_extensions = getattr(stage_config, "concat_analyzer_extensions", None)
+	if configured_extensions is None:
+		extensions = {k: dict(v) for k, v in DEFAULT_CONCAT_ANALYZER_EXTENSIONS.items()}
+	else:
+		extensions = {str(k): dict(v or {}) for k, v in configured_extensions.items()}
+
+	rebuild_on_change = bool(getattr(stage_config, "concat_analyzer_rebuild_on_sorter_output_change", True))
+	# force_restart wipes any existing analyzer regardless of fingerprint.
+	if bool(force_restart) and analyzer_dir.exists():
+		shutil.rmtree(analyzer_dir, ignore_errors=False)
+
+	_log_phase_step_start(
+		"Spikesort concat_analyzer step start",
+		stream_id=str(stream_id),
+		sorter_output_dir=str(sorter_output_dir),
+		analyzer_dir=str(analyzer_dir),
+		extensions=list(extensions.keys()),
+		rebuild_on_sorter_output_change=bool(rebuild_on_change),
+		force_restart=bool(force_restart),
+	)
+
+	core_payload = run_concat_analyzer_phase(
+		sorter_output_dir=sorter_output_dir,
+		recording=recording,
+		sorting=sorting,
+		analyzer_dir=analyzer_dir,
+		extensions=extensions,
+		rebuild_on_sorter_output_change=rebuild_on_change,
+		analyzer_format=str(getattr(stage_config, "concat_analyzer_format", "binary_folder") or "binary_folder"),
+		compute_sparsity=bool(getattr(stage_config, "concat_analyzer_compute_sparsity", True)),
+		n_jobs=getattr(stage_config, "concat_analyzer_n_jobs", None),
+		create_sorting_analyzer_fn=getattr(si_module, "create_sorting_analyzer", None),
+		load_sorting_analyzer_fn=getattr(si_module, "load_sorting_analyzer", None),
+		logger=LOGGER,
+	)
+
+	outputs = {
+		"summary_json": str(summary_json),
+		"concat_analyzer.analyzer_dir": str(analyzer_dir),
+		"concat_analyzer.fingerprint_path": str(core_payload.get("fingerprint_path", "")),
+	}
+	payload = {
+		"status": str(core_payload.get("status", "ok")),
+		"well_out_dir": str(well_out_dir),
+		"stage_output_root_dir": str(stage_output_root_dir),
+		"sorter_output_dir": str(sorter_output_dir),
+		"analyzer_dir": str(analyzer_dir),
+		"format": str(core_payload.get("format", "binary_folder")),
+		"rebuilt": bool(core_payload.get("rebuilt", False)),
+		"rebuild_reason": core_payload.get("rebuild_reason", None),
+		"extensions_requested": list(core_payload.get("extensions_requested", []) or []),
+		"extensions_computed": list(core_payload.get("extensions_computed", []) or []),
+		"extensions_skipped": list(core_payload.get("extensions_skipped", []) or []),
+		"extension_count": int(core_payload.get("extension_count", 0) or 0),
+		"file_count": int(core_payload.get("file_count", 0) or 0),
+		"total_bytes": int(core_payload.get("total_bytes", 0) or 0),
+		"combined_sha256": str(core_payload.get("combined_sha256", "")),
+		"force_restart": bool(force_restart),
+		"outputs": outputs,
+	}
+	_write_json(summary_json, payload)
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
 def _spikesort_preprocessed_recording_relpath(stage_config: Any) -> str:
 	return str(
 		getattr(stage_config, "preprocess_concat_recording_relpath", None)

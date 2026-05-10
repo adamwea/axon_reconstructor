@@ -95,6 +95,71 @@ claude-migration baseline: 437 passed / 0 failed / 0 skipped (test_progress.py e
 a18c9d2 | slice 1 [sonnet] | add nested_shape to phase resource classes
 f32a2a8 | slice 2 [opus] | split build_templates into extract_partial_templates and build_templates
 
+## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 2 (concat_analyzer phase)
+
+Status: accepted
+
+Summary:
+- Added new `spikesort.concat_analyzer` phase: builds (or reuses) the canonical concat-level `SortingAnalyzer` once per well, with extensions computed inline. Reuse is gated by a `sorter_output_fingerprint.json` file (combined sha256 of every file under `sorter_output`); when the fingerprint changes the analyzer is rebuilt.
+- New core module `core/concat_analyzer.py`:
+  - `compute_sorter_output_fingerprint(...)` — deterministic per-file sha256 + combined hash + total bytes.
+  - `fingerprints_match(a, b)` — compare on `combined_sha256 + file_count + total_bytes`.
+  - `run_concat_analyzer_phase(...)` — accepts injected `create_sorting_analyzer_fn` / `load_sorting_analyzer_fn` (so tests don't depend on `spikeinterface`); writes `sorter_output_fingerprint.json` after every successful build.
+  - `DEFAULT_CONCAT_ANALYZER_EXTENSIONS = {random_spikes(max_spikes_per_unit=500), waveforms(ms_before=1.0,ms_after=2.0), templates, noise_levels}` — the union of what bombcell_label and the merge stage compute today.
+- Inserted `concat_analyzer` into `DEFAULT_SPIKESORT_PHASE_SEQUENCE` between `snapshot_sorter_output` and `bombcell_label`. Default `enabled: false`. Aliases: `analyzer`, `build_concat_analyzer`, `sorting_analyzer` → `concat_analyzer`.
+- Wired runner stage `run_spikesort_concat_analyzer_stage`, api `build_spikesort_concat_analyzer`, orchestrator file, pipeline `run_spikesort_concat_analyzer_from_runtime`, per-target runner `_run_spikesort_concat_analyzer_target`, CLI handler `spikesort.concat_analyzer`, and CLI aliases `spikesort.analyzer` / `spikesort.build_concat_analyzer`.
+- Plan posture (slice 2 explicitly says "lift, don't move"): existing per-phase analyzer-build helpers (`_prepare_replot_workspace_analyzer`, `_load_or_recompute_bombcell_sorting_analyzer`) remain in place. Slices 3-5 will migrate the call sites and then delete the duplicates.
+- Plan deviation: same as slice 1 — flat phase-prefixed fields on the single `SpikesortStageConfig` dataclass (no per-phase dataclass). Added `concat_analyzer_{enabled,relpath,format,rebuild_on_sorter_output_change,extensions,n_jobs,compute_sparsity,resource_class}`.
+
+Guardrails Consulted:
+- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/logging_agent_guardrails.md`
+- `debug/parallelism_agent_guardrails.md`
+- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/first_version_pipeline_guardrails.md`
+
+Acceptance Criteria:
+- Synthetic-fixture unit tests cover fingerprint determinism, fingerprint mutation detection, build-when-missing (rebuilt=True, reason=analyzer_dir_missing), reuse-when-unchanged (rebuilt=False), rebuild-on-mutation (reason=sorter_output_fingerprint_changed), default-extensions fallback, custom-extensions on disk, rebuild-when-skip-disabled, missing-source rejection, config-parse defaults+overrides, non-mapping extension rejection, and phase-sequence ordering snapshot < analyzer < bombcell.
+- `git grep -n "concat_analyzer" src/axon_recon/pipeline/stages/spikesort/` lights up the new code.
+- Phase is opt-in (`enabled: false` in YAML); existing 437-test claude-migration baseline remains green.
+
+Validation:
+- Pre-slice baseline pytest (after stashing unrelated reconstruct/runner edits): 177 passed in 2.82s, 0 failed.
+- Post-slice spikesort pytest: 189 passed in 2.85s (177 baseline + 12 new tests, 0 failed).
+- Post-slice broader pipeline pytest (excluding pre-existing test_progress.py TabError): 457 passed in 23.87s.
+- CLI registration verified: `axon-recon stages spikesort.concat_analyzer --help` resolves via the global stages parser; `_STAGE_HANDLERS["spikesort.concat_analyzer"]` is registered.
+
+Smokes:
+- BLOCKED-SMOKE: S2 requires existing post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` and a preprocessed concat recording on the target server. Output root has no sorter_output directories yet (same precondition gap as slice 1). Per the loop's failure-handling rule, marked BLOCKED-SMOKE; correctness is covered by the 12 new unit tests (deterministic fingerprint, build/skip/rebuild branches, extensions on disk, default-set fallback, error paths).
+
+CLI / Debug Flag Impact:
+- New stage handler: `spikesort.concat_analyzer`.
+- New aliases: `spikesort.analyzer`, `spikesort.build_concat_analyzer`.
+- No new flags introduced.
+
+Logging / Parallelism Impact:
+- Phase emits a phase-step-start log via `_log_phase_step_start` with stream_id, sorter_output_dir, analyzer_dir, extension list, rebuild flags.
+- `concat_analyzer_resource_class` plumbed through `_spikesort_phase_resource_classes_from_labels` (default empty; YAML sample uses `spikeinterface_analyzer_concat`).
+
+Storage / Cache Impact:
+- One canonical analyzer per well at `<well>/spikesort_outputs/concat_analyzer/`. Disabled by default in YAML; opt-in only.
+- Fingerprint file is small (sha256 hex + per-file map) and lives inside the analyzer dir.
+
+Container / NERSC / MPI Impact:
+- None. Pure-python file I/O + spikeinterface invocation. No GPU or container path touched. Inner worker count via `concat_analyzer_n_jobs`; will be wired through phase budgets in a later slice.
+
+Resume / Force-Restart Impact:
+- `--force-restart` wipes the analyzer dir and forces a rebuild regardless of fingerprint.
+- `rebuild_on_sorter_output_change=False` in YAML pins the analyzer to whatever was last built (useful for iterating on label/merge phases without touching sorter_output).
+
+Residual Risk And Follow-Ups:
+- Smoke S2 deferred to a later slice once sort outputs exist.
+- Slices 3-4 will migrate `bombcell_label` and `merge_SLAy` onto this analyzer and delete the duplicate analyzer-build helpers (`_prepare_replot_workspace_analyzer`, `_load_or_recompute_bombcell_sorting_analyzer`) that are still used by today's call sites.
+- The default extension set is the union of what existing call sites compute; if slice 3 finds a missing extension that bombcell needs, add it to the YAML / DEFAULT_CONCAT_ANALYZER_EXTENSIONS at that point.
+
+Rollback Notes:
+- Revert this commit; the new phase is opt-in (`enabled: false`) so reverting has no behavioral impact on running configs.
+
 ## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 1 (snapshot_sorter_output + restore CLI)
 
 Status: accepted

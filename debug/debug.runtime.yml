@@ -563,6 +563,31 @@ stages:
         relpath: sorter_output_snapshot
         skip_if_exists: true
 
+      concat_analyzer:
+        # Build the canonical concat-level SortingAnalyzer once per well.
+        # Slices 3-5 will switch bombcell_label / merge_SLAy / merge_si_auto / merge_unitmatch
+        # to consume this analyzer instead of building their own. Today (slice 2) the phase
+        # exists but call sites are unchanged.
+        # rebuild_on_sorter_output_change=true uses sorter_output_fingerprint.json to skip
+        # rebuilds when sorter_output is unchanged.
+        enabled: false
+        resource_class: spikeinterface_analyzer_concat
+        relpath: concat_analyzer
+        format: binary_folder
+        rebuild_on_sorter_output_change: true
+        compute_sparsity: true
+        # n_jobs: null  # take from phase budget by default
+        # extensions: null  # null → use DEFAULT_CONCAT_ANALYZER_EXTENSIONS (random_spikes,
+        #                   #   waveforms, templates, noise_levels). Override with a mapping:
+        # extensions:
+        #   random_spikes:
+        #     max_spikes_per_unit: 500
+        #   waveforms:
+        #     ms_before: 1.0
+        #     ms_after: 2.0
+        #   templates: {}
+        #   noise_levels: {}
+
       bombcell_label:
         enabled: true
         resource_class: spikeinterface_analyzer_concat

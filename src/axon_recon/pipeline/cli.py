@@ -113,6 +113,9 @@ from .stages.spikesort.cli import (
 	_run_merge_unitmatch_from_args as _run_spikesort_merge_unitmatch_from_args,
 )
 from .stages.spikesort.cli import (
+	_run_concat_analyzer_from_args as _run_spikesort_concat_analyzer_from_args,
+)
+from .stages.spikesort.cli import (
 	_run_restore_sorter_output_from_args as _run_spikesort_restore_sorter_output_from_args,
 )
 from .stages.spikesort.cli import (
@@ -178,6 +181,8 @@ _STAGE_ALIASES: dict[str, str] = {
 	"spikesort.summary": "spikesort.summarize_sort",
 	"spikesort.snapshot": "spikesort.snapshot_sorter_output",
 	"spikesort.restore": "spikesort.restore_sorter_output",
+	"spikesort.analyzer": "spikesort.concat_analyzer",
+	"spikesort.build_concat_analyzer": "spikesort.concat_analyzer",
 	"spikesort.merge_units": "spikesort.merge",
 	"spikesort.merge.slay": "spikesort.merge_SLAy",
 	"spikesort.merge_SLAy": "spikesort.merge_SLAy",
@@ -282,6 +287,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"spikesort.summarize_sort": _run_spikesort_summarize_sort_from_args,
 	"spikesort.snapshot_sorter_output": _run_spikesort_snapshot_sorter_output_from_args,
 	"spikesort.restore_sorter_output": _run_spikesort_restore_sorter_output_from_args,
+	"spikesort.concat_analyzer": _run_spikesort_concat_analyzer_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
 	"spikesort.merge_SLAy": _run_spikesort_merge_slay_from_args,
 	"spikesort.merge_si_auto": _run_spikesort_merge_si_auto_from_args,

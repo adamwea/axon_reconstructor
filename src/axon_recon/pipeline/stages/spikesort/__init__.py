@@ -2,6 +2,7 @@
 
 from .api import (
 	bootstrap_spikesort_concat_binary,
+	build_spikesort_concat_analyzer,
 	cleanup_spikesort_concat_binary,
 	restore_spikesort_sorter_output,
 	run_spikesort,
@@ -17,6 +18,8 @@ from .orchestrators import (
 	run_spikesort_bootstrap_concat_binary_from_runtime,
 	run_spikesort_cleanup_concat_binary,
 	run_spikesort_cleanup_concat_binary_from_runtime,
+	run_spikesort_concat_analyzer,
+	run_spikesort_concat_analyzer_from_runtime,
 	run_spikesort_merge_si_auto,
 	run_spikesort_merge_si_auto_from_runtime,
 	run_spikesort_merge_slay,
@@ -38,6 +41,7 @@ from .orchestrators import (
 __all__ = [
 	"run_spikesort",
 	"bootstrap_spikesort_concat_binary",
+	"build_spikesort_concat_analyzer",
 	"cleanup_spikesort_concat_binary",
 	"restore_spikesort_sorter_output",
 	"run_spikesort_bombcell",
@@ -47,6 +51,8 @@ __all__ = [
 	"run_spikesort_bootstrap_concat_binary_from_runtime",
 	"run_spikesort_cleanup_concat_binary",
 	"run_spikesort_cleanup_concat_binary_from_runtime",
+	"run_spikesort_concat_analyzer",
+	"run_spikesort_concat_analyzer_from_runtime",
 	"run_spikesort_merge_si_auto",
 	"run_spikesort_merge_si_auto_from_runtime",
 	"run_spikesort_merge_slay",
