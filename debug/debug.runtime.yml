@@ -33,7 +33,7 @@ resources:
         gpu_sort_slots: 2
         h5_read_slots: 6
         disk_heavy_slots: 6
-        plot_slots: 1
+        plot_slots: 2
         analyzer_slots: 2
         #default_chunk_duration: 1s
       task_allocation:
@@ -112,7 +112,7 @@ resources:
     bootstrap_concat_binary:
       description: Concatenated binary/cache creation from preprocessed segment recordings.
       bottleneck: disk_io
-      ram_gb: 24
+      ram_gb: 8
       disk_heavy_slots: 1
       nested_shape: si_njobs
       keyed_resources:
