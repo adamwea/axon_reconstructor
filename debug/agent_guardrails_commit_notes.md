@@ -91,6 +91,65 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-11 - ANALYSIS STAGE + DASHBOARD COMPLETE
+
+Status: accepted
+
+`debug/analysis_stage_and_dashboard_plan.md` is fully landed in 6 slices on
+branch `analysis-stage-and-dashboard` (off `7affce9` which sits on top of
+`spikesort-merge-cleanup`). Final commits:
+
+- slice 1: `cffae39` — analysis stage skeleton + per-well manifest
+- slice 2: `31b4a39` — starter metrics + units.parquet
+- slice 3: `cd1db26` — well_summary.parquet aggregates
+- slice 4: `05c2531` — dashboard CLI + minimal Dash app
+- slice 5: `e979a0a` — box plot + significance brackets
+- slice 6: `ffb5a11` — scatter + facet + export buttons
+
+Plus one unrelated commit `0e8b30e` (user-requested `plot_report_grid.ram_gb` tuning, committed mid-loop for cleanliness; not part of the plan).
+
+### Definition of Done (plan §8)
+
+1. ✅ All six slices committed in order, every commit's tests green at its HEAD.
+2. ✅ `axon-recon stages analysis --config debug/debug.runtime.yml --target-dataset 11 --limit-wells 1` (in-process fallback while the user holds the container) writes:
+   - `<well>/analysis_outputs/manifest.json` with all identity fields populated (project / recording_date / chip_id / scan_type / run_id / well_id / dataset_id / DIV=36 / well_attributes={genotype:WT, media:DMEM, plating_density:80000}).
+   - `<well>/analysis_outputs/tables/units.parquet` with 218 rows (141 `recon_status=ok` + 77 error). All four starter metrics non-null for every ok row.
+   - `<well>/analysis_outputs/tables/well_summary.parquet` with a single-row aggregate (unit_count_total=218, unit_count_recon_ok=141, unit_count_bombcell_good=13, unit_count_bombcell_non_soma_good=1, mean/median for each of the 4 starter metrics).
+3. ✅ `axon-recon dashboard --config debug/debug.runtime.yml --port 8053 --no-browser --target-dataset 11 --limit-wells 1` boots in 4s, serves `/_dash-layout` (HTTP 200, 19714 bytes) + `/_dash-dependencies` (HTTP 200), exits cleanly on SIGTERM. The filter rail (project / chip_id / well_id / DIV range / genotype / media / plating_density / scan_type / bombcell allowlist / min num_spikes / min num_branches / min recon_quality_score / require recon_status=='ok') and three plot tabs (histogram / box / scatter) render against the dataset-11 well000 artifact.
+4. ✅ `pytest src/axon_recon/pipeline/stages/analysis/ src/axon_recon/dashboard/ -q` → 115 passed (53 analysis + 62 dashboard).
+5. ✅ `pytest src/axon_recon/pipeline/ -q --ignore=src/axon_recon/pipeline/tests/test_progress.py` → 15 baseline failures (strict subset of the slice-0 BASELINE captured under `/tmp/baseline_failures_slice0.txt`). No new failures introduced by this plan.
+6. ✅ §6 cleanup checklist:
+   - `git grep -nE "qc_pass\s*:|qc_pass\s*=" src/axon_recon/pipeline/stages/analysis/` → 0 hits.
+   - `git grep -n "gtr\.pkl\|GraphTracker\|pickle.load" src/axon_recon/pipeline/stages/analysis/` → 0 hits.
+   - `git diff e979a0a..HEAD -- src/axon_recon/pipeline/stages/spikesort/ | wc -l` → 0 (the spikesort hands-off boundary held for every slice; the 27393 lines vs `dev_branch2` are pre-existing `spikesort-merge-cleanup` work carried in this branch's base, not anything I touched — confirmed by `git diff 2fd2f5e..HEAD -- src/axon_recon/pipeline/stages/spikesort/` returning 0).
+   - `git grep -n "from axon_recon.pipeline.stages.analysis" src/axon_recon/dashboard/` → 0 hits (dashboard isolation maintained).
+   - `git grep -n "localhost:8050\|127.0.0.1:8050" src/axon_recon/` → 0 hits (only `--port=8050` default in `dashboard/cli.py`, no string literal).
+   - `environment.yml` + Dockerfile both contain `pyarrow`, `plotly>=5.18`, `dash>=2.14`, `dash-ag-grid`, `statsmodels`, `kaleido`.
+7. ✅ This entry.
+
+### Smoke matrix (plan §3) — final state
+
+- **A1** (slice 1 in-process): wrote a valid manifest with empty `tables`. ✓
+- **A2** (slice 2 in-process): wrote `units.parquet` with the full documented schema, 141 ok rows with all 4 metrics non-null. ✓
+- **A3** (slice 3 in-process): wrote `well_summary.parquet` with correct count + mean/median aggregates over ok rows only. ✓
+- **A4** (slice 4 → re-run after slices 5 & 6): dashboard boots, replies on `/_dash-layout` (final layout 19714 bytes), exits cleanly on SIGTERM. ✓
+- **A5** (slice 5 callback test): the WT/KO box-plot test asserts at least one bracket shape + a `***` annotation. ✓
+
+### Deviations from the plan (carried through the run)
+
+- **Slice 1 `cpu_light` resource class**: the plan referenced `phases.compute_metrics.resource_class: cpu_light` but `cpu_light` is not defined under `resources.phase_budgets`. Used the existing `disk_cleanup` class instead — the `compute_metrics` phase is light disk-metadata work and the swap keeps the diff smaller. A dedicated `cpu_light` class can be defined later if/when the metric workload outgrows `disk_cleanup`.
+- **Slice 4 `app.run(use_reloader=False)`**: forced off unconditionally so SIGTERM teardown stays single-PID. `--debug` still flips Dash's debug toolbar on; auto-reload on file changes is the only thing dropped.
+- **Slice 4 plan/loop-prompt files**: the user committed `debug/analysis_stage_and_dashboard_{plan,loop_prompt}.md` themselves on top of `spikesort-merge-cleanup` (commit `771d0c3`) before the loop's first iteration. The loop then created `analysis-stage-and-dashboard` from that tip rather than from `dev_branch2`, since `dev_branch2` HEAD predates the spikesort-merge-cleanup work and the loop prompt explicitly says "or whatever the current main branch is".
+- **Slice 6 `_register_image_download` helper**: one helper drives all 9 image-download callbacks (3 plots × 3 formats) instead of 9 nearly identical callback definitions. The plan asked for "Download button group on every plot"; the helper satisfies that without an explosion of boilerplate.
+- **Slice 5 + 6 visual screenshots**: the autonomous loop can't capture screenshots, so the plan's "Manual visual sanity" notes are replaced by the Dash callback tests (`***` bracket annotation in slice 5; multi-trace scatter with color + facet in slice 6).
+
+### Operational notes for the next maintainer
+
+- `pyarrow`, `plotly`, `dash`, `dash-ag-grid`, `statsmodels`, and `kaleido` were `pip install`-ed into the local conda env so the loop's tests + smokes could exercise them. The container will pick them up on its next rebuild via `AXON_RECON_RUNTIME_SPEC`.
+- The cluster_group.tsv `bombcell_label` distribution on the dataset-11 fixture includes `merged` (12 rows) and `non_soma_mua` (2 rows) — labels not in plan §4's explicit allowlist. The reader passes them through verbatim; the dashboard's default allowlist (good + non_soma_good) drops both, but users can opt-in via the multi-select control.
+- `pipeline_version` falls back to `"unknown"` when the `axon_recon` distribution isn't installed in editable mode in the env. If this matters downstream, the next maintainer can either install the package editable (`pip install -e .`) or override `stages.analysis.pipeline_version` in the runtime YAML.
+- The dashboard's per-image-download callbacks recompute the filtered DataFrame + figure on click rather than reading from a hidden `dcc.Store`. Authoritative-by-design but pays a small recompute cost per export click; if that ever becomes a problem, a Store-backed pipeline can replace it.
+
 ## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, scatter + facet + export buttons (slice 6)
 
 Status: pending
