@@ -120,21 +120,37 @@ resources:
     kilosort4:
       description: GPU-backed Kilosort4 sorting through SpikeInterface.
       bottleneck: gpu_and_disk_io
-      ram_gb: 24
+      #ram_gb: 24
+      ram_gb: 16
       gpu_sort_slots: 1
       disk_heavy_slots: 1
       nested_shape: si_njobs
     spikeinterface_analyzer_concat:
       description: SpikeInterface analyzer, waveform, template, sparsity, or curation work.
       bottleneck: ram_cpu_disk_io
-      ram_gb: 48
+      #ram_gb: 48
+      ram_gb: 28
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    bombcell_label:
+      description: Bombcell labeling work that consumes a concat-level analyzer and produces proposed labels.
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 16
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    merge_SLAy:
+      description: SLAy merge work that consumes a concat-level analyzer and produces merge recommendations and metadata summaries.
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 24
       analyzer_slots: 1
       disk_heavy_slots: 1
       nested_shape: si_njobs
     spikeinterface_analyzer_segment:
       description: SpikeInterface analyzer work that can be done at the segment level before concatenation, such as per-segment quality metrics or representative channel scoring.
       bottleneck: ram_cpu_disk_io
-      ram_gb: 25
+      ram_gb: 14
       analyzer_slots: 1
       disk_heavy_slots: 1
       nested_shape: si_njobs
