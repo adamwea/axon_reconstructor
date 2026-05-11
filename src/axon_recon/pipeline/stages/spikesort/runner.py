@@ -1215,105 +1215,6 @@ def _path_latest_mtime(path: Path) -> float | None:
 	return latest_mtime
 
 
-def _prepare_replot_workspace_analyzer(
-	*,
-	si_module: Any,
-	well_out_dir: Path,
-	sorter_output_dir: Path,
-	stage_config: Any,
-	analyzer_dir: Path,
-	regenerate_on_replot: bool,
-	check_if_regen_is_needed: bool,
-	fallback_policy: dict[str, Any] | None = None,
-) -> tuple[Any, Path, dict[str, Any], bool, str | None]:
-	analyzer_dir = Path(analyzer_dir).resolve()
-	sorter_output_dir = Path(sorter_output_dir).resolve()
-	requested_policy = _requested_merge_analyzer_policy(stage_config)
-	load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
-	analyzer_obj: Any | None = None
-	regenerated = False
-	regen_reason: str | None = None
-	should_regenerate = False
-
-	if not analyzer_dir.exists():
-		should_regenerate = True
-		regen_reason = "analyzer_output_missing"
-	elif regenerate_on_replot:
-		if not check_if_regen_is_needed:
-			should_regenerate = True
-			regen_reason = "forced_replot_regeneration"
-		else:
-			recorded_policy = _read_merge_analyzer_policy_info_from_dir(analyzer_dir)
-			if recorded_policy is None and isinstance(fallback_policy, dict):
-				recorded_policy = dict(fallback_policy)
-			if not _merge_analyzer_policy_matches_requested(
-				recorded_policy=recorded_policy,
-				requested_policy=requested_policy,
-			):
-				should_regenerate = True
-				regen_reason = "policy_changed"
-			else:
-				analyzer_mtime = _path_latest_mtime(analyzer_dir)
-				sorter_mtime = _path_latest_mtime(sorter_output_dir)
-				if analyzer_mtime is None:
-					should_regenerate = True
-					regen_reason = "analyzer_output_missing"
-				elif sorter_mtime is not None and sorter_mtime > (analyzer_mtime + 1e-6):
-					should_regenerate = True
-					regen_reason = "sorter_output_newer_than_analyzer"
-				else:
-					if not callable(load_sorting_analyzer):
-						raise RuntimeError("load_sorting_analyzer unavailable for replot analyzer reuse")
-					try:
-						analyzer_obj = _load_spikesort_analyzer_with_recording(
-							si_module=si_module,
-							analyzer_dir=analyzer_dir,
-							well_out_dir=well_out_dir,
-							stage_config=stage_config,
-						)
-					except Exception:
-						should_regenerate = True
-						regen_reason = "analyzer_load_failed"
-					else:
-						loaded_analyzer_had_sparsity = _analyzer_has_sparsity(analyzer_obj)
-						if (not bool(requested_policy.get("requested_compute_sparsity", True))) and loaded_analyzer_had_sparsity:
-							analyzer_obj = None
-							should_regenerate = True
-							regen_reason = "loaded_sparse_analyzer"
-
-	if should_regenerate:
-		analyzer_obj, analyzer_dir = _recompute_sorting_analyzer_to_dir(
-			si_module=si_module,
-			well_out_dir=well_out_dir,
-			sorter_output_dir=sorter_output_dir,
-			stage_config=stage_config,
-			analyzer_dir=analyzer_dir,
-		)
-		regenerated = True
-	else:
-		if analyzer_obj is None:
-			if not callable(load_sorting_analyzer):
-				raise RuntimeError("load_sorting_analyzer unavailable for replot analyzer reuse")
-			analyzer_obj = _load_spikesort_analyzer_with_recording(
-				si_module=si_module,
-				analyzer_dir=analyzer_dir,
-				well_out_dir=well_out_dir,
-				stage_config=stage_config,
-			)
-
-	loaded_analyzer_had_sparsity = _analyzer_has_sparsity(analyzer_obj)
-	policy_info = _describe_merge_analyzer_policy_info(
-		analyzer=analyzer_obj,
-		stage_config=stage_config,
-		loaded_analyzer_had_sparsity=loaded_analyzer_had_sparsity,
-		rebuild_reason=(regen_reason if regenerated else None),
-		reused_cached_analyzer=(False if regenerated else True),
-	)
-	_attach_merge_analyzer_policy_info(analyzer_obj, policy_info)
-	_write_merge_analyzer_policy_info_to_dir(analyzer_dir=analyzer_dir, policy_info=policy_info)
-	return analyzer_obj, analyzer_dir, policy_info, regenerated, regen_reason
-
-
 def _load_concat_analyzer_for_phase(
 	*,
 	si_module: Any,
@@ -3932,133 +3833,6 @@ def _load_sorting_from_sorter_output_dir(*, si_module: Any, sorter_output_dir: P
 	)
 
 
-def _recompute_spikesort_analyzer(
-	*,
-	si_module: Any,
-	well_out_dir: Path,
-	stage_output_root_dir: Path,
-	sorter_output_dir: Path,
-	stage_config: Any,
-) -> tuple[Any, Path]:
-	return _recompute_sorting_analyzer_to_dir(
-		si_module=si_module,
-		well_out_dir=well_out_dir,
-		sorter_output_dir=sorter_output_dir,
-		stage_config=stage_config,
-		analyzer_dir=(stage_output_root_dir / "analyzer_output").resolve(),
-	)
-
-
-def _recompute_sorting_analyzer_to_dir(
-	*,
-	si_module: Any,
-	well_out_dir: Path,
-	sorter_output_dir: Path,
-	stage_config: Any,
-	analyzer_dir: Path,
-) -> tuple[Any, Path]:
-	recording_relpath = _spikesort_preprocessed_recording_relpath(stage_config)
-	recording_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath=recording_relpath)
-	recording = _load_preprocessed_recording_from_dir(si_module=si_module, recording_dir=recording_dir)
-	sorting = _load_sorting_from_sorter_output_dir(
-		si_module=si_module,
-		sorter_output_dir=sorter_output_dir,
-		sorter_name=str(getattr(stage_config, "sorter", "kilosort4") or "kilosort4"),
-	)
-
-	analyzer_dir = Path(analyzer_dir).resolve()
-	if analyzer_dir.exists():
-		shutil.rmtree(analyzer_dir, ignore_errors=True)
-
-	create_sorting_analyzer = getattr(si_module, "create_sorting_analyzer", None)
-	if not callable(create_sorting_analyzer):
-		raise RuntimeError("spikeinterface.create_sorting_analyzer is required for analyzer recomputation")
-
-	create_kwargs = {
-		"sorting": sorting,
-		"recording": recording,
-		"format": "binary_folder",
-		"folder": analyzer_dir,
-	}
-	create_kwargs.update(_merge_analyzer_sparsity_create_kwargs(stage_config))
-	if _merge_dense_analyzer_requested(stage_config):
-		create_kwargs["sparse"] = False
-
-	try:
-		analyzer = create_sorting_analyzer(**create_kwargs)
-	except TypeError:
-		if "sparse" not in create_kwargs:
-			raise
-		create_kwargs.pop("sparse", None)
-		analyzer = create_sorting_analyzer(**create_kwargs)
-	analyzer = _attach_temporary_recording_to_spikesort_analyzer_if_missing(
-		analyzer=analyzer,
-		recording=recording,
-	)
-
-	policy_info = _describe_merge_analyzer_policy_info(
-		analyzer=analyzer,
-		stage_config=stage_config,
-		reused_cached_analyzer=False,
-	)
-	_attach_merge_analyzer_policy_info(analyzer, policy_info)
-	_write_merge_analyzer_policy_info_to_dir(analyzer_dir=analyzer_dir, policy_info=policy_info)
-	return analyzer, analyzer_dir
-
-
-def _load_or_recompute_spikesort_analyzer(
-	*,
-	si_module: Any,
-	well_out_dir: Path,
-	stage_output_root_dir: Path,
-	sorter_output_dir: Path,
-	stage_config: Any,
-) -> tuple[Any, Path, bool]:
-	analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
-	load_sorting_analyzer = getattr(si_module, "load_sorting_analyzer", None)
-	loaded_analyzer_had_sparsity: bool | None = None
-	rebuild_reason: str | None = None
-	if analyzer_dir.exists() and callable(load_sorting_analyzer):
-		try:
-			analyzer = _load_spikesort_analyzer_with_recording(
-				si_module=si_module,
-				analyzer_dir=analyzer_dir,
-				well_out_dir=well_out_dir,
-				stage_config=stage_config,
-			)
-			loaded_analyzer_had_sparsity = _analyzer_has_sparsity(analyzer)
-			if _merge_dense_analyzer_requested(stage_config) and loaded_analyzer_had_sparsity:
-				rebuild_reason = "loaded_sparse_analyzer"
-			else:
-				policy_info = _describe_merge_analyzer_policy_info(
-					analyzer=analyzer,
-					stage_config=stage_config,
-					loaded_analyzer_had_sparsity=loaded_analyzer_had_sparsity,
-					reused_cached_analyzer=True,
-				)
-				_attach_merge_analyzer_policy_info(analyzer, policy_info)
-				return analyzer, analyzer_dir, False
-		except Exception:
-			pass
-
-	analyzer, rebuilt_dir = _recompute_spikesort_analyzer(
-		si_module=si_module,
-		well_out_dir=well_out_dir,
-		stage_output_root_dir=stage_output_root_dir,
-		sorter_output_dir=sorter_output_dir,
-		stage_config=stage_config,
-	)
-	policy_info = _describe_merge_analyzer_policy_info(
-		analyzer=analyzer,
-		stage_config=stage_config,
-		loaded_analyzer_had_sparsity=loaded_analyzer_had_sparsity,
-		rebuild_reason=rebuild_reason,
-		reused_cached_analyzer=False,
-	)
-	_attach_merge_analyzer_policy_info(analyzer, policy_info)
-	return analyzer, rebuilt_dir, True
-
-
 def _normalize_merge_groups(raw_groups: Any) -> list[list[str]]:
 	if not isinstance(raw_groups, (list, tuple, set)):
 		return []
@@ -4593,13 +4367,14 @@ def _capture_merge_state_snapshot(
 			snapshot["analyzer"]["load_error"] = str(spikeinterface_error)
 		else:
 			try:
-				loaded_analyzer_obj, loaded_analyzer_dir, analyzer_rebuilt = _load_or_recompute_spikesort_analyzer(
+				loaded_analyzer_obj, loaded_analyzer_dir = _load_concat_analyzer_for_phase(
 					si_module=si_module,
 					well_out_dir=well_out_dir,
-					stage_output_root_dir=stage_output_root_dir,
-					sorter_output_dir=sorter_output_dir,
+					output_rel_root=output_rel_root,
 					stage_config=stage_config,
+					phase_name="merge_state_snapshot",
 				)
+				analyzer_rebuilt = False
 				snapshot["analyzer"]["source_dir"] = str(loaded_analyzer_dir)
 				snapshot["analyzer"]["rebuilt"] = bool(analyzer_rebuilt)
 			except Exception as exc:
@@ -4631,31 +4406,11 @@ def _capture_merge_state_snapshot(
 					_attach_merge_analyzer_policy_info(loaded_analyzer_obj, policy_info)
 			except Exception as exc:
 				snapshot["analyzer"]["load_error"] = f"analyzer_snapshot_failed:{type(exc).__name__}:{exc}"
-		elif allow_analyzer_recompute and (analyzer_source_dir is not None):
-			if si_module is None:
-				snapshot["analyzer"]["load_error"] = str(spikeinterface_error)
-			else:
-				try:
-					loaded_analyzer_obj, rebuilt_dir = _recompute_sorting_analyzer_to_dir(
-						si_module=si_module,
-						well_out_dir=well_out_dir,
-						sorter_output_dir=sorter_output_dir,
-						stage_config=stage_config,
-						analyzer_dir=analyzer_dir,
-					)
-					snapshot["analyzer"]["source_dir"] = str(rebuilt_dir)
-					snapshot["analyzer"]["rebuilt"] = True
-					policy_info = _describe_merge_analyzer_policy_info(
-						analyzer=loaded_analyzer_obj,
-						stage_config=stage_config,
-						loaded_analyzer_had_sparsity=loaded_analyzer_had_sparsity,
-						rebuild_reason=rebuild_reason,
-						reused_cached_analyzer=False,
-					)
-					_attach_merge_analyzer_policy_info(loaded_analyzer_obj, policy_info)
-				except Exception as exc:
-					snapshot["analyzer"]["load_error"] = f"analyzer_snapshot_failed:{type(exc).__name__}:{exc}"
 		else:
+			# Slice 4: legacy in-place analyzer recompute path removed. The canonical
+			# analyzer is the concat_analyzer built by `spikesort.concat_analyzer`; if
+			# the on-disk analyzer at `analyzer_dir` is missing or unreadable we
+			# surface the missing-analyzer error instead of rebuilding here.
 			snapshot["analyzer"]["load_error"] = (
 				str(spikeinterface_error)
 				if spikeinterface_error is not None
@@ -8058,61 +7813,6 @@ def _run_slay_merge_method(
 	}
 
 
-def _run_slay_analyzer_recompute(
-	*,
-	well_out_dir: Path,
-	stage_output_root_dir: Path,
-	stage_config: Any,
-	sorter_output_dir: Path,
-) -> dict[str, Any]:
-	_log_phase_step_start(
-		"SLAy analyzer recompute step start",
-		well_out_dir=well_out_dir,
-		sorter_output_dir=sorter_output_dir,
-	)
-	merge_rel_output_root = _as_optional_relpath(getattr(stage_config, "merge_rel_output_root", None))
-	summary_dir = (
-		(stage_output_root_dir / str(merge_rel_output_root)).resolve()
-		if merge_rel_output_root is not None
-		else stage_output_root_dir
-	)
-	summary_json = summary_dir / "slay_analyzer_recompute_summary.json"
-	si_module = _import_spikeinterface_full_module()
-	analyzer, analyzer_dir = _recompute_spikesort_analyzer(
-		si_module=si_module,
-		well_out_dir=well_out_dir,
-		stage_output_root_dir=stage_output_root_dir,
-		sorter_output_dir=sorter_output_dir,
-		stage_config=stage_config,
-	)
-	payload = {
-		"status": "ok",
-		"well_out_dir": str(well_out_dir),
-		"stage_output_root_dir": str(stage_output_root_dir),
-		"sorter_output_dir": str(sorter_output_dir),
-		"analyzer_dir": str(analyzer_dir),
-		"unit_count": int(_unit_count(analyzer)),
-	}
-	_log_memory_usage(
-		"SLAy analyzer recompute memory snapshot",
-		well_out_dir=well_out_dir,
-		sorter_output_dir=sorter_output_dir,
-		analyzer_dir=analyzer_dir,
-	)
-	_write_json(summary_json, payload)
-	return {
-		"name": "slay_recompute_analyzer",
-		"status": "ok",
-		"reason": None,
-		"out_dir": str(summary_dir),
-		"summary_json": str(summary_json),
-		"outputs": {
-			"slay.recompute_analyzer.summary_json": str(summary_json),
-			"slay.recompute_analyzer.analyzer_dir": str(analyzer_dir),
-		},
-	}
-
-
 def run_spikesort_merge_stage(
 	*,
 	h5_path: Path,
@@ -8508,19 +8208,16 @@ def run_spikesort_merge_stage(
 				(
 					replot_workspace_analyzer,
 					replot_workspace_analyzer_output_dir,
-					replot_workspace_analyzer_policy,
-					replot_workspace_analyzer_regenerated,
-					replot_workspace_analyzer_regen_reason,
-				) = _prepare_replot_workspace_analyzer(
+				) = _load_concat_analyzer_for_phase(
 					si_module=si_module,
 					well_out_dir=well_out_dir,
-					sorter_output_dir=replot_workspace_sorter_output_dir,
+					output_rel_root=output_rel_root,
 					stage_config=stage_config,
-					analyzer_dir=replot_workspace_analyzer_output_dir,
-					regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
-					check_if_regen_is_needed=bool(merge_analyzer_check_if_regen_is_needed),
-					fallback_policy=replot_workspace_policy,
+					phase_name="merge_SLAy.replot.pre_merge",
 				)
+				replot_workspace_analyzer_policy = None
+				replot_workspace_analyzer_regenerated = False
+				replot_workspace_analyzer_regen_reason = None
 				if replot_workspace_requires_templates or replot_workspace_requires_unit_locations:
 					_ensure_merge_analyzer_extensions(
 						analyzer=replot_workspace_analyzer,
@@ -8559,19 +8256,16 @@ def run_spikesort_merge_stage(
 				(
 					post_merge_workspace_analyzer,
 					post_merge_workspace_analyzer_output_dir,
-					post_merge_workspace_analyzer_policy,
-					post_merge_workspace_analyzer_regenerated,
-					post_merge_workspace_analyzer_regen_reason,
-				) = _prepare_replot_workspace_analyzer(
+				) = _load_concat_analyzer_for_phase(
 					si_module=si_module,
 					well_out_dir=well_out_dir,
-					sorter_output_dir=post_merge_workspace_sorter_output_dir,
+					output_rel_root=output_rel_root,
 					stage_config=stage_config,
-					analyzer_dir=post_merge_workspace_analyzer_output_dir,
-					regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
-					check_if_regen_is_needed=bool(merge_analyzer_check_if_regen_is_needed),
-					fallback_policy=post_merge_workspace_policy,
+					phase_name="merge_SLAy.replot.post_merge",
 				)
+				post_merge_workspace_analyzer_policy = None
+				post_merge_workspace_analyzer_regenerated = False
+				post_merge_workspace_analyzer_regen_reason = None
 				_ensure_merge_analyzer_extensions(
 					analyzer=post_merge_workspace_analyzer,
 					stage_config=stage_config,
@@ -9025,12 +8719,12 @@ def run_spikesort_merge_stage(
 		)
 		try:
 			si_module = _import_spikeinterface_full_module()
-			replot_workspace_analyzer, replot_workspace_analyzer_output_dir = _recompute_sorting_analyzer_to_dir(
+			replot_workspace_analyzer, replot_workspace_analyzer_output_dir = _load_concat_analyzer_for_phase(
 				si_module=si_module,
 				well_out_dir=well_out_dir,
-				sorter_output_dir=workspace_sorter_output_dir,
+				output_rel_root=output_rel_root,
 				stage_config=stage_config,
-				analyzer_dir=replot_workspace_analyzer_output_dir,
+				phase_name="merge_SLAy.pre_merge_runtime_analyzer",
 			)
 
 			_ensure_merge_analyzer_extensions(
@@ -9162,31 +8856,6 @@ def run_spikesort_merge_stage(
 	combined_outputs.update(dict(report.get("outputs", {})))
 	if report.get("ks_dir"):
 		resolved_sorter_output_dir = Path(str(report.get("ks_dir"))).resolve()
-
-	should_recompute_after_slay = (
-		bool(getattr(stage_config, "slay_recompute_analyzer", False))
-		and bool(report.get("status") == "ok")
-		and bool(getattr(stage_config, "slay_auto_accept_merges", False))
-		and bool(report.get("applied_merges", False))
-	)
-	if should_recompute_after_slay and resolved_sorter_output_dir is not None:
-		recompute_report = _run_slay_analyzer_recompute(
-			well_out_dir=well_out_dir,
-			stage_output_root_dir=stage_output_root_dir,
-			stage_config=stage_config,
-			sorter_output_dir=resolved_sorter_output_dir,
-		)
-		method_reports.append(recompute_report)
-		combined_outputs.update(dict(recompute_report.get("outputs", {})))
-		recomputed_analyzer_dir_raw = (
-			recompute_report.get("outputs", {}).get("slay.recompute_analyzer.analyzer_dir", None)
-			if isinstance(recompute_report.get("outputs", {}), dict)
-			else None
-		)
-		if recomputed_analyzer_dir_raw is not None:
-			combined_outputs["merge.post_merge_analyzer_output_dir"] = str(
-				Path(str(recomputed_analyzer_dir_raw)).expanduser().resolve()
-			)
 
 	primary_out_dir.mkdir(parents=True, exist_ok=True)
 	summary_json = primary_out_dir / "merge_stage_summary.json"

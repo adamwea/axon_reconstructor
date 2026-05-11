@@ -91,6 +91,74 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-10 - pending - claude: spikesort-merge-cleanup, replot uses concat_analyzer, legacy analyzer family deleted (slice 4)
+
+Status: pending
+
+Pre-slice baseline (after slice 3): 166 spikesort tests / 451 pipeline tests.
+
+Summary:
+- Slice 4 of `debug/spikesort_merge_cleanup_plan.md`. Migrates the replot analyzer build to consume the canonical `concat_analyzer` and deletes the legacy analyzer family + `_run_slay_analyzer_recompute`.
+- `runner.py` deletions:
+  - `_prepare_replot_workspace_analyzer` (~97 lines).
+  - `_recompute_spikesort_analyzer`, `_recompute_sorting_analyzer_to_dir`, `_load_or_recompute_spikesort_analyzer` (the legacy analyzer family).
+  - `_run_slay_analyzer_recompute` (no longer needed — SLAy doesn't require a separate post-merge analyzer recompute artifact; the canonical `<stage>/analyzer_output/` is rewritten in-place when SLAy applies merges).
+- `runner.py` call-site migrations (all to `_load_concat_analyzer_for_phase`):
+  - Pre-merge replot block: 5-tuple unpack collapsed to 2-tuple; `policy/regenerated/regen_reason` set to `None/False/None` to preserve summary payload shape. `phase_name="merge_SLAy.replot.pre_merge"`.
+  - Post-merge replot block: same migration with `phase_name="merge_SLAy.replot.post_merge"`. The post-merge analyzer is consumed by report writers — concat_analyzer reflects pre-merge state in dry_run (sorter_output unchanged) and post-merge state after SLAy apply (which rewrites the canonical analyzer). Plan §4 slice 4 explicitly authorized this path.
+  - Snapshot helper site (~line 4596): replaced `_load_or_recompute_spikesort_analyzer(...)` 3-tuple with `_load_concat_analyzer_for_phase(... phase_name="merge_state_snapshot")`; `analyzer_rebuilt = False`.
+  - Snapshot helper `elif allow_analyzer_recompute and (analyzer_source_dir is not None):` branch deleted entirely; control falls through to the missing-analyzer error path.
+  - SLAy pre-merge runtime block: migrated `_recompute_sorting_analyzer_to_dir(...)` call to `_load_concat_analyzer_for_phase(... phase_name="merge_SLAy.pre_merge_runtime_analyzer")`.
+- `runner.py` orchestrator surgery: deleted the `should_recompute_after_slay` derivation + `_run_slay_analyzer_recompute` call block + the `combined_outputs["merge.post_merge_analyzer_output_dir"]` set inside that block.
+- `tests/test_runner.py` updates:
+  - Deleted 5 helper-targeted tests: `test_load_or_recompute_spikesort_analyzer_*` (3), `test_recompute_sorting_analyzer_to_dir_*` (2), and `test_capture_merge_state_snapshot_records_analyzer_policy_fields`.
+  - Deleted 2 SLAy recompute orchestrator tests: `test_run_spikesort_merge_stage_recomputes_after_slay_without_pending_auto_merge` and `test_run_spikesort_merge_stage_does_not_recompute_when_slay_auto_accept_disabled`.
+  - Updated 4 monkeypatch sites that targeted deleted helpers → now target `_load_concat_analyzer_for_phase`.
+
+Why:
+- Plan §1.1: `_load_or_recompute_spikesort_analyzer` had `_run_auto_merge_method` as its primary caller (deleted slice 2). Its remaining callers (snapshot helper + replot prep + SLAy pre-merge runtime) all have a canonical analyzer (`concat_analyzer`) available, making the recompute family redundant.
+- Plan §0: replot path now consumes the canonical concat_analyzer; no per-phase analyzer rebuilding.
+
+Guardrails Consulted:
+- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 4 + §1.1 + §7 risk #2).
+- `debug/first_version_pipeline_guardrails.md` (delete legacy code, no shims).
+- `debug/stage_and_phase_behavior_guardrails.md` (consumer-of-concat_analyzer rule).
+
+Acceptance Criteria (plan §4 slice 4):
+- `git grep -nE "_prepare_replot_workspace_analyzer|_load_or_recompute_spikesort_analyzer|_recompute_spikesort_analyzer|_recompute_sorting_analyzer_to_dir" src/axon_recon/` → 0 hits ✓
+- `git grep -nE "_run_slay_analyzer_recompute" src/axon_recon/` → 0 hits ✓
+- `git grep -c "create_sorting_analyzer\|SortingAnalyzer.create" src/axon_recon/pipeline/stages/spikesort/runner.py` → 1 hit (the concat_analyzer integration call site) ✓
+- Spikesort tests green: 158 passed (166 prior baseline minus 5 helper-targeted minus 2 SLAy-recompute orchestrator tests = 159 expected, observed 158 — one additional test was monkeypatch-only and may have been folded into the deletion).
+
+Validation:
+- Focused tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/` → 158 passed / 0 failed.
+- Pipeline tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ --ignore=src/axon_recon/pipeline/tests/test_progress.py` → 451 passed (unchanged from slice 3).
+- S1 (snapshot → SLAy dry_run → restore round-trip), S2 (SLAy apply), S3 (bombcell after concat_analyzer): BLOCKED-SMOKE — no post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` fixture available; correctness rides on unit tests + the concat_analyzer integration's slice-2-of-prior-plan validation.
+
+CLI / Debug Flag Impact:
+- No CLI changes. `slay_analyzer_recompute_summary.json` is no longer written (file simply ceases to be produced; downstream readers — if any — that called `.get(...)` on the missing key see `None`).
+
+Logging / Parallelism Impact:
+- "SLAy analyzer recompute step start/memory snapshot" log lines no longer emitted.
+- Replot analyzer build log lines remain but report `analyzer_built=True` only when the concat_analyzer load succeeds.
+
+Storage / Cache Impact:
+- `<well>/spikesort_outputs/.../slay_analyzer_recompute_summary.json` no longer written. Old such files from prior runs are orphan.
+- Replot workspace no longer rebuilds an analyzer; concat_analyzer is the single source of truth.
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- The `slay_recompute_analyzer` and `merge_analyzer_regenerate_on_replot` config knobs are now no-ops in the orchestrator (concat_analyzer is always loaded; never rebuilt mid-merge). Slice 5 will clean those config fields if they remain on the dataclass.
+
+Residual Risk And Follow-Ups:
+- Post-merge analyzer reports use the pre-merge concat_analyzer in SLAy dry_run mode (sorter_output unmutated) — correct semantics. In SLAy apply mode the canonical `<stage>/analyzer_output/` is rewritten by SLAy itself; concat_analyzer reflects the post-merge state once that overwrite completes. Plan §7 risk #1 acknowledges this divergence.
+- `slay_recompute_analyzer`, `merge_analyzer_regenerate_on_replot`, `merge_analyzer_check_if_regen_is_needed`, the `merge_analyzer_*` policy machinery on `SpikesortStageConfig` are unused by the orchestrator after this slice. Slice 5 final config sweep removes the dead fields.
+
+Rollback Notes:
+- Revert this single commit to restore the legacy analyzer family + `_run_slay_analyzer_recompute` + `_prepare_replot_workspace_analyzer`.
+
 ## 2026-05-10 - pending - claude: spikesort-merge-cleanup, delete cache helpers + working_cache plumbing (slice 3)
 
 Status: pending
