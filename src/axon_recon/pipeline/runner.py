@@ -126,6 +126,12 @@ from .stages.spikesort.models.results import (
 	SpikesortResult,
 )
 from .stages.spikesort.orchestrators.merge_slay import run_spikesort_merge_slay
+from .stages.analysis.api import run_analysis_metrics
+from .stages.analysis.config import (
+	AnalysisStageConfig,
+	parse_analysis_stage_config,
+)
+from .stages.analysis.models.results import AnalysisResult
 
 LOGGER = logging.getLogger("axon_recon.pipeline.runner")
 _WARNED_IGNORED_PHASE_DEBUG_LIMITS: set[tuple[str, str]] = set()
@@ -1813,6 +1819,16 @@ _SPIKESORT_DIRECT_PHASE_LABELS: dict[str, str] = {
 }
 
 
+_ANALYSIS_DIRECT_PHASE_LABELS: dict[str, str] = {
+	"analysis.compute_metrics": "compute_metrics",
+}
+
+
+_ANALYSIS_RESOURCE_ATTR_BY_PHASE_LABEL: dict[str, str] = {
+	"compute_metrics": "compute_metrics_resource_class",
+}
+
+
 def _spikesort_allocation_phase_labels(stage_config: Any, stage_name: str) -> tuple[str, ...]:
 	stage_name = str(stage_name).strip()
 	if stage_name == "spikesort":
@@ -3110,6 +3126,23 @@ def _run_spikesort_cleanup_analyzers_target(*, target: Any, stage_config: Any, u
 	)
 
 
+def _analysis_output_rel_root(stage_config: Any) -> str:
+	return str(getattr(stage_config, "output_rel_root", "analysis_outputs") or "analysis_outputs")
+
+
+def _run_analysis_compute_metrics_target(*, target: Any, stage_config: Any, unit_workers: int) -> AnalysisResult:
+	return run_analysis_metrics(
+		dataset_index=int(target.dataset_index),
+		dataset_id=str(getattr(target, "dataset_id", "") or "") or None,
+		h5_path=target.h5_path,
+		stream_id=target.stream_id,
+		mea_output_root=target.mea_output_root,
+		output_rel_root=_analysis_output_rel_root(stage_config),
+		stage_config=stage_config,
+		force_restart=bool(getattr(stage_config, "force_restart", False) or getattr(stage_config, "force_replot", False)),
+	)
+
+
 def _run_spikesort_sort_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
 	inputs = build_spikesort_inputs_for_target(
 		target=target,
@@ -3613,6 +3646,194 @@ def run_spikesort_restore_sorter_output_from_runtime(
 		debug_limit_wells_attr="restore_sorter_output_debug_limit_wells",
 		debug_limit_wells_per_dataset_attr="restore_sorter_output_debug_limit_wells_per_dataset",
 		publish_after_run=False,
+	)
+
+
+def _parse_analysis_stage_config_for_runtime(
+	*,
+	bundle: PipelineRuntimeBundle,
+	force_restart_override: bool | None,
+	force_replot_override: bool | None,
+) -> AnalysisStageConfig:
+	return parse_analysis_stage_config(
+		runtime_config=bundle.runtime_config,
+		data_config=bundle.data_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+
+def _analysis_phase_resource_classes_from_labels(
+	stage_config: Any,
+	phase_labels: tuple[str, ...],
+) -> tuple[str, ...]:
+	resource_classes: list[str] = []
+	for phase_label in phase_labels:
+		attr = _ANALYSIS_RESOURCE_ATTR_BY_PHASE_LABEL.get(str(phase_label).strip())
+		if attr is None:
+			continue
+		resource_class = getattr(stage_config, attr, None)
+		if resource_class is not None and str(resource_class).strip():
+			resource_classes.append(str(resource_class).strip())
+	return _unique_resource_classes(tuple(resource_classes))
+
+
+def _run_analysis_phase_from_runtime(
+	*,
+	config_path: str,
+	stage_name: str,
+	phase_label: str,
+	target_runner: Callable[..., AnalysisResult],
+	limit_segments_override: int | None,
+	limit_datasets_override: int | None,
+	target_datasets_override: list[int] | None,
+	limit_wells_per_dataset_override: int | None,
+	force_restart_override: bool | None,
+	force_replot_override: bool | None,
+	task_allocation_override: dict[str, Any] | None,
+) -> MultiTargetStageResult:
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = _parse_analysis_stage_config_for_runtime(
+		bundle=bundle,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+		target_datasets=target_datasets_override,
+	)
+	phase_resource_classes = _analysis_phase_resource_classes_from_labels(stage_config, (str(phase_label),))
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="analysis",
+		target_count=len(targets),
+		targets=targets,
+		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
+	)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
+	)
+
+	def _worker(target):
+		return _run_direct_phase_with_resource_tracking(
+			phase_name=str(phase_label),
+			runner=lambda: target_runner(
+				target=target,
+				stage_config=stage_config,
+				unit_workers=int(parallelism.unit_workers),
+			),
+			resource_class=_first_resource_class(phase_resource_classes),
+			pipeline_thread_count=int(parallelism.unit_workers),
+			target=target,
+		)
+
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name=stage_name,
+			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+			bundle=bundle,
+		)
+	succeeded = sum(1 for item in target_results if item.status == "ok")
+	failed = sum(1 for item in target_results if item.status != "ok")
+	return MultiTargetStageResult(
+		stage=stage_name,
+		total_targets=len(target_results),
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=target_results,
+	)
+
+
+def run_analysis_compute_metrics_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	return _run_analysis_phase_from_runtime(
+		config_path=config_path,
+		stage_name="analysis.compute_metrics",
+		phase_label="compute_metrics",
+		target_runner=_run_analysis_compute_metrics_target,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		target_datasets_override=target_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
+	)
+
+
+def run_analysis_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = _parse_analysis_stage_config_for_runtime(
+		bundle=bundle,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	phase_sequence = tuple(getattr(stage_config, "phase_sequence", ()) or ("compute_metrics",))
+	results: list[TargetStageResult] = []
+	final_stage = "analysis"
+	total_targets = 0
+	succeeded = 0
+	failed = 0
+	for phase_label in phase_sequence:
+		stage_name = f"analysis.{phase_label}"
+		if phase_label == "compute_metrics":
+			phase_result = run_analysis_compute_metrics_from_runtime(
+				config_path=config_path,
+				limit_segments_override=limit_segments_override,
+				limit_datasets_override=limit_datasets_override,
+				target_datasets_override=target_datasets_override,
+				limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+				force_restart_override=force_restart_override,
+				force_replot_override=force_replot_override,
+				task_allocation_override=task_allocation_override,
+			)
+		else:
+			raise ValueError(f"Unknown analysis phase: {phase_label}")
+		results.extend(phase_result.target_results)
+		total_targets += phase_result.total_targets
+		succeeded += phase_result.succeeded_targets
+		failed += phase_result.failed_targets
+	return MultiTargetStageResult(
+		stage=final_stage,
+		total_targets=total_targets,
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=results,
 	)
 
 

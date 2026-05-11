@@ -1834,3 +1834,15 @@ stages:
         resource_class: disk_cleanup
         keep_merged_per_unit_outputs: false
         keep_full_channels_templates: false
+
+  analysis:
+    enabled: true
+    output_rel_root: analysis_outputs
+    phase_sequence:
+      - compute_metrics
+    phases:
+      compute_metrics:
+        enabled: true
+        # The phase only reads small JSON artifacts and writes a manifest, so it
+        # piggybacks on the disk_cleanup budget (serial, 4 GB RAM).
+        resource_class: disk_cleanup

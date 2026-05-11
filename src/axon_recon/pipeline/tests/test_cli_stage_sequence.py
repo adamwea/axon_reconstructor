@@ -7,7 +7,7 @@ import pytest
 
 import axon_recon.pipeline.cli as pipeline_cli
 
-ACTIVE_STAGE_ORDER = ["preprocess", "spikesort", "reconstruct"]
+ACTIVE_STAGE_ORDER = ["preprocess", "spikesort", "reconstruct", "analysis"]
 
 
 def _write_runtime_cfg(path: Path) -> None:
@@ -27,13 +27,28 @@ def test_parse_stage_list_tokens_supports_all_keyword() -> None:
 def test_canonical_all_selector_excludes_retired_stages() -> None:
     assert list(pipeline_cli._CANONICAL_STAGE_ORDER) == ACTIVE_STAGE_ORDER
     assert "templates" not in pipeline_cli._CANONICAL_STAGE_ORDER
-    assert "analysis" not in pipeline_cli._CANONICAL_STAGE_ORDER
 
 
-@pytest.mark.parametrize("raw_token", ["analysis", "analyse", "analyze"])
-def test_parse_stage_list_tokens_rejects_retired_analysis_selector(raw_token: str) -> None:
+@pytest.mark.parametrize("raw_token", ["analyse", "analyze"])
+def test_parse_stage_list_tokens_rejects_misspelled_analysis_selector(raw_token: str) -> None:
     with pytest.raises(SystemExit, match="Unsupported stage token"):
         pipeline_cli._parse_stage_list_tokens([raw_token])
+
+
+@pytest.mark.parametrize(
+    ("raw_token", "expected"),
+    [
+        ("analysis", "analysis"),
+        ("analysis.compute_metrics", "analysis.compute_metrics"),
+        ("analysis.metrics", "analysis.compute_metrics"),
+        ("analysis.compute", "analysis.compute_metrics"),
+        ("metrics", "analysis.compute_metrics"),
+        ("compute_metrics", "analysis.compute_metrics"),
+    ],
+)
+def test_parse_stage_list_tokens_supports_analysis_aliases(raw_token: str, expected: str) -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens([raw_token])
+    assert parsed == [expected]
 
 
 @pytest.mark.parametrize(

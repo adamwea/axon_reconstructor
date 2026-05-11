@@ -91,6 +91,74 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, analysis stage skeleton + per-well manifest (slice 1)
+
+Status: pending
+
+Summary:
+- Created `src/axon_recon/pipeline/stages/analysis/` package: `config.py` (AnalysisStageConfig + `DEFAULT_ANALYSIS_PHASE_SEQUENCE=("compute_metrics",)` + `_ANALYSIS_PHASE_ALIASES` + `parse_analysis_stage_config` + `build_well_metadata_lookup`), `runner.py` (`run_analysis_compute_metrics_stage` writes `<well>/analysis_outputs/manifest.json`), `orchestrators/compute_metrics.py`, `models/results.py` (`AnalysisResult`), `api.py`, `cli.py`, `__init__.py`, and tests.
+- Wired pipeline registration: added imports + `_run_analysis_compute_metrics_target` + `run_analysis_compute_metrics_from_runtime` + `run_analysis_from_runtime` + `_ANALYSIS_DIRECT_PHASE_LABELS` + `_ANALYSIS_RESOURCE_ATTR_BY_PHASE_LABEL` to `pipeline/runner.py`; added analysis aliases (analysis, analysis.compute_metrics, metrics, compute_metrics) and `_STAGE_HANDLERS` entries to `pipeline/cli.py`; appended `analysis` to `_CANONICAL_STAGE_ORDER`.
+- `debug/debug.runtime.yml` gains top-level `analysis:` stage block with `phase_sequence=[compute_metrics]` and `compute_metrics.resource_class=disk_cleanup` (compute_metrics is mostly-serial light disk-metadata work for slice 1; revisit when a dedicated budget is warranted).
+- Updated `src/axon_recon/pipeline/tests/test_cli_stage_sequence.py` baseline: `ACTIVE_STAGE_ORDER` now includes `analysis`; replaced "analysis is retired" parametrize with positive coverage that asserts `analysis`, `analysis.compute_metrics`, `analysis.metrics`, `analysis.compute`, `metrics`, `compute_metrics` aliases all resolve. Kept "analyse"/"analyze" misspellings as rejected.
+- Slice 1 plan ambiguity resolution: the plan asks for `resource_class: cpu_light` but no such class is defined under `resources.phase_budgets`. Used existing `disk_cleanup` instead (smaller diff, no new abstraction). Documented in YAML comment.
+- Identity-column threading: `parse_analysis_stage_config` consumes `bundle.data_config` and builds a `(dataset_index, well_id) -> {DIV, project, recording_date, chip_id, scan_type, run_id, dataset_id, well_attributes}` lookup. The per-target runner reads this to stamp manifest identity. `recording_date` is parsed from the YYMMDD path token to ISO YYYY-MM-DD.
+
+Guardrails Consulted:
+- `debug/analysis_stage_and_dashboard_plan.md` (the plan; §0–§5 read end-to-end).
+- `debug/first_version_pipeline_guardrails.md` — minimal scope, no future-proofing.
+- `debug/parallelism_agent_guardrails.md` — analysis stage uses the same well_workers/unit_workers harness as spikesort.
+- `debug/stage_and_phase_behavior_guardrails.md` — phase_sequence, resource_class, output_rel_root conventions mirrored from spikesort.
+
+Tests Run:
+- `pytest src/axon_recon/pipeline/stages/analysis/ -q` → 12 passed (test_config + test_runner).
+- `pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` → all green (analysis alias positive coverage + retained negative coverage for analyse/analyze misspellings).
+- `pytest src/axon_recon/pipeline/ -q --ignore=test_progress.py` → 15 failures, all in the pre-slice-0 baseline (preprocess/reconstruct/templates — strict subset of baseline). No new failures.
+
+Baseline failures (preserved at /tmp/baseline_failures_slice0.txt):
+- test_run_preprocess_stage_logs_phase_start_per_well
+- test_load_templates_config_parses_plot_templates_v2_phase_block
+- test_run_reconstruct_templates_build_templates_phase_uses_unit_workers
+- test_build_unit_source_payload_expands_to_all_waveforms_when_unlimited
+- test_build_unit_source_payload_forwards_waveform_window_on_recompute
+- test_build_unit_source_payload_forwards_random_spikes_policy_on_recompute
+- test_build_unit_source_payload_retries_without_compat_only_kwargs
+- test_load_config_reconstruct_populates_templates_inputs_from_debug_runtime
+- test_reconstruct_combined_phase_sequence_runs_in_order
+- test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_disabled
+- test_reconstruct_configured_copied_template_phase_sequence_runs_requested_order
+- test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency
+- test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases
+- test_run_reconstruct_report_full_chip_layout_phase_writes_outputs
+- test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps
+
+Acceptance Grep:
+```
+git grep -nE "analysis_outputs|axon_analysis_v1" src/axon_recon/
+```
+Returns multiple hits (config.py, runner.py, tests, pipeline/runner.py).
+
+Smoke A1 (in-process fallback, NAS-independent):
+```
+conda run -n axon_recon axon-recon stages analysis --config debug/debug.runtime.yml --target-dataset 11 --limit-wells 1
+```
+- Result: targets_total=1, targets_succeeded=1, targets_failed=0.
+- Wrote `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000208/well000/analysis_outputs/manifest.json` with `schema_version="axon_analysis_v1"`, all identity fields populated (project=Media_Density_T5_02182026_AR, recording_date=2026-03-26, chip_id=M08073, scan_type=AxonTracking, run_id=000208, well_id=well000, dataset_id=dataset_011:data.raw.h5, DIV=36, well_attributes={plating_density:80000, media:DMEM, genotype:WT}), and `tables: {}`. Log saved to `/tmp/smoke_slice1_A1.log`.
+
+Mutation Safety:
+- `find <well>/ -newer /tmp/slice1_marker_1778526514 -not -path "*/analysis_outputs/*"` returned:
+  - `<well>/` (directory mtime touched by mkdir; not a file mutation)
+  - `<well>/analysis_outputs` (the new dir the stage created)
+  - `<well>/spikesort_outputs/sorter_output/sorter_output/kilosort4.log` — owned by the user's ongoing spikesort process, not by my analysis stage.
+- No analysis writes leaked outside `analysis_outputs/`.
+
+Hands-off Diff Check:
+- `git diff dev_branch2... -- src/axon_recon/pipeline/stages/spikesort/ | wc -l` reports 27393 lines — but this counts all spikesort-stage commits between the merge-base and HEAD on the spikesort-merge-cleanup branch (slices 1-13 are above the merge-base). My slice 1 commit makes zero spikesort edits; verified by `git status` showing no spikesort files in the staging area.
+
+Residual Risk / Follow-ups:
+- `cpu_light` resource class is referenced by the plan but not defined; I used `disk_cleanup` as a stand-in. If slice 2's metric work warrants a dedicated budget, define `cpu_light` (e.g., 8 GB RAM, serial) under `resources.phase_budgets`.
+- `pipeline_version` is read from `importlib.metadata.version("axon_recon")` with a fallback of `"unknown"`. The fallback fired in the smoke (package not installed editable in container); slice 2/3 may want to override via runtime YAML.
+- The autonomous loop session started on `spikesort-merge-cleanup` with the user's plan files untracked locally; user committed them in parallel (`771d0c3`, `cdc0157`, `7affce9`) so plan + loop prompt + their RAM tuning are now in HEAD without my involvement. Branch base for slice-1 metrics is `7affce9`.
+
 ## 2026-05-10 - SPIKESORT MERGE CLEANUP COMPLETE
 
 Status: accepted

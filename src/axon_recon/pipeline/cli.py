@@ -122,6 +122,10 @@ from .stages.spikesort.cli import (
 	_run_summarize_sort_from_args as _run_spikesort_summarize_sort_from_args,
 )
 from .stages.spikesort.orchestrators import _run_sort_from_args as _run_spikesort_sort_from_args
+from .stages.analysis.cli import (
+	_run_compute_metrics_from_args as _run_analysis_compute_metrics_from_args,
+)
+from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 
 StageHandler = Callable[[argparse.Namespace], int]
 
@@ -129,6 +133,7 @@ _CANONICAL_STAGE_ORDER: list[str] = [
 	"preprocess",
 	"spikesort",
 	"reconstruct",
+	"analysis",
 ]
 
 _STAGE_ALIASES: dict[str, str] = {
@@ -260,6 +265,10 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruction.report_full_chip_layout": "reconstruct.report_full_chip_layout",
 	"reconstruction.report_summaries": "reconstruct.report_summaries",
 	"reconstruction.clear_templates_cache": "reconstruct.clear_templates_cache",
+	"metrics": "analysis.compute_metrics",
+	"compute_metrics": "analysis.compute_metrics",
+	"analysis.metrics": "analysis.compute_metrics",
+	"analysis.compute": "analysis.compute_metrics",
 }
 
 _STAGE_HANDLERS: dict[str, StageHandler] = {
@@ -307,6 +316,8 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct.report_full_chip_layout": _run_reconstruct_report_full_chip_layout_from_args,
 	"reconstruct.report_summaries": _run_reconstruct_report_summaries_from_args,
 	"reconstruct.clear_templates_cache": _run_reconstruct_clear_templates_cache_from_args,
+	"analysis": _run_analysis_from_args,
+	"analysis.compute_metrics": _run_analysis_compute_metrics_from_args,
 }
 
 
