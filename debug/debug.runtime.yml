@@ -627,7 +627,8 @@ stages:
         # longer caches sorter_output or builds its own analyzer; run
         # spikesort.concat_analyzer first.
         enabled: true
-        resource_class: spikeinterface_analyzer_concat
+        #resource_class: spikeinterface_analyzer_concat
+        resource_class: bombcell_label
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
         relpath: bombcell_label_outputs
         delete_outputs_on_force_restart: true
@@ -662,7 +663,8 @@ stages:
       merge_SLAy:
 
         enabled: true
-        resource_class: spikeinterface_analyzer_concat
+        #resource_class: spikeinterface_analyzer_concat
+        resource_class: merge_SLAy
         rel_output_root: merge_SLAy
         delete_outputs_on_force_restart: true
         force_restart: false
