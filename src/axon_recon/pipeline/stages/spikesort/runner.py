@@ -4568,7 +4568,15 @@ def _extract_applied_merge_operations(*, method_reports: list[dict[str, Any]], s
 			continue
 		method = _normalize_merge_method_token(report.get("name", ""))
 		if method == "slay":
-			if bool(getattr(stage_config, "slay_auto_accept_merges", False)) and bool(report.get("applied_merges", False)):
+			# In dry_run mode SLAy still emits recommended_merge_groups.json (the
+			# proposals that would be applied if dry_run were off); surface those
+			# as "operations" so the downstream report writers can produce the
+			# 2-panel + template heatmap diagnostics. The variable name is
+			# historical — under dry_run these are proposed-but-not-applied.
+			auto_accept = bool(getattr(stage_config, "slay_auto_accept_merges", False))
+			applied = bool(report.get("applied_merges", False))
+			dry_run = bool(report.get("dry_run", False))
+			if auto_accept and (applied or dry_run):
 				operations.extend(_extract_slay_applied_merge_operations(report=report))
 			continue
 	return operations
@@ -9188,13 +9196,21 @@ def run_spikesort_merge_stage(
 				"merge.post_merge_analyzer_output_dir",
 				None,
 			)
+			# With the PostMergeView available, the heatmap writer receives
+			# the view as its after_analyzer argument directly; the
+			# now-removed post-merge analyzer directory is not needed.
+			post_merge_view_available_for_reports = bool(
+				post_merge_view is not None and post_merge_report_analyzer is not None
+			)
 			if merge_reports_error is None and merge_reports_template_heatmaps_enabled:
 				if preferred_post_analyzer_raw is None:
-					merge_reports_error = "merge_reports_missing_post_merge_analyzer_output_dir"
+					if not post_merge_view_available_for_reports:
+						merge_reports_error = "merge_reports_missing_post_merge_analyzer_output_dir"
 				else:
 					preferred_post_analyzer_dir = Path(str(preferred_post_analyzer_raw)).expanduser().resolve()
 					if not preferred_post_analyzer_dir.exists():
-						merge_reports_error = "merge_reports_missing_post_merge_analyzer"
+						if not post_merge_view_available_for_reports:
+							merge_reports_error = "merge_reports_missing_post_merge_analyzer"
 					else:
 						after_analyzer_raw = after_snapshot_for_report.get("analyzer", {})
 						after_analyzer = (
