@@ -3,7 +3,7 @@
 Paste the block below as the `/loop` argument in a fresh Claude Code session running
 with permissions off (`--dangerously-skip-permissions` or equivalent). Each loop
 iteration drives one unit of forward progress on
-`debug/analysis_stage_and_dashboard_plan.md`. The loop is self-resuming: it always
+`debug/plans/completed/analysis_stage_and_dashboard_plan.md`. The loop is self-resuming: it always
 re-reads state from disk and git, picks up wherever the previous iteration left off,
 and exits when the plan's §8 Definition of Done is satisfied.
 
@@ -11,11 +11,11 @@ and exits when the plan's §8 Definition of Done is satisfied.
 
 ## /loop prompt (copy from here to end-of-file)
 
-You are an autonomous engineer in `/mnt/disk15tb/adamm/dev/pkgs/axon_reconstructor`. Your single job is to drive `debug/analysis_stage_and_dashboard_plan.md` to completion, slice by slice, with no human intervention. Do not ask the user any questions. Do not stop and wait for confirmation. Make decisions, make commits, keep moving.
+You are an autonomous engineer in `/mnt/disk15tb/adamm/dev/pkgs/axon_reconstructor`. Your single job is to drive `debug/plans/completed/analysis_stage_and_dashboard_plan.md` to completion, slice by slice, with no human intervention. Do not ask the user any questions. Do not stop and wait for confirmation. Make decisions, make commits, keep moving.
 
 ### Operating contract (non-negotiable)
 
-1. **Plan is authoritative.** `debug/analysis_stage_and_dashboard_plan.md` defines slices, acceptance, smoke matrix, cleanup checklist, and Definition of Done. Read it on every iteration; do not paraphrase from memory.
+1. **Plan is authoritative.** `debug/plans/completed/analysis_stage_and_dashboard_plan.md` defines slices, acceptance, smoke matrix, cleanup checklist, and Definition of Done. Read it on every iteration; do not paraphrase from memory.
 2. **Guardrails are locked.** Treat every file in `debug/*_agent_guardrails.md` as read-only law. Consult before any non-obvious decision (logging, CLI flags, parallelism, stage/phase behavior, optimization scope, first-version cleanup). Do not modify guardrail files.
 3. **Hands-off zones.** The following are READ-ONLY during this entire plan (the user is actively running spikesort in another process):
    - `src/axon_recon/pipeline/stages/spikesort/**`
@@ -25,7 +25,7 @@ You are an autonomous engineer in `/mnt/disk15tb/adamm/dev/pkgs/axon_reconstruct
    If a slice's tests appear to require touching a hands-off zone, STOP and write a `HALT: hands-off zone collision` notes entry. Do not work around it.
 4. **Conda env.** All Python invocations: `conda run -n axon_recon <cmd>`. Never assume a different env.
 5. **Commit prefix.** Every commit starts with `claude: analysis-stage-and-dashboard,` and ends with the trailer `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`. One slice = one commit, exactly as the plan dictates.
-6. **Commit log.** After every commit, append a dated entry to the top of the `Commit Log` section in `debug/agent_guardrails_commit_notes.md`. Include: what changed, why, guardrail documents consulted, smokes run, test results, anything surprising.
+6. **Commit log.** After every commit, append a dated entry to the top of the `Commit Log` section in `debug/commit_log.md`. Include: what changed, why, guardrail documents consulted, smokes run, test results, anything surprising.
 7. **Tests gate commits.** `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/analysis/ src/axon_recon/dashboard/ -q` MUST pass before you commit a slice (the dashboard path only exists from slice 4 onward; before that just run the analysis path). If it fails, fix the failure in the same slice — do not commit a red tree. Also run `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` for any slice that adds CLI aliases. Pre-existing failures elsewhere in the suite are tolerated if they're a strict subset of the slice-0 baseline you captured at first iteration.
 8. **Smokes gate commits when the slice's Acceptance section names them.** Run only the smokes the active slice lists. The plan's §3 smoke matrix is authoritative. Container-based smokes (A1, A2, A3, A4) MUST use the NAS-bypass form from §3; if you cannot launch the container (e.g. the user is using it), fall back to the in-process `conda run -n axon_recon axon-recon stages analysis …` form documented in §3. Capture smoke stdout to `/tmp/smoke_<slice>_<label>.log` for the commit notes.
 9. **Mutation safety.** The analysis stage MUST only write under `<well>/analysis_outputs/`. After any smoke that writes outputs, verify with: `find /mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/.../<well>/ -newer <a-marker-file> -not -path "*/analysis_outputs/*"` returns empty. If it returns anything, the slice failed mutation safety — do not commit.
@@ -41,8 +41,8 @@ Run these phases in order. Each phase is short — most iterations finish in one
 **Phase A — Re-orient (every iteration, no exceptions):**
 - `git status --short` and `git log --oneline -20`. From the log, count `claude: analysis-stage-and-dashboard, ... (slice N)` commits for N=1..6 to determine which slices are landed.
 - Verify branch: `git branch --show-current` should be `analysis-stage-and-dashboard`. If not — and you are on `dev_branch2` with zero unstaged changes — `git checkout -b analysis-stage-and-dashboard`. If you are on `dev_branch2` with unstaged changes, stop and write a `HALT: unexpected dirty tree on dev_branch2` notes entry.
-- Read `debug/analysis_stage_and_dashboard_plan.md` end-to-end. The plan is the source of truth — do not work from memory.
-- Read the most recent ~50 lines of `debug/agent_guardrails_commit_notes.md` for prior-iteration context.
+- Read `debug/plans/completed/analysis_stage_and_dashboard_plan.md` end-to-end. The plan is the source of truth — do not work from memory.
+- Read the most recent ~50 lines of `debug/commit_log.md` for prior-iteration context.
 - Determine the **active slice** = lowest-numbered slice (1..6) whose `claude: analysis-stage-and-dashboard, ... (slice N)` commit is NOT yet in the log.
 - If active slice > 6, run §6 cleanup checklist commands and §8 DoD checks. If all clean → write `ANALYSIS STAGE + DASHBOARD COMPLETE` notes entry and exit (do not re-arm). If anything is unclean → treat the unclean check as work for a remediation iteration.
 - **Hands-off sanity check** (must run every iteration): `git diff dev_branch2... -- src/axon_recon/pipeline/stages/spikesort/ | wc -l` must equal 0. If it doesn't, you have already crossed the hands-off boundary on a previous iteration — write a `HALT: spikesort drift detected` notes entry, do not commit further, and exit.
@@ -71,7 +71,7 @@ Run these phases in order. Each phase is short — most iterations finish in one
 **Phase E — Commit & log:**
 - `git add` only the files you changed. Never `git add -A` / `git add .`.
 - Commit with the exact `Commit:` line from the slice, plus the Co-Authored-By trailer (HEREDOC syntax — see the user's existing slice 13 commit `43bbcc2` as the canonical example of acceptable format).
-- Append a commit notes entry to `debug/agent_guardrails_commit_notes.md`.
+- Append a commit notes entry to `debug/commit_log.md`.
 
 **Phase F — Re-arm:**
 - If the active slice is now committed AND active slice was < 6: schedule another loop iteration with ScheduleWakeup, `delaySeconds=180`, `prompt=<this same prompt verbatim>`, `reason="continuing slice <N+1> of analysis-stage-and-dashboard"`.
@@ -109,7 +109,7 @@ Run these phases in order. Each phase is short — most iterations finish in one
 
 If `git branch --show-current` is NOT `analysis-stage-and-dashboard`:
 - Verify `git status` is clean (no unstaged changes).
-- Verify HEAD is at a healthy point on `dev_branch2` (or whatever the current main branch is — check `debug/spikesort_merge_cleanup_plan.md` if uncertain; that's the most recently completed plan and its tip is the right baseline).
+- Verify HEAD is at a healthy point on `dev_branch2` (or whatever the current main branch is — check `debug/plans/completed/spikesort_merge_cleanup_plan.md` if uncertain; that's the most recently completed plan and its tip is the right baseline).
 - `git checkout -b analysis-stage-and-dashboard`.
 
 If `git log --oneline -20` shows no `claude: analysis-stage-and-dashboard, ... (slice 1)` commit AND no in-progress slice-1 work in the working tree:
@@ -134,12 +134,12 @@ Or one-shot via CLI flag:
 
 ```bash
 claude --dangerously-skip-permissions \
-  -p "$(sed -n '/^## \/loop prompt/,/^---$/p' debug/analysis_stage_and_dashboard_loop_prompt.md | sed '1d;$d')"
+  -p "$(sed -n '/^## \/loop prompt/,/^---$/p' debug/plans/completed/analysis_stage_and_dashboard_loop_prompt.md | sed '1d;$d')"
 ```
 
 ## Manual interrupts
 
 - **Pause:** `touch debug/STOP_AUTONOMOUS_LOOP` — the next iteration's stop-signal check will halt before any commit.
 - **Resume:** `rm debug/STOP_AUTONOMOUS_LOOP` and re-issue `/loop` with the same prompt block.
-- **Inspect progress:** `git log --oneline | grep "claude: analysis-stage-and-dashboard.*(slice"` and tail `debug/agent_guardrails_commit_notes.md`.
+- **Inspect progress:** `git log --oneline | grep "claude: analysis-stage-and-dashboard.*(slice"` and tail `debug/commit_log.md`.
 - **Hard stop:** Ctrl-C the claude session; nothing on disk is left in an unreviewable state because every slice ends in a single coherent commit.

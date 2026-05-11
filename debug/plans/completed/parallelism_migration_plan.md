@@ -53,7 +53,7 @@ Profiles:      one profile per machine (lab_server, perlmutter_cpu,
 
 ### Guardrails Maintenance
 
-The contract document `debug/parallelism_agent_guardrails.md` is currently locked but explicitly being updated as part of this migration. **Each slice that changes the contract must update the guardrails doc in the same commit.** Per-slice "Guardrails update" bullets list the specific section/wording to revise. The end state is a guardrails doc whose vocabulary matches the new model exactly: nested_shape, phase_budgets, profiles[<name>], task_slot.cpu_count, no well_workers/max_stage_workers/divide_stage_workers_by_wells.
+The contract document `debug/guardrails/parallelism_agent_guardrails.md` is currently locked but explicitly being updated as part of this migration. **Each slice that changes the contract must update the guardrails doc in the same commit.** Per-slice "Guardrails update" bullets list the specific section/wording to revise. The end state is a guardrails doc whose vocabulary matches the new model exactly: nested_shape, phase_budgets, profiles[<name>], task_slot.cpu_count, no well_workers/max_stage_workers/divide_stage_workers_by_wells.
 
 ### MPI Vs Local Affinity Parity
 
@@ -211,8 +211,8 @@ src/axon_recon/pipeline/stages/preprocess/runner.py         # 3.7K lines; grep b
 src/axon_recon/pipeline/stages/spikesort/runner.py          # 10.7K lines; grep before reading
 src/axon_recon/pipeline/stages/reconstruct/runner.py        # 1.8K lines
 debug/debug.runtime.yml                                     # current YAML state
-debug/parallelism_agent_guardrails.md                       # MUST follow guardrails
-debug/nersc_shaped_local_affinity_plan.md                   # original design plan
+debug/guardrails/parallelism_agent_guardrails.md                       # MUST follow guardrails
+debug/plans/active/nersc_shaped_local_affinity_plan.md                   # original design plan
 ```
 
 ### Direct ThreadPoolExecutor inventory (12 sites — replace these in §Slice 5)
@@ -342,7 +342,7 @@ Each slice = one PR / one commit. Format:
 claude: <imperative summary> (slice <N>)
 ```
 
-Update `debug/agent_guardrails_commit_notes.md` after each commit.
+Update `debug/commit_log.md` after each commit.
 
 ### Slice 1 — Reshape `phase_resource_classes` into per-phase budgets with `nested_shape`
 
@@ -415,7 +415,7 @@ The `extract_partial_templates` phase does not exist yet — Slice 2 splits it o
 - A YAML block without `nested_shape` defaults to `"serial"`.
 - A YAML block with `cpus_per_task: 6` parses to `PhaseResourceClassConfig.cpus_per_task == 6`; absent field parses to `None`.
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - In `## Core Parallelism Model`, add a paragraph introducing `nested_shape` and its four values (`si_njobs`, `segment_workers`, `unit_workers`, `serial`).
 - Add a sentence stating that `cpus_per_task` at the per-phase level is an OPTIONAL clamp; the default is to inherit `task_allocation.cpus_per_task` from the active profile.
 
@@ -423,7 +423,7 @@ The `extract_partial_templates` phase does not exist yet — Slice 2 splits it o
 - `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/test_resources_parsing.py -q` passes including the new tests.
 - `conda run -n axon_recon python -c "from axon_recon.pipeline.resources import PhaseResourceClassConfig as P; assert 'nested_shape' in P.__dataclass_fields__"` succeeds.
 - Smokes A and C from §3 still complete with the same observable runtime behavior as before this slice (no regressions).
-- `git diff --stat` touches only `resources.py`, `debug/debug.runtime.yml`, `debug/parallelism_agent_guardrails.md`, and `tests/test_resources_parsing.py`. No code under `pipeline/stages/*` is modified — Slice 1 is config-only.
+- `git diff --stat` touches only `resources.py`, `debug/debug.runtime.yml`, `debug/guardrails/parallelism_agent_guardrails.md`, and `tests/test_resources_parsing.py`. No code under `pipeline/stages/*` is modified — Slice 1 is config-only.
 
 **Commit**: `claude: add nested_shape to phase resource classes (slice 1)`
 
@@ -479,7 +479,7 @@ Find the natural seam between (1) and (2). The existing `worker_count` ThreadPoo
 - Add a new entry to `resources.phase_resource_classes`: `extract_partial_templates` with `nested_shape: segment_workers` (Slice 1's table includes it but instructed to skip until this slice — add it now).
 - Verify the existing `build_templates` `phase_resource_class` entry has `nested_shape: unit_workers`. If Slice 1 set it to `segment_workers` for the unsplit phase, fix it to `unit_workers` here.
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - In `## Core Parallelism Model` (or a new "## Templates Phases" subsection), add a note: "Template artifacts are produced in two phases. `extract_partial_templates` (segment_workers) reads each segment analyzer once and writes per-(unit, segment) partial templates. `build_templates` (unit_workers) reads the partials and produces the merged per-unit template. `build_templates` MUST NOT reopen segment analyzers."
 
 **Acceptance**:
@@ -554,7 +554,7 @@ Or route via a helper `get_active_profile(resources_config) -> Profile` (preferr
 - Extend `test_resources_parsing.py` with two fixtures: legacy shape (top-level task_allocation + phase_resource_classes) and new shape. Both must parse to equivalent `ResourcesConfig`.
 - Test that the deprecation warning fires once for legacy YAML and not for new-shape YAML.
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Replace every reference to `phase_resource_classes` with `phase_budgets`.
 - In `## Resource And Slot Guardrails`, replace the description of `resources.profiles.<name>` (capacity-only) with the new shape: each profile owns capacity + task_allocation + keyed_resource_limits; phase budgets live at the top of the resources block (machine-agnostic).
 
@@ -609,7 +609,7 @@ profiles:
 - Add `test_active_profile_cli_override` covering `--task-profile perlmutter_cpu` switching.
 - Test that an invalid profile name raises `ValueError("resources.active_profile references an undefined profile: 'foo'")`.
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Under `## Operating Contract`, add a bullet listing the supported task-allocation CLI overrides: `--task-profile <name>`, `--task-backend {local_affinity,mpi,none}`, `--cpus-per-task <int>`. State that CLI flags override the YAML for the current run only (no YAML mutation).
 
 **Acceptance**:
@@ -672,7 +672,7 @@ Implementation: the per-target worker context (set in `runner.py:_distribute_run
 - Integration (in `tests/test_parallel_fanout.py`): run `reconstruct.extract_partial_templates` end-to-end with monkeypatched `ThreadPoolExecutor` to capture the requested `max_workers` and assert it equals `task_slot.cpu_count` (since the phase has no clamp).
 - Integration: run `reconstruct.plot_recons` and assert captured `max_workers` equals 4 (the explicit clamp).
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Under `## Thread And Process Telemetry`, add: "Inner worker count is derived from `task_slot.cpu_count` (or the active MPI rank's CPU affinity, treated identically) and optionally clamped by `phase_budgets[<stage.phase>].cpus_per_task`. Phases never read `inputs.n_jobs` directly to decide fanout."
 - Under `## Required Tests And Acceptance Criteria`, add a new subsection `### Inner worker derivation tests` mirroring the unit tests added in 5.E.
 
@@ -726,7 +726,7 @@ This is correct nersc-shaped behavior: a task does not get more CPUs than `--cpu
 - Integration: monkeypatch `current_task_slot` to return slot with `cpu_count=10`; with `cpus_per_task` unset on the phase budget, assert SI `n_jobs` value is 10.
 - Integration: with phase budget `cpus_per_task=4`, slot `cpu_count=10`, assert SI sees `n_jobs=4`.
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Under `## Resource And Slot Guardrails`, add: "SpikeInterface `n_jobs` for any analyzer/sorter/save/concat call is computed by `resolve_inner_worker_count(...)` from the active task slot and phase budget. Direct reads of `inputs.n_jobs` from phase code are forbidden."
 
 **Acceptance**:
@@ -809,9 +809,9 @@ Use `grep -rn "n_jobs:\s*int" src/axon_recon/pipeline/stages/*/models/` to find 
 - Add `test_per_phase_yaml_n_jobs_no_longer_recognized`: load a YAML containing `phases.preprocess_segments.outputs.segment_save_n_jobs: 8` and assert (a) parsing produces no warning AND no error (the key is silently ignored — extra keys generally are), and (b) the runtime n_jobs is determined by the phase budget, not by the YAML knob.
 - Update `test_resources_parsing` if it had any n_jobs assertions.
 
-**I. Documentation**: Update `debug/parallelism_agent_guardrails.md` (Operating Contract section) to add: "No per-phase parallelism knobs in runtime YAML. CPU control lives only in `resources.profiles.<name>.task_allocation` and `resources.phase_budgets`."
+**I. Documentation**: Update `debug/guardrails/parallelism_agent_guardrails.md` (Operating Contract section) to add: "No per-phase parallelism knobs in runtime YAML. CPU control lives only in `resources.profiles.<name>.task_allocation` and `resources.phase_budgets`."
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Under `## Operating Contract`, add a hard rule: "No per-phase parallelism knobs in runtime YAML. CPU control lives only in `resources.profiles.<name>.task_allocation`, `resources.phase_budgets`, or CLI flags. `phases.<X>.n_jobs`, `phases.<X>.outputs.segment_save_n_jobs`, `phases.<X>.outputs.concat_save_n_jobs`, `phases.<X>.analyzer.n_jobs`, `phases.<X>.am_kwargs.n_jobs`, `phases.<X>.um_kwargs.n_jobs` are forbidden — the YAML loader silently ignores or the validator warns."
 
 **Acceptance**:
@@ -869,7 +869,7 @@ Every hit must go.
 
 **G. Update tests** that referenced legacy fields. Tests that exercised the legacy fallback path are deletable.
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Sweep the entire doc for `well_workers`, `max_stage_workers`, `divide_stage_workers_by_wells`, `unit_workers` (the YAML knob), and remove or rephrase. Inner worker count is now exclusively `task_slot.cpu_count` (clamped by phase budget); outer worker count is `len(task_slots)` derived from `task_allocation`.
 - Under `## Required Tests And Acceptance Criteria` → `### Worker allocation unit tests`, replace acceptance criteria that mentioned legacy knobs with criteria phrased in the new vocabulary.
 
@@ -917,7 +917,7 @@ target ... well=well001 ... task_slot=0  (or 1)
 **D. Tests**:
 - Add `test_keyed_h5_serializes_same_source` in `tests/test_parallel_fanout.py`: 2 targets with the same `source_h5_path`, `keyed_resource_limits.source_h5_path.max_concurrent=1`, monkeypatched worker fn that records concurrent entries; assert `max_concurrent_observed == 1`.
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Refresh `### Keyed H5 contention smoke` (under `## Required Tests And Acceptance Criteria`) to refer to phase-budget keyed_resources declarations rather than the legacy `max_simultaneous_well_reads_per_h5_file` YAML key.
 
 **Acceptance**:
@@ -963,7 +963,7 @@ LOGGER.info(
 )
 ```
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Update `## Thread And Process Telemetry` log-line examples to match the canonical format from this slice (`Task allocation backend=... profile=... cpus_per_task=...`, `target[<n>:<id>] task_slot=... cpus=... phase=... effective=...`, `phase parallelism stage=... phase=... effective=...`).
 - Under `## MPI Preparation Guardrails`, add: "When MPI is active, every log line above includes `mpi_rank` and `mpi_size` fields."
 
@@ -995,7 +995,7 @@ LOGGER.info(
 
 **C. Migration test**: Add `test_legacy_yaml_shape_now_rejected` that loads a YAML with the old shape and asserts a clear error message.
 
-**Guardrails update** (`debug/parallelism_agent_guardrails.md`):
+**Guardrails update** (`debug/guardrails/parallelism_agent_guardrails.md`):
 - Add a final paragraph at the top of the doc (or under `## Operating Contract`): "The legacy `resources.phase_resource_classes`, top-level `resources.task_allocation`, and top-level `resources.keyed_resource_limits` keys are no longer recognized. Runtime YAML must use the per-profile shape (capacity + task_allocation + keyed_resource_limits inside `resources.profiles.<name>`) and top-level `resources.phase_budgets`."
 - Final consistency pass: re-read the entire guardrails doc end-to-end and ensure no stale terminology remains.
 
@@ -1003,7 +1003,7 @@ LOGGER.info(
 - All smokes (A–I) green.
 - A YAML with the old shape fails with a parse-time error mentioning the new key path.
 - `grep -rn "phase_resource_classes" debug/` returns no hits.
-- `grep -nE "well_workers|max_stage_workers|divide_stage_workers_by_wells" debug/parallelism_agent_guardrails.md` returns no hits.
+- `grep -nE "well_workers|max_stage_workers|divide_stage_workers_by_wells" debug/guardrails/parallelism_agent_guardrails.md` returns no hits.
 
 **Commit**: `claude: lock new resources schema, remove back-compat parser (slice 11)`
 
@@ -1062,7 +1062,7 @@ Each command should produce the expected (empty / matching) result. Specifically
 ```bash
 # (e) Guardrails doc has no stale vocabulary
 grep -nE "well_workers|max_stage_workers|divide_stage_workers_by_wells|phase_resource_classes" \
-  debug/parallelism_agent_guardrails.md
+  debug/guardrails/parallelism_agent_guardrails.md
 
 # (f) Both backends still work end-to-end
 # Local affinity:
@@ -1109,7 +1109,7 @@ The migration is complete when:
 7. `git grep -nE "max_stage_workers|_unit_workers_after_well_worker_clamp|_WARNED_LEGACY"` is empty across `src/`.
 8. The canonical task-allocation log line uses `profile=<name>` and references the active profile, not bare task_allocation config.
 9. `cpus_per_task` appears under at most ~5 phase entries (the explicit clamps for memory-heavy plot phases). Every other phase inherits the slot — confirmed by the cleanup-check (d) command.
-10. `debug/parallelism_agent_guardrails.md` is fully consistent with the new model. No legacy vocabulary remains (cleanup-check (e) is empty). The doc's vocabulary, examples, and acceptance criteria all match the new schema.
+10. `debug/guardrails/parallelism_agent_guardrails.md` is fully consistent with the new model. No legacy vocabulary remains (cleanup-check (e) is empty). The doc's vocabulary, examples, and acceptance criteria all match the new schema.
 11. **Both backends validated end-to-end.** Smoke A (local_affinity) and Smoke I (real `mpirun -np 2`) both run preprocess to completion with matching per-phase `effective=` values. Smoke H (FakeMPI partition tests) passes in the unit test suite.
 
 If any acceptance check fails, the slice does not land. Each slice is a single commit; do not bundle slices.

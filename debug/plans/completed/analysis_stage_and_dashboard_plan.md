@@ -660,7 +660,7 @@ grep -E "plotly|dash|pyarrow|statsmodels|kaleido" containers/axon-recon/Dockerfi
 5. `pytest src/axon_recon/pipeline/ -q --ignore=src/axon_recon/pipeline/tests/test_progress.py` shows the
    slice-0 baseline failures or a strict subset (no new failures introduced by this plan).
 6. §6 cleanup checklist passes.
-7. `debug/agent_guardrails_commit_notes.md` has an entry titled
+7. `debug/commit_log.md` has an entry titled
    `ANALYSIS STAGE + DASHBOARD COMPLETE` summarizing test counts and any deviations from the slice plan.
 
 When 1–7 hold, merge the branch back to `dev_branch2`.
@@ -669,10 +669,10 @@ When 1–7 hold, merge the branch back to `dev_branch2`.
 
 ## 9. Operating Contract (if running this under /loop)
 
-See `debug/analysis_stage_and_dashboard_loop_prompt.md` for the autonomous-loop prompt.
+See `debug/plans/completed/analysis_stage_and_dashboard_loop_prompt.md` for the autonomous-loop prompt.
 Same conventions as the prior loops:
 
-- Plan file: `debug/analysis_stage_and_dashboard_plan.md` (this file).
+- Plan file: `debug/plans/completed/analysis_stage_and_dashboard_plan.md` (this file).
 - Number of slices: 6.
 - Branch: `analysis-stage-and-dashboard` (off `dev_branch2`).
 - Halt condition: §8 DoD satisfied + `ANALYSIS STAGE + DASHBOARD COMPLETE` notes entry.

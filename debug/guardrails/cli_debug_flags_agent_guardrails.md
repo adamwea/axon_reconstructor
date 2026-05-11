@@ -9,7 +9,7 @@ This document defines the expected behavior for CLI debug and target flags acros
 - Work in the `axon_reconstructor` repository only unless Adam explicitly asks otherwise.
 - Commit frequently after each coherent accepted slice, using an `ai:` prefix in the commit subject.
 - Do not push unless Adam explicitly asks.
-- Update `debug/agent_guardrails_commit_notes.md` after every AI commit, including acceptance criteria, tests, real-data smokes, logs inspected, and residual risk.
+- Update `debug/commit_log.md` after every AI commit, including acceptance criteria, tests, real-data smokes, logs inspected, and residual risk.
 - Run focused tests plus real-data smoke tests whenever a change touches CLI parsing, target selection, stage dispatch, phase dispatch, force-restart behavior, paths, logging, or parallelism.
 - Prefer smoke scopes like 1 dataset, 1 well, 2 segments, and a few units. Expand datasets or wells only when the behavior under test requires it, especially for logging or parallelism.
 - Do not run full-scope tests unless Adam explicitly requests them or a narrow smoke cannot validate the behavior.

@@ -1,0 +1,102 @@
+# Issues — known bugs / specific fixes
+
+Defects against current pipeline behavior, with reproduction + impact + suggested
+fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
+`tech_debt.md` (which is about cleanup of working-but-ugly code).
+
+## Format
+
+```
+### <Short title>
+- **Status**: open | in-flight | fixed-in <commit> | wont-fix
+- **Tags**: stage/area tags (spikesort, recon, analysis, dashboard, container, infra)
+- **Repro**: how to observe the bug
+- **Impact**: what breaks because of it
+- **Workaround**: temporary mitigation if any
+- **Suggested fix**: rough shape of the fix (will grow into a plan if large)
+- **See also**: related commits, plans, prior discussion
+```
+
+---
+
+## Open issues
+
+### `--force-restart` does not reliably clean prior artifacts
+- **Status**: open
+- **Tags**: spikesort, preprocess, reconstruct, analysis, infra
+- **Repro**: run a stage with `--force-restart` after a previous run wrote partial
+  outputs; observe residual files from the prior run persisting in the well's
+  output dirs, producing hybrid-state runs on rerun.
+- **Impact**: reruns are not actually clean restarts. Hard-to-diagnose state
+  bleeding between iterations. User has hit this in multiple places already.
+- **Workaround**: manually `rm -rf <well>/<stage>_outputs/` before rerunning.
+- **Suggested fix**: standardize the contract — every stage runner, at entry with
+  `force_restart=True`, calls a uniform pre-clean helper that wipes the stage's
+  output directory(ies). Per-phase opt-outs are gone; if you need to preserve
+  something (e.g., concat_analyzer cache, SLAy AE model), re-run only the
+  specific phases you want to preserve via the `--phase` arg. All-or-nothing
+  semantics across all four stages (preprocess, spikesort, reconstruct, analysis).
+  Each phase needs a test asserting the contract (write garbage to output dir,
+  run with force_restart=True, assert garbage gone). Will earn its own
+  fix-plan when scoped.
+- **See also**: discussed 2026-05-11; ordering decision: do
+  `debug_mode` YAML cleanup (see tech_debt.md) FIRST to shrink the audit surface,
+  then this.
+
+### merge_SLAy unit_locations plots scope and channel overlay
+- **Status**: open
+- **Tags**: spikesort, plots
+- **Repro**: run `axon-recon stages spikesort.merge_SLAy --target-dataset N
+  --limit-wells 1`; inspect `<well>/spikesort_outputs/merge_SLAy/
+  unit_locations_before_after_merge.png` (and the single-axis `_before_merge.png` /
+  `_after_merge.png`). The plot bbox is shrunk to just the units actively being
+  merged, not to the full set of pre-merge units passing the quality filter.
+- **Impact**: pre/post comparison is visually misleading — you can't see where
+  the merged units sit relative to the rest of the good population. The post-merge
+  panel may also show units displaced slightly outside the bbox due to
+  weighted-average locations.
+- **Workaround**: none currently.
+- **Suggested fix**:
+  - Drop the `zoom_to_affected_units` branch in
+    `_write_merge_unit_location_reports` (`spikesort/runner.py`); bbox always
+    derived from the filtered pre-merge set with a small margin.
+  - Both panels share the same `(x_limits, y_limits)` (the same bbox the
+    pre-merge filtered set produces). Post-merge weighted-avg locations that
+    drift outside the bbox stay visible but the axis doesn't expand. Log how
+    many post-merge units land outside the pre-merge bbox as a QC diagnostic
+    in the report payload.
+  - Single-axis plots share the same bbox but stay as separate files.
+  - Probe-dimension inheritance branch (`merge_reports_2panel_probe_dim_x_um/y_um`)
+    stays available as opt-in, off by default.
+  - **New: channel-square overlay.** Plot the union of `merged_contributing_electrode_ids.json`
+    channel xy positions across the displayed units as small grey squares below
+    the unit dots. Each panel uses its own channel set (pre-panel = pre-units'
+    union; post-panel = post-units' union). Config knobs default on:
+    `merge_reports_2panel_plot_template_channels`,
+    `merge_reports_2panel_template_channel_marker_size`,
+    `merge_reports_2panel_template_channel_color`.
+- **See also**: discussed 2026-05-11; quality-filter fix landed in
+  `6a6e8c6 filter unit_locations plots to good/non_soma_good`.
+
+### NAS mount `/mnt/ben-shalom_nas/` periodically stale
+- **Status**: open (environment, not code)
+- **Tags**: infra, container
+- **Repro**: `ls /mnt/ben-shalom_nas/` returns "Resource temporarily unavailable";
+  `axon-recon-container` preflight fails with `cannot create writable output_root
+  path /mnt/ben-shalom_nas/analysis/...`.
+- **Impact**: container launches blocked when the share is stale. Affects every
+  stage invocation that flows through the wrapper.
+- **Workaround**: use the documented bypass form:
+  ```
+  axon-recon-container \
+    --no-config-mounts \
+    --mount /mnt/disk15tb/adamm/scratch:/mnt/disk15tb/adamm/scratch:rw \
+    --mount /mnt/disk15tb/adamm/dev/pkgs/axon_reconstructor/debug:/mnt/disk15tb/adamm/dev/pkgs/axon_reconstructor/debug:ro \
+    --gpus all \
+    stages <stage> --config debug/debug.runtime.yml ...
+  ```
+- **Suggested fix**: lower-priority since `publish_outputs: false` means the run
+  doesn't actually need the NAS path — only the preflight check does. Soften
+  the preflight so unreachable `output_root` is a warning-and-skip rather than
+  a hard failure when `publish_outputs: false` is set in the runtime config.
+- **See also**: workaround validated in conversation 2026-05-11.

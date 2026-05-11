@@ -1,6 +1,6 @@
 # Parallelism Migration — Post-Slice-11 Cleanup Plan
 
-Status: implementation plan. Sibling to `parallelism_migration_plan.md` (slices 1–11 landed) and `spikesort_label_merge_repair_plan.md`. Same operating contract: one slice at a time, `claude:` commit prefix, append a line to `debug/agent_guardrails_commit_notes.md` after every commit.
+Status: implementation plan. Sibling to `parallelism_migration_plan.md` (slices 1–11 landed) and `spikesort_label_merge_repair_plan.md`. Same operating contract: one slice at a time, `claude:` commit prefix, append a line to `debug/commit_log.md` after every commit.
 
 This plan does **not** introduce any new behavior. It harvests the dead/stale residue left behind after the parallelism migration plan finished landing, and bring the repo's vocabulary in line with the guardrails doc. Order it before the spikesort plan (touches some of the same files: `pipeline/runner.py`, `pipeline/config.py`, spikesort `runner.py`).
 
@@ -134,7 +134,7 @@ src/axon_recon/pipeline/stages/spikesort/legacy_runner.py
 src/axon_recon/pipeline/stages/reconstruct/phases/{plot_templates,plot_templates_v2,generate_gtrs}.py
 src/axon_recon/pipeline/stages/reconstruct/templates/runner.py
 src/axon_recon/pipeline/stages/preprocess/models/inputs.py    # runtime_well_workers field
-debug/parallelism_agent_guardrails.md                    # contract doc to update alongside slices
+debug/guardrails/parallelism_agent_guardrails.md                    # contract doc to update alongside slices
 debug/debug.runtime.yml                                  # YAML residue
 ```
 
@@ -422,13 +422,13 @@ Identify which kwarg the production retry path branches on and what spikeinterfa
 
 **Goal**: lock the contract doc to the post-cleanup vocabulary. Each prior slice was supposed to update this doc inline, but several slices are pending (slices 1–4 of *this* plan introduce vocabulary changes, e.g. removing `well_workers`).
 
-**A. Edits** in `debug/parallelism_agent_guardrails.md`:
+**A. Edits** in `debug/guardrails/parallelism_agent_guardrails.md`:
 - Strike any remaining mention of `well_workers`, `max_stage_workers`, `divide_stage_workers_by_wells`, `resolve_stage_parallelism`, `StageParallelism`, `phase_resource_classes`, `inputs.n_jobs source`.
 - Add a "Banned Vocabulary" appendix listing those terms, why each was removed, and the replacement.
 - Cross-link the post-cleanup commit SHAs in the "Slices Landed" section.
 
 **B. Acceptance**:
-- The grep `git grep -nE "well_workers|max_stage_workers|divide_stage_workers|resolve_stage_parallelism" debug/parallelism_agent_guardrails.md` returns only `## Banned Vocabulary` mentions.
+- The grep `git grep -nE "well_workers|max_stage_workers|divide_stage_workers|resolve_stage_parallelism" debug/guardrails/parallelism_agent_guardrails.md` returns only `## Banned Vocabulary` mentions.
 
 **Commit**: `claude: lock guardrails doc to post-cleanup vocabulary (cleanup slice 10)`
 
@@ -480,7 +480,7 @@ git grep -nE "legacy_runner" src/
 git grep -nE "int\(inputs\.n_jobs\)" src/axon_recon/
 
 # (f) Guardrails doc clean
-git grep -nE "well_workers|max_stage_workers|divide_stage_workers" debug/parallelism_agent_guardrails.md
+git grep -nE "well_workers|max_stage_workers|divide_stage_workers" debug/guardrails/parallelism_agent_guardrails.md
 ```
 
 (a)–(d) must be empty. (e) must match only the documented forwarding sites. (f) must return only `## Banned Vocabulary` mentions.
@@ -491,7 +491,7 @@ git grep -nE "well_workers|max_stage_workers|divide_stage_workers" debug/paralle
 
 - ~~**Reconstruct stage test rot**~~ — superseded by Slice 8 (mechanical fixture/assertion drift) and Slice 9 (spikeinterface_extract compat audit).
 - ~~**`reconstruct/runner.py:1509` `replace()` bug**~~ — superseded by Slice 7 (the guard goes in alongside the `max_plotting_concurrency` field deletion).
-- **Container + mpirun "runs double"**. Each `mpirun -np 2 axon-recon-container` spawns two independent containers each with `MPI_COMM_WORLD` of size 1. Either fix MPI passthrough (`--ipc=host`, PMIx mounts) or document that container is single-rank only and use mpirun directly with the host axon-recon for multi-rank work. Strategy options captured in `debug/container_mpi_strategy_note.md`; recommendation is to stay on Option C (single-rank container for sort, host mpirun for everything else) until lab patterns force a change.
+- **Container + mpirun "runs double"**. Each `mpirun -np 2 axon-recon-container` spawns two independent containers each with `MPI_COMM_WORLD` of size 1. Either fix MPI passthrough (`--ipc=host`, PMIx mounts) or document that container is single-rank only and use mpirun directly with the host axon-recon for multi-rank work. Strategy options captured in `debug/guardrails/container_mpi_strategy_note.md`; recommendation is to stay on Option C (single-rank container for sort, host mpirun for everything else) until lab patterns force a change.
 
 - **Retire `plot_templates` (v1) phase**. The `plot_templates_v2` phase replaces it; v1 is commented out of `debug/debug.runtime.yml` phase_sequence (line 1125) but the YAML block at lines 1406+, the parser, and the runner all still exist for v1. A future cleanup slice should:
   1. Confirm no other `phase_sequence` (in any sibling runtime YAML or test fixture) still references `plot_templates` (the v1 name).
@@ -513,4 +513,4 @@ This cleanup is complete when:
 4. The cleanup checklist (§5) commands all return clean.
 5. The §3 smoke matrix is green on the user's lab server with the live container.
 
-If any acceptance check fails, the slice does not land. Each slice is a single commit prefixed `claude:`. Append one line to `debug/agent_guardrails_commit_notes.md` after every commit.
+If any acceptance check fails, the slice does not land. Each slice is a single commit prefixed `claude:`. Append one line to `debug/commit_log.md` after every commit.

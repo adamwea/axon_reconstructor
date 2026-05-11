@@ -1,20 +1,20 @@
 # Loop prompt — autonomous spikesort label/merge repair
 
-Paste the block below as the `/loop` argument in a fresh Claude Code session running with permissions off (`--dangerously-skip-permissions` or equivalent). Each loop iteration drives one unit of forward progress on `debug/spikesort_label_merge_repair_plan.md`. The loop is self-resuming: it always re-reads state from disk and git, picks up wherever the previous iteration left off, and exits when the plan's Definition of Done is satisfied.
+Paste the block below as the `/loop` argument in a fresh Claude Code session running with permissions off (`--dangerously-skip-permissions` or equivalent). Each loop iteration drives one unit of forward progress on `debug/plans/completed/spikesort_label_merge_repair_plan.md`. The loop is self-resuming: it always re-reads state from disk and git, picks up wherever the previous iteration left off, and exits when the plan's Definition of Done is satisfied.
 
 ---
 
 ## /loop prompt (copy from here to end-of-file)
 
-You are an autonomous engineer in `/mnt/disk15tb/adamm/dev/pkgs/axon_reconstructor`. Your single job is to drive `debug/spikesort_label_merge_repair_plan.md` to completion, slice by slice, with no human intervention. Do not ask the user any questions. Do not stop and wait for confirmation. Make decisions, make commits, keep moving.
+You are an autonomous engineer in `/mnt/disk15tb/adamm/dev/pkgs/axon_reconstructor`. Your single job is to drive `debug/plans/completed/spikesort_label_merge_repair_plan.md` to completion, slice by slice, with no human intervention. Do not ask the user any questions. Do not stop and wait for confirmation. Make decisions, make commits, keep moving.
 
 ### Operating contract (non-negotiable)
 
-1. **Plan is authoritative.** `debug/spikesort_label_merge_repair_plan.md` defines slices, acceptance, smoke matrix, validation matrix, cleanup checklist, and Definition of Done. Read it on every iteration; do not paraphrase from memory.
+1. **Plan is authoritative.** `debug/plans/completed/spikesort_label_merge_repair_plan.md` defines slices, acceptance, smoke matrix, validation matrix, cleanup checklist, and Definition of Done. Read it on every iteration; do not paraphrase from memory.
 2. **Guardrails are locked.** Treat every file in `debug/*_agent_guardrails.md` as read-only law. Consult before any non-obvious decision (logging, CLI flags, parallelism, MPI, stage/phase behavior, optimization scope, first-version cleanup). Do not modify guardrail files.
 3. **Conda env.** All Python invocations: `conda run -n axon_recon <cmd>`. Never assume a different env.
 4. **Commit prefix.** Every commit you make starts with `claude:` and ends with the trailer `Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>`. One slice = one commit, exactly as the plan dictates.
-5. **Commit log.** After every commit, append a dated entry to the top of the `Commit Log` section in `debug/agent_guardrails_commit_notes.md`. Include: what changed, why, guardrail documents consulted, smokes run, test results, anything surprising.
+5. **Commit log.** After every commit, append a dated entry to the top of the `Commit Log` section in `debug/commit_log.md`. Include: what changed, why, guardrail documents consulted, smokes run, test results, anything surprising.
 6. **Tests gate commits.** `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/ -q` MUST pass before you commit a slice. If it fails, fix the failure in the same slice — do not commit a red tree. Pre-existing failures unrelated to your slice: snapshot the baseline at slice start (`git stash` your changes, run pytest, save the failing test names) and only commit if the post-slice failures are a strict subset of that baseline.
 7. **Smokes gate commits when the slice's acceptance section requires them.** Run only the smokes the slice's Acceptance subsection lists. The smoke matrix is in §3 of the plan. The CLI invocations there are authoritative — if a flag (e.g. `--override`) is rejected, fall back to inline-editing `debug/debug.runtime.yml`, run the smoke, then revert the YAML in the same iteration. Capture stdout to `/tmp/smoke_<slice>_<label>.log` for the commit notes.
 8. **Mutation-safety check.** Slices 3, 4 (and 7's regressions) require the §3 sha256 before/after diff. Run it exactly as written. An empty diff is mandatory acceptance.
@@ -29,8 +29,8 @@ Run these phases in order. Each phase is short — most iterations finish in one
 
 **Phase A — Re-orient (every iteration, no exceptions):**
 - `git status --short` and `git log --oneline -20`. From the log, count `claude:` commits matching `(slice N)` for N=1..7 to determine which slices are landed.
-- Read `debug/spikesort_label_merge_repair_plan.md` end-to-end (it is ~650 lines; budget for it). The plan is the source of truth — do not work from memory.
-- Read the most recent ~50 lines of `debug/agent_guardrails_commit_notes.md` to absorb any prior-iteration context.
+- Read `debug/plans/completed/spikesort_label_merge_repair_plan.md` end-to-end (it is ~650 lines; budget for it). The plan is the source of truth — do not work from memory.
+- Read the most recent ~50 lines of `debug/commit_log.md` to absorb any prior-iteration context.
 - Determine the **active slice** = lowest-numbered slice (1..7) whose `claude: ... (slice N)` commit is NOT yet in the log.
 - If active slice > 7, run §6 cleanup checklist commands and §8 DoD checks. If all clean → write `SPIKESORT REPAIR COMPLETE` notes entry and exit (do not re-arm). If anything is unclean → treat the unclean check as work for a remediation iteration; the active slice becomes "post-7 cleanup".
 
@@ -53,7 +53,7 @@ Run these phases in order. Each phase is short — most iterations finish in one
 **Phase E — Commit & log:**
 - `git add` only the files you changed. Never `git add -A` / `git add .`.
 - Commit with the exact message format from the slice's `Commit:` line, followed by the Co-Authored-By trailer (HEREDOC syntax — see CLAUDE Code git protocol).
-- Append commit notes entry to `debug/agent_guardrails_commit_notes.md`.
+- Append commit notes entry to `debug/commit_log.md`.
 
 **Phase F — Re-arm:**
 - If the active slice is now committed AND active slice was < 7: schedule another loop iteration with ScheduleWakeup, `delaySeconds=120`, `prompt=<this same prompt verbatim>`, reason=`continuing slice N+1 of spikesort label/merge repair`.
@@ -106,11 +106,11 @@ Or one-shot via CLI flag (if you prefer):
 
 ```bash
 claude --dangerously-skip-permissions \
-  -p "$(sed -n '/^## \/loop prompt/,/^---$/p' debug/spikesort_label_merge_repair_loop_prompt.md | sed '1d;$d')"
+  -p "$(sed -n '/^## \/loop prompt/,/^---$/p' debug/plans/completed/spikesort_label_merge_repair_loop_prompt.md | sed '1d;$d')"
 ```
 
 ## Manual interrupts
 
 - **Pause:** `touch debug/STOP_AUTONOMOUS_LOOP` — the next iteration's stop-signal check will halt before any commit.
 - **Resume:** `rm debug/STOP_AUTONOMOUS_LOOP` and re-issue `/loop` with the same prompt block.
-- **Inspect progress:** `git log --oneline | grep "claude:.*(slice"` and tail `debug/agent_guardrails_commit_notes.md`.
+- **Inspect progress:** `git log --oneline | grep "claude:.*(slice"` and tail `debug/commit_log.md`.

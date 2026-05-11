@@ -7,7 +7,7 @@ This document defines logging expectations for the active `axon_recon` pipeline:
 ## Operating Contract
 
 - Commit frequently after each coherent accepted slice, using an `ai:` prefix in the commit subject.
-- Update `debug/agent_guardrails_commit_notes.md` after every AI commit.
+- Update `debug/commit_log.md` after every AI commit.
 - Test frequently with real-data smoke runs using CLI debug flags.
 - Use the smallest useful scope by default: 1 dataset, 1 well, 2 segments, and a few units.
 - When terminal visibility, progress behavior, multiprocessing, or worker interleaving is in question, expand to multiple datasets and/or wells.

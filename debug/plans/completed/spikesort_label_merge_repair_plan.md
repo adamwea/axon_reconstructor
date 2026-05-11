@@ -1,6 +1,6 @@
 # Spikesort Repair Plan — Fix `bombcell_label` And `merge_SLAy`
 
-Status: implementation plan. Sibling to `parallelism_migration_plan.md`. Hand off one slice at a time. Same operating contract: each slice is self-contained, tests must pass, commits prefixed `claude:` when Claude does the work, update `debug/agent_guardrails_commit_notes.md` after each commit.
+Status: implementation plan. Sibling to `parallelism_migration_plan.md`. Hand off one slice at a time. Same operating contract: each slice is self-contained, tests must pass, commits prefixed `claude:` when Claude does the work, update `debug/commit_log.md` after each commit.
 
 This plan does not depend on the parallelism migration. Order with respect to that plan: this work and the parallelism work touch overlapping files (`spikesort/runner.py` mostly), so do not run them in parallel. Pick one and finish before the other. Recommended order: parallelism first (it deletes legacy plumbing), then this plan (it touches phase-specific orchestration that's largely orthogonal to the parallelism cleanup).
 
@@ -652,4 +652,4 @@ The repair is complete when:
 6. The cleanup checklist (§6) commands all return clean.
 7. Iterating on `bombcell_label` or `merge_SLAy` no longer requires re-running `spikesort.sort`. The user can: (a) snapshot once after first sort, (b) dry-run a phase to inspect proposed changes, (c) apply with dry_run=false, (d) restore from snapshot, (e) repeat (b)–(d) without ever re-running sort.
 
-If any acceptance check fails, the slice does not land. Each slice is a single commit prefixed `claude:`. Update `debug/agent_guardrails_commit_notes.md` after every commit.
+If any acceptance check fails, the slice does not land. Each slice is a single commit prefixed `claude:`. Update `debug/commit_log.md` after every commit.

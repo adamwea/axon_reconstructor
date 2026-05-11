@@ -54,7 +54,7 @@ Before removing a knob, alias, fallback, or legacy path:
 - Add or update tests for the desired canonical behavior.
 - Run a focused pytest target.
 - Run a limited real-data smoke test when the change touches CLI dispatch, config parsing, paths, phase wiring, logging, parallelism, resume, force-restart, or real-data IO.
-- Record the deletion rationale, replacement path, validation, and rollback note in `debug/agent_guardrails_commit_notes.md`.
+- Record the deletion rationale, replacement path, validation, and rollback note in `debug/commit_log.md`.
 
 ## Acceptance Criteria
 

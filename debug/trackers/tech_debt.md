@@ -1,0 +1,110 @@
+# Tech debt — cleanup / refactor / repo-footprint backlog
+
+Working code that we want to improve: dead code, obsolete config, duplicate logic,
+oversized files, missing tests, slow paths. Distinct from `issues.md` (which is
+broken behavior) and `roadmap.md` (which is new ambitions).
+
+## Format
+
+```
+### <Short title>
+- **Status**: open | in-flight | landed-in <commit> | wont-fix
+- **Tags**: dead-code, duplicate-logic, obsolete-config, oversized-file, slow-path, missing-test, repo-footprint, …
+- **Where**: pointer to file/symbol/dir
+- **Why it's debt**: 1 paragraph
+- **Suggested cleanup**: rough shape; rough touch size (S/M/L)
+- **See also**: related commits, plans, prior discussion
+```
+
+---
+
+## Open entries
+
+### Remove `debug_mode` YAML blocks across all stages
+- **Status**: open
+- **Tags**: obsolete-config, duplicate-logic, repo-footprint
+- **Where**: `debug/debug.runtime.yml` — every stage's `phases.<phase>.debug_mode:
+  {enabled, limit_datasets, limit_wells, limit_wells_per_dataset}` block.
+  Parsed into ~20 `<phase>_debug_mode_*` fields per stage in
+  `src/axon_recon/pipeline/stages/<stage>/config.py`.
+- **Why it's debt**: the CLI args `--target-dataset`, `--limit-datasets`,
+  `--limit-wells`, `--limit-wells-per-dataset` are now the source of truth for
+  scoping a run. The YAML debug_mode blocks are dead duplication that clutter
+  the runtime config and the stage-config dataclasses.
+- **Suggested cleanup**: drop YAML blocks → drop dataclass fields → drop parser
+  logic → drop tests asserting the fields → grep audit confirms zero residual
+  hits. One commit per stage for bisectability; total touch is M (large mechanical
+  diff, no behavior change once the YAML is gone). Apply to all four stages
+  (preprocess, spikesort, reconstruct, analysis). User-confirmed ordering: do
+  this BEFORE the `--force-restart` audit (see issues.md), because it shrinks
+  the surface area that the force-restart contract has to reason about.
+- **See also**: discussed 2026-05-11; partial commit
+  `62568c1 commented out some debug_mode leftovers` started in this direction.
+
+### Container runtime alignment with NERSC shifter + MPI backend
+- **Status**: open
+- **Tags**: infra, container, repo-footprint
+- **Where**: `src/axon_recon/pipeline/container_cli.py` (the `axon-recon-container`
+  wrapper); `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`;
+  `debug/guardrails/container_mpi_strategy_note.md`;
+  `debug/plans/active/nersc_shaped_local_affinity_plan.md` (probably
+  the active home when this work resumes — verify status).
+- **Why it's debt**: local `axon-recon-container` uses Docker-shaped bind mounts,
+  root user, isolated network, isolated `/tmp`+`/home`. NERSC uses `shifter`:
+  host UID passthrough, host networking, host paths. Behavior divergence between
+  local dev and NERSC deploy means bugs surface late. MPI backend works
+  transparently under shifter but needs explicit fabric / network-mode handling
+  under Docker.
+- **Suggested cleanup**: opt-in `--runtime=shifter-mimic` flag on
+  `axon-recon-container` that flips `--user $(id -u):$(id -g)`, `--network=host`,
+  passes `$HOME` and `/tmp` through. Align local `mpirun` invocation with the
+  NERSC-side `srun` shape. Add a 2-rank MPI smoke that exercises a stage
+  end-to-end under the mimic mode. L touch — likely earns its own plan doc.
+  Decide later whether mimic mode becomes the default.
+- **See also**: discussed 2026-05-11.
+
+### `recon_outputs_` sibling directory cleanup
+- **Status**: open
+- **Tags**: dead-code, repo-footprint
+- **Where**: in the wild under
+  `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/.../well*/recon_outputs_/`
+  (note trailing underscore). The canonical recon output dir is `recon_outputs/`;
+  the `_` suffix is an older snapshot from an earlier pipeline version.
+- **Why it's debt**: scratch-level clutter that confuses agents and humans alike
+  ("which one is current?"). No code references it — it's purely on-disk drift.
+- **Suggested cleanup**: scratch-side `find -name recon_outputs_ -type d | xargs
+  rm -rf` once we've verified nothing depends on it. S touch. Not a code change,
+  more of a one-shot cleanup. Could become a `debug/scripts/` helper.
+
+### `spikesort/runner.py` is ~10K lines
+- **Status**: open
+- **Tags**: oversized-file
+- **Where**: `src/axon_recon/pipeline/stages/spikesort/runner.py`.
+- **Why it's debt**: searching this file is a pain, even with grep-first
+  discipline. The recent spikesort-merge-cleanup work split out
+  `core/concat_analyzer.py`, `core/post_merge_view.py`, `core/pre_merge_cache.py`,
+  `core/derive_post_merge.py`, `core/snapshot_sorter_output.py` — which helped —
+  but the merge orchestrator + report writers + extension helpers still live in
+  `runner.py`.
+- **Suggested cleanup**: extract `_write_merge_unit_location_reports` +
+  `_write_merge_template_heatmap_reports` (the two largest report writers) into
+  `core/merge_reports/` modules. Extract the SLAy orchestrator
+  (`_run_slay_merge_method` and friends) into `core/slay_orchestrator.py`. Each
+  extraction is one commit, mechanical (move + update imports). M-L total touch.
+  Earns its own plan when scoped.
+
+### Soften container preflight when `publish_outputs: false`
+- **Status**: open (cross-listed in issues.md as workaround)
+- **Tags**: infra, container, ergonomics
+- **Where**: `src/axon_recon/pipeline/container_cli.py:_resolve_config_mounts`.
+- **Why it's debt**: the preflight tries to `mkdir -p` the data config's
+  `output_root` even when the runtime sets `publish_outputs: false` (i.e., the
+  run will never actually write to `output_root`). Forces users to know the
+  `--no-config-mounts` bypass even when the unavailable path is irrelevant to
+  the run.
+- **Suggested cleanup**: detect `publish_outputs: false` in
+  `_resolve_config_mounts` and skip the `output_root` mkdir check (still mount
+  it `:rw` if the path exists, but don't fail when it doesn't). S touch — single
+  function edit + test. Eliminates the need for `--no-config-mounts` in 90%+
+  of the cases where it's currently required.
+- **See also**: see `debug/trackers/issues.md` "NAS mount … stale".

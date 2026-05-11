@@ -4,13 +4,13 @@ Living review log for AI-assisted work governed by the guardrail documents in th
 
 The guardrail documents are:
 
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/optimization_simplificaiton_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md` temporary first-version cleanup guardrail
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/optimization_simplificaiton_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md` temporary first-version cleanup guardrail
 
 Once agentic development begins, treat those guardrail documents as locked. Use this file for mutable running notes unless Adam explicitly asks to change a guardrail document.
 
@@ -95,7 +95,7 @@ Rollback Notes:
 
 Status: accepted
 
-`debug/analysis_stage_and_dashboard_plan.md` is fully landed in 6 slices on
+`debug/plans/completed/analysis_stage_and_dashboard_plan.md` is fully landed in 6 slices on
 branch `analysis-stage-and-dashboard` (off `7affce9` which sits on top of
 `spikesort-merge-cleanup`). Final commits:
 
@@ -164,8 +164,8 @@ Summary:
   - `tests/test_app.py`: every Scatter + download component id is present in the layout; `build_scatter` renders multi-trace figures with color + facet_col splits, returns empty figures for missing-column / empty-df inputs, and `fig.to_image(format=...)` produces non-zero `png`/`svg`/`pdf` blobs with the correct magic bytes (PNG `\x89PNG`, PDF `%PDF`, SVG `<svg`).
 
 Guardrails Consulted:
-- `debug/analysis_stage_and_dashboard_plan.md` §5 slice 6 (scatter UX + per-figure downloads + CSV + filter+plot JSON for provenance), §7 risks (no container rebuild for env/Dockerfile bumps).
-- `debug/first_version_pipeline_guardrails.md` — recompute-on-click is simpler than threading dcc.Store, matches plan's MVP scope.
+- `debug/plans/completed/analysis_stage_and_dashboard_plan.md` §5 slice 6 (scatter UX + per-figure downloads + CSV + filter+plot JSON for provenance), §7 risks (no container rebuild for env/Dockerfile bumps).
+- `debug/guardrails/first_version_pipeline_guardrails.md` — recompute-on-click is simpler than threading dcc.Store, matches plan's MVP scope.
 
 Plan deviations:
 - The per-button download callbacks recompute the filtered DataFrame + figure on click rather than reading from a hidden `dcc.Store`. This keeps state authoritative in the inputs (no stale-cache risk) at the cost of recomputing the figure once per export click. Acceptable at slice 6 MVP scope; if export latency becomes a problem later, a Store-backed export pipeline can replace it without touching the public CLI.
@@ -206,8 +206,8 @@ Summary:
 - `_walk_components` test helper now descends through single (non-list) `children` attributes so dcc.Tab-wrapped components are reachable.
 
 Guardrails Consulted:
-- `debug/analysis_stage_and_dashboard_plan.md` §5 slice 5 spec (test/correction matrix, bracket+asterisk semantics, omnibus handling), §4 modular filter contract (still binding — the box-plot callback shares the same `apply_filter_spec` mask).
-- `debug/first_version_pipeline_guardrails.md` — pure stats helpers, no Dash imports in `significance.py`.
+- `debug/plans/completed/analysis_stage_and_dashboard_plan.md` §5 slice 5 spec (test/correction matrix, bracket+asterisk semantics, omnibus handling), §4 modular filter contract (still binding — the box-plot callback shares the same `apply_filter_spec` mask).
+- `debug/guardrails/first_version_pipeline_guardrails.md` — pure stats helpers, no Dash imports in `significance.py`.
 
 Tests Run:
 - `pytest src/axon_recon/pipeline/stages/analysis/ src/axon_recon/dashboard/ -q` → 106 passed (53 analysis from slice 1+2+3 unchanged; 53 dashboard incl. the new significance + box-plot coverage).
@@ -242,8 +242,8 @@ Summary:
 - 26 new dashboard tests: 14 for `filters` (each knob's pass-through + drop semantics), 4 for `discovery` (synthetic scratch tree with target_datasets / limit_wells / missing-manifest cases), 5 for `data` (concat + identity stamping, missing-tables, missing-parquet, empty-list, bad-json), 3 for `app` (Dash instance shape, expected component ids, empty-df handling).
 
 Guardrails Consulted:
-- `debug/analysis_stage_and_dashboard_plan.md` §3 smoke matrix (A4), §4 modular filter contract, §5 slice 4 spec, §7 risks.
-- `debug/first_version_pipeline_guardrails.md` — minimal scope, no precomputed `qc_pass`, no Dash imports in `filters.py`.
+- `debug/plans/completed/analysis_stage_and_dashboard_plan.md` §3 smoke matrix (A4), §4 modular filter contract, §5 slice 4 spec, §7 risks.
+- `debug/guardrails/first_version_pipeline_guardrails.md` — minimal scope, no precomputed `qc_pass`, no Dash imports in `filters.py`.
 
 Plan deviations:
 - `app.run(use_reloader=False)` is set unconditionally so SIGTERM cleanly terminates the single PID; reloader spawns a second process that complicates teardown in the smoke. `--debug` still flips Dash's debug toolbar on; we just don't pick up file changes automatically.
@@ -286,8 +286,8 @@ Summary:
 - Tests: `core/tests/test_metrics.py` gains 4 well_summary cases (happy path counts + aggregates, empty DataFrame, no-ok-rows, None-DataFrame). `tests/test_runner.py` gains 2 integration tests: a synthetic 3-unit fixture (2 ok + 1 error) verifies the full documented schema + identity stamping + counts + per-metric mean/median values, and an empty-well case verifies the single zero/NaN row is still written.
 
 Guardrails Consulted:
-- `debug/analysis_stage_and_dashboard_plan.md` §5 slice 3 spec (counts + mean/median over ok rows, identity columns).
-- `debug/first_version_pipeline_guardrails.md` — pure-function aggregator, NaN-on-empty semantics, no scope creep.
+- `debug/plans/completed/analysis_stage_and_dashboard_plan.md` §5 slice 3 spec (counts + mean/median over ok rows, identity columns).
+- `debug/guardrails/first_version_pipeline_guardrails.md` — pure-function aggregator, NaN-on-empty semantics, no scope creep.
 
 Tests Run:
 - `pytest src/axon_recon/pipeline/stages/analysis/ -q` → 53 passed (47 from slices 1+2 + 6 new).
@@ -326,9 +326,9 @@ Summary:
 Slice 1 entry's "pending" status applies to slice 2 too — both will resolve when the analysis-stage-and-dashboard branch lands.
 
 Guardrails Consulted:
-- `debug/analysis_stage_and_dashboard_plan.md` §5 slice 2 spec + §4 filter contract + §7 risks.
-- `debug/first_version_pipeline_guardrails.md` — pure JSON readers, no pickle, NaN-on-missing semantics.
-- `debug/stage_and_phase_behavior_guardrails.md` — manifest update + tables_relpath conventions.
+- `debug/plans/completed/analysis_stage_and_dashboard_plan.md` §5 slice 2 spec + §4 filter contract + §7 risks.
+- `debug/guardrails/first_version_pipeline_guardrails.md` — pure JSON readers, no pickle, NaN-on-missing semantics.
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md` — manifest update + tables_relpath conventions.
 
 Tests Run:
 - `pytest src/axon_recon/pipeline/stages/analysis/ -q` → 47 passed (12 from slice 1 + 35 new).
@@ -375,10 +375,10 @@ Summary:
 - Identity-column threading: `parse_analysis_stage_config` consumes `bundle.data_config` and builds a `(dataset_index, well_id) -> {DIV, project, recording_date, chip_id, scan_type, run_id, dataset_id, well_attributes}` lookup. The per-target runner reads this to stamp manifest identity. `recording_date` is parsed from the YYMMDD path token to ISO YYYY-MM-DD.
 
 Guardrails Consulted:
-- `debug/analysis_stage_and_dashboard_plan.md` (the plan; §0–§5 read end-to-end).
-- `debug/first_version_pipeline_guardrails.md` — minimal scope, no future-proofing.
-- `debug/parallelism_agent_guardrails.md` — analysis stage uses the same well_workers/unit_workers harness as spikesort.
-- `debug/stage_and_phase_behavior_guardrails.md` — phase_sequence, resource_class, output_rel_root conventions mirrored from spikesort.
+- `debug/plans/completed/analysis_stage_and_dashboard_plan.md` (the plan; §0–§5 read end-to-end).
+- `debug/guardrails/first_version_pipeline_guardrails.md` — minimal scope, no future-proofing.
+- `debug/guardrails/parallelism_agent_guardrails.md` — analysis stage uses the same well_workers/unit_workers harness as spikesort.
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md` — phase_sequence, resource_class, output_rel_root conventions mirrored from spikesort.
 
 Tests Run:
 - `pytest src/axon_recon/pipeline/stages/analysis/ -q` → 12 passed (test_config + test_runner).
@@ -434,7 +434,7 @@ Residual Risk / Follow-ups:
 
 Status: accepted
 
-`debug/spikesort_merge_cleanup_plan.md` is fully landed in 6 slices on branch `spikesort-merge-cleanup` (off `claude-migration` `2b7090d`). Final commits: `558d035` (slice 1) → `4a7ad0c` (slice 2) → `1fc3827` (slice 3) → `144cdcd` (slice 4) → `cf2d6ef` (slice 5) → `<slice 6 sha>` (slice 6 below).
+`debug/plans/completed/spikesort_merge_cleanup_plan.md` is fully landed in 6 slices on branch `spikesort-merge-cleanup` (off `claude-migration` `2b7090d`). Final commits: `558d035` (slice 1) → `4a7ad0c` (slice 2) → `1fc3827` (slice 3) → `144cdcd` (slice 4) → `cf2d6ef` (slice 5) → `<slice 6 sha>` (slice 6 below).
 
 Final test counts: 158 spikesort tests passed / 451 pipeline tests passed (test_progress.py excluded — pre-existing TabError). Plan baseline at slice 0 was 200 spikesort / 457 pipeline; the net delta of -42 spikesort / -6 pipeline tests reflects the cache, methods-dispatch, legacy-analyzer-family, and auto_merge tests deleted alongside the production code they exercised.
 
@@ -476,7 +476,7 @@ Status: pending
 Pre-slice baseline (after slice 5): 157 spikesort tests / 451 pipeline tests.
 
 Summary:
-- Slice 6 of `debug/spikesort_merge_cleanup_plan.md` — final slice. Refreshes the mutation-safety regression suite to cover the SLAy-only merge orchestrator and runs the §3 smoke matrix.
+- Slice 6 of `debug/plans/completed/spikesort_merge_cleanup_plan.md` — final slice. Refreshes the mutation-safety regression suite to cover the SLAy-only merge orchestrator and runs the §3 smoke matrix.
 - `tests/test_mutation_safety.py`:
   - Updated module docstring to drop the "slice 7" historical reference (the cleanup plan now covers slices 1-6 of the new plan); the contract documented is: snapshot_sorter_output + concat_analyzer never-mutate, label/merge dry_run knobs, and the SLAy-only merge orchestrator scaffolding never mutates sorter_output.
   - Added `test_run_spikesort_merge_stage_slay_only_orchestrator_never_mutates_sorter_output`: seeds a kilosort dir under `<stage>/sorter_output/` with `params.py` + `data.bin`, mocks `_run_slay_merge_method` as a no-op, runs `run_spikesort_merge_stage` end-to-end with `slay_dry_run=True`, and asserts the seeded dir is byte-identical after the call. This locks in the contract that the orchestrator scaffolding (preflight, replot analyzer load via concat_analyzer, metadata writers, summary payload) never touches sorter_output — only SLAy itself can.
@@ -487,9 +487,9 @@ Why:
 - Plan §4 slice 6 step 3 mandates a mutation-safety assertion against the new SLAy-only orchestrator (not the deleted method dispatch).
 
 Guardrails Consulted:
-- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 6 + §3 smoke matrix + §8 DoD).
-- `debug/first_version_pipeline_guardrails.md`.
-- `debug/stage_and_phase_behavior_guardrails.md` (orchestrator contract).
+- `debug/plans/completed/spikesort_merge_cleanup_plan.md` (§4 slice 6 + §3 smoke matrix + §8 DoD).
+- `debug/guardrails/first_version_pipeline_guardrails.md`.
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md` (orchestrator contract).
 
 Acceptance Criteria (plan §4 slice 6):
 - All previous spikesort tests remain green ✓ (158 passed).
@@ -535,7 +535,7 @@ Status: pending
 Pre-slice baseline (after slice 4): 158 spikesort tests / 451 pipeline tests.
 
 Summary:
-- Slice 5 of `debug/spikesort_merge_cleanup_plan.md`. Final config / YAML / orchestrator sweep so the plan §6 cleanup-grep checks all return 0 hits.
+- Slice 5 of `debug/plans/completed/spikesort_merge_cleanup_plan.md`. Final config / YAML / orchestrator sweep so the plan §6 cleanup-grep checks all return 0 hits.
 - `orchestrators/merge_slay.py`: dropped the `assert_field="cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace"` argument from both `_with_standalone_merge_phase_stage_config` calls. The runner no longer reads any cache_sorting_outputs_before_merge_* attribute.
 - `orchestrators/merge_units.py`: removed the entire `cache_sorting_outputs_before_merge*` override block (~9 fields) and the `assert_field` parameter from `_with_standalone_merge_phase_stage_config`; deleted `_run_merge_auto_merge_from_args` (no callers — auto_merge phase CLI is gone since slice 1).
 - `runner.py`:
@@ -560,9 +560,9 @@ Why:
 - Plan §4 slice 5 explicitly lists `auto_merge_*` flat fields for deletion.
 
 Guardrails Consulted:
-- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 5 + §6 cleanup checklist + §0 non-goal).
-- `debug/first_version_pipeline_guardrails.md` (no shims, delete dead code).
-- `debug/stage_and_phase_behavior_guardrails.md` (preserve metadata/reports machinery shape).
+- `debug/plans/completed/spikesort_merge_cleanup_plan.md` (§4 slice 5 + §6 cleanup checklist + §0 non-goal).
+- `debug/guardrails/first_version_pipeline_guardrails.md` (no shims, delete dead code).
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md` (preserve metadata/reports machinery shape).
 
 Acceptance Criteria (plan §6 + §4 slice 5):
 - §6.1: `\bmerge_si_auto\b|\bmerge_unitmatch\b` in src → 0 ✓
@@ -610,7 +610,7 @@ Status: pending
 Pre-slice baseline (after slice 3): 166 spikesort tests / 451 pipeline tests.
 
 Summary:
-- Slice 4 of `debug/spikesort_merge_cleanup_plan.md`. Migrates the replot analyzer build to consume the canonical `concat_analyzer` and deletes the legacy analyzer family + `_run_slay_analyzer_recompute`.
+- Slice 4 of `debug/plans/completed/spikesort_merge_cleanup_plan.md`. Migrates the replot analyzer build to consume the canonical `concat_analyzer` and deletes the legacy analyzer family + `_run_slay_analyzer_recompute`.
 - `runner.py` deletions:
   - `_prepare_replot_workspace_analyzer` (~97 lines).
   - `_recompute_spikesort_analyzer`, `_recompute_sorting_analyzer_to_dir`, `_load_or_recompute_spikesort_analyzer` (the legacy analyzer family).
@@ -632,9 +632,9 @@ Why:
 - Plan §0: replot path now consumes the canonical concat_analyzer; no per-phase analyzer rebuilding.
 
 Guardrails Consulted:
-- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 4 + §1.1 + §7 risk #2).
-- `debug/first_version_pipeline_guardrails.md` (delete legacy code, no shims).
-- `debug/stage_and_phase_behavior_guardrails.md` (consumer-of-concat_analyzer rule).
+- `debug/plans/completed/spikesort_merge_cleanup_plan.md` (§4 slice 4 + §1.1 + §7 risk #2).
+- `debug/guardrails/first_version_pipeline_guardrails.md` (delete legacy code, no shims).
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md` (consumer-of-concat_analyzer rule).
 
 Acceptance Criteria (plan §4 slice 4):
 - `git grep -nE "_prepare_replot_workspace_analyzer|_load_or_recompute_spikesort_analyzer|_recompute_spikesort_analyzer|_recompute_sorting_analyzer_to_dir" src/axon_recon/` → 0 hits ✓
@@ -678,7 +678,7 @@ Status: pending
 Pre-slice baseline (after slice 2): 181 spikesort tests / 451 pipeline tests.
 
 Summary:
-- Slice 3 of `debug/spikesort_merge_cleanup_plan.md`. Removes the 4 legacy cache helpers, the working_cache assertion helper, and all `cache_sorting_outputs_before_merge_*` / `working_cache_*` config and orchestrator plumbing.
+- Slice 3 of `debug/plans/completed/spikesort_merge_cleanup_plan.md`. Removes the 4 legacy cache helpers, the working_cache assertion helper, and all `cache_sorting_outputs_before_merge_*` / `working_cache_*` config and orchestrator plumbing.
 - `runner.py` deletions:
   - The 4 cache helper functions (`_cache_sorting_outputs_before_merge`, `_restore_sorting_outputs_from_pre_merge_cache`, `_cache_canonical_sorter_output_for_merge`, `_publish_working_sorter_output_to_canonical`) and the `_assert_method_uses_working_cache_sorter_output` helper.
   - All 14 `cache_sorting_outputs_before_merge_*` config reads in `run_spikesort_merge_stage`.
@@ -701,10 +701,10 @@ Why:
 - Plan §1: with merge_si_auto/merge_unitmatch gone (slice 1) and the orchestrator collapsed to SLAy-only (slice 2), the cache helpers have no remaining purpose. Mutation safety is delivered by `snapshot_sorter_output` + per-run SLAy scratch; cache infrastructure is dead weight.
 
 Guardrails Consulted:
-- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 3 + §1.2-1.3 + §0 non-goal).
-- `debug/first_version_pipeline_guardrails.md` (delete dispatch / shims).
-- `debug/stage_and_phase_behavior_guardrails.md` (orchestrator linearization).
-- `debug/optimization_simplificaiton_guardrails.md` (no scope creep beyond named files).
+- `debug/plans/completed/spikesort_merge_cleanup_plan.md` (§4 slice 3 + §1.2-1.3 + §0 non-goal).
+- `debug/guardrails/first_version_pipeline_guardrails.md` (delete dispatch / shims).
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md` (orchestrator linearization).
+- `debug/guardrails/optimization_simplificaiton_guardrails.md` (no scope creep beyond named files).
 
 Acceptance Criteria (plan §4 slice 3):
 - `git grep -nE "_cache_sorting_outputs_before_merge|_cache_canonical_sorter_output_for_merge|_restore_sorting_outputs_from_pre_merge_cache" src/axon_recon/` → 0 hits ✓
@@ -751,7 +751,7 @@ Status: pending
 Pre-slice baseline (after slice 1): 193 spikesort tests / 451 pipeline tests.
 
 Summary:
-- Slice 2 of `debug/spikesort_merge_cleanup_plan.md`. Collapses `run_spikesort_merge_stage` to a linear SLAy-only flow.
+- Slice 2 of `debug/plans/completed/spikesort_merge_cleanup_plan.md`. Collapses `run_spikesort_merge_stage` to a linear SLAy-only flow.
 - Deleted `_run_auto_merge_method` (~265 lines: `runner.py:8262-8528`); the legacy `_load_or_recompute_spikesort_analyzer` chain it owned is now reachable only from the snapshot-helper code path that slice 4 will rewrite.
 - Inside `run_spikesort_merge_stage`:
   - Replaced the per-method dispatch loop (`for idx, raw_method in enumerate(requested_sequence_raw): ...` over `slay`/`auto_merge`/`unitmatch`/unknown branches) with a linear SLAy block (assertion → `_run_slay_merge_method` → optional `_run_slay_analyzer_recompute`).
@@ -769,10 +769,10 @@ Why:
 - Plan §1.1: removing the merge_si_auto/merge_unitmatch phases (slice 1) leaves `_run_auto_merge_method` orphaned and the methods-dispatch loop has no remaining branch other than SLAy. Linear SLAy-only flow unlocks slice 3 cache-helper deletion.
 
 Guardrails Consulted:
-- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 2 + §0 non-goal).
-- `debug/first_version_pipeline_guardrails.md` (delete dispatch, no shims).
-- `debug/stage_and_phase_behavior_guardrails.md` (orchestrator linearization preserves stage-level behavior).
-- `debug/optimization_simplificaiton_guardrails.md` (no scope creep beyond named files).
+- `debug/plans/completed/spikesort_merge_cleanup_plan.md` (§4 slice 2 + §0 non-goal).
+- `debug/guardrails/first_version_pipeline_guardrails.md` (delete dispatch, no shims).
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md` (orchestrator linearization preserves stage-level behavior).
+- `debug/guardrails/optimization_simplificaiton_guardrails.md` (no scope creep beyond named files).
 
 Acceptance Criteria (plan §4 slice 2):
 - `git grep -n "_run_auto_merge_method\|_run_slay_analyzer_recompute" src/axon_recon/` → only `_run_slay_analyzer_recompute` survives, and it's allowed because the SLAy branch in `run_spikesort_merge_stage` still calls it (verified — see runner.py:9615 + tests/test_runner.py monkeypatch sites).
@@ -816,7 +816,7 @@ BASELINE (spikesort-merge-cleanup branch, off claude-migration `2b7090d`, before
 - pipeline-level (excluding test_progress.py, the pre-existing TabError): 457 passed (per plan §0).
 
 Summary:
-- Slice 1 of `debug/spikesort_merge_cleanup_plan.md`. Removes `merge_si_auto` and `merge_unitmatch` phases from the codebase ahead of the slice 2 orchestrator collapse.
+- Slice 1 of `debug/plans/completed/spikesort_merge_cleanup_plan.md`. Removes `merge_si_auto` and `merge_unitmatch` phases from the codebase ahead of the slice 2 orchestrator collapse.
 - Deleted orchestrator modules `merge_si_auto.py` and `merge_unitmatch.py`; dropped their imports/exports from `orchestrators/__init__.py`, the `stages/spikesort/__init__.py` re-exports, the `stages/spikesort/cli.py` thin wrappers, and the pipeline `cli.py` import block, alias map (short + full forms incl. `spikesort.merge.automerge`, `spikesort.merge.auto_merge`, `spikesort.merge.unitmatch`, `spikesort.merge_units.auto_merge`, `spikesort.merge_units.unitmatch`), and `_STAGE_HANDLERS` dispatch entries.
 - `pipeline/runner.py`: dropped `run_spikesort_merge_si_auto` / `run_spikesort_merge_unitmatch` imports, the resource-class map entries, the `_SPIKESORT_DIRECT_PHASE_LABELS` entries, the `merge_sequence` token branches that mapped to `merge_si_auto` / `merge_unitmatch`, the `available_phases` builder blocks, and the `_run_spikesort_merge_si_auto_target` / `_run_spikesort_merge_unitmatch_target` wrappers.
 - `stages/spikesort/config.py`: dropped `merge_si_auto` and `merge_unitmatch` from `DEFAULT_SPIKESORT_PHASE_SEQUENCE`; removed the `merge_si_auto`, `merge_auto`, `merge_auto_merge`, `auto_merge`, `si_auto`, `merge_unitmatch`, `unitmatch` aliases from `_SPIKESORT_PHASE_ALIASES`; deleted ~50 `merge_si_auto_*` / `merge_unitmatch_*` flat fields from `SpikesortStageConfig`; removed the corresponding YAML→config parser sections (`merge_si_auto_phase_cfg`, `merge_unitmatch_phase_cfg`, resource-class extraction, dry_run + standalone phase settings parsing, the two `.update(merge_*_phase_cfg)` calls feeding `unitmatch_cfg` / `auto_merge_cfg`, and the `merge_phase_runtime_overrides` entries) and constructor keyword args.
@@ -829,11 +829,11 @@ Why:
 - Plan §0 mandates removing `merge_si_auto` and `merge_unitmatch` so the slice-2 SLAy-only orchestrator collapse can happen without touching method-dispatch code paths that are about to be deleted.
 
 Guardrails Consulted:
-- `debug/spikesort_merge_cleanup_plan.md` (plan-of-record).
-- `debug/first_version_pipeline_guardrails.md` (delete-don't-shim policy).
-- `debug/stage_and_phase_behavior_guardrails.md` (CLI dispatch + phase sequencing rules).
-- `debug/cli_debug_flags_agent_guardrails.md` (no new flags this slice).
-- `debug/optimization_simplificaiton_guardrails.md` (no scope creep).
+- `debug/plans/completed/spikesort_merge_cleanup_plan.md` (plan-of-record).
+- `debug/guardrails/first_version_pipeline_guardrails.md` (delete-don't-shim policy).
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md` (CLI dispatch + phase sequencing rules).
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md` (no new flags this slice).
+- `debug/guardrails/optimization_simplificaiton_guardrails.md` (no scope creep).
 
 Acceptance Criteria (plan §4 slice 1):
 - `git grep -nE "\bmerge_si_auto\b|\bmerge_unitmatch\b" src/axon_recon/` → 0 hits (verified — the only remaining match is the substring `merge_si_auto_dry_run` inside `_run_auto_merge_method`, which the `\b` word-boundary anchor does not match; slice 2 deletes that too).
@@ -878,7 +878,7 @@ f32a2a8 | slice 2 [opus] | split build_templates into extract_partial_templates 
 
 Status: accepted
 
-Final state of the spikesort label/merge repair plan (`debug/spikesort_label_merge_repair_plan.md`):
+Final state of the spikesort label/merge repair plan (`debug/plans/completed/spikesort_label_merge_repair_plan.md`):
 
 Slices 1-7 landed across 7 commits on branch `claude-migration`:
 - `72fe271` slice 1: snapshot_sorter_output phase + restore_sorter_output CLI utility
@@ -932,11 +932,11 @@ What changed numerically across the repair:
 Loop status: HALT. This was iteration 7 of 7. The autonomous loop is NOT re-arming. The remaining cache-infrastructure work is too large to land coherently in another iteration without crossing the merge-orchestrator-rewrite threshold; it should be tackled as a fresh focused refactor on a new branch.
 
 Guardrails Consulted (entire repair):
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 ## 2026-05-09 - pending - claude: spikesort label/merge repair, slice 7 (mutation-safety regression suite)
 
@@ -956,9 +956,9 @@ Plan deviation:
 - Plan slice 7 §Acceptance says "Deliberately reverting Slice 3's `if not dry_run:` guard makes the test fail — confirms the test catches the regression. (Re-apply the guard before committing.)" This is a manual verification step. The test_mutation_safety.py tests + the existing slice-3 dry-run test together exercise the gate; reverting the guard would fail `test_run_bombcell_label_phase_dry_run_preserves_sorter_output` (slice 3's existing test, which already does the sha256 before/after check).
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
 
 Acceptance Criteria:
 - New mutation-safety tests pass: `pytest tests/test_mutation_safety.py` → 8 passed.
@@ -1018,11 +1018,11 @@ Summary:
 - This slice writes no code. It documents the §6 audit state and locks in the cleanup checkpoint reached after slices 1-5 (177-test claude-migration baseline → 192 tests post-slice-5 with 3 new dry_run regression tests, the 10-test snapshot suite, and the 12-test concat_analyzer suite). The follow-up project will land the slice-6 cleanup grep at 0 hits.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria (relaxed for slice 6 documented audit):
 - §6.a clean (bombcell cache knobs in code): yes.
@@ -1067,11 +1067,11 @@ Plan deviation:
 - merge_unitmatch is a stub (returns `skipped` from the v2 merge dispatcher). Adding the config knob now keeps the surface consistent with merge_SLAy / merge_si_auto / bombcell_label without expanding scope to implement v2 unitmatch.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - New unit test asserts dry_run=true skips the canonical writeback (assertion against marker file content); paired apply test asserts dry_run=false retains the writeback.
@@ -1129,11 +1129,11 @@ Plan deviation:
 - Plan also said "load analyzer from concat_analyzer dir; raise if missing" for SLAy. After reading `_run_slay_merge_method`, SLAy itself does NOT consume a SortingAnalyzer — it operates on a kilosort folder via its own `run_slay()` API. The analyzer is only needed by merge REPORTS that follow SLAy, not by SLAy execution. The dry_run scratch-copy already gives the mutation-safety guarantee the plan was after. No analyzer load was added to `_run_slay_merge_method`.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - New unit test asserts dry_run mutation-safety (sha256(canonical KS_folder) before == after, even with auto_accept_merges=true) AND that SLAy was pointed at the scratch path AND that artifacts landed under dry_run/.
@@ -1193,11 +1193,11 @@ Plan deviation:
 - Plan said "delete sorter_output portions of `_cleanup_bombcell_success_outputs`; keep any non-sorter-output cleanup". After auditing the helper, ALL of its cleanup logic was about cached sorter_output / per-phase analyzer_output — neither survives the refactor. The whole helper is dead code, deleted entirely. No leftover cleanup was needed.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - `git grep -nE "_prepare_bombcell_sorter_output_workspace|_publish_bombcell_cached_workspace_outputs|_load_or_recompute_bombcell_sorting_analyzer" src/` returns 0 hits.
@@ -1256,11 +1256,11 @@ Summary:
 - Plan deviation: same as slice 1 — flat phase-prefixed fields on the single `SpikesortStageConfig` dataclass (no per-phase dataclass). Added `concat_analyzer_{enabled,relpath,format,rebuild_on_sorter_output_change,extensions,n_jobs,compute_sparsity,resource_class}`.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - Synthetic-fixture unit tests cover fingerprint determinism, fingerprint mutation detection, build-when-missing (rebuilt=True, reason=analyzer_dir_missing), reuse-when-unchanged (rebuilt=False), rebuild-on-mutation (reason=sorter_output_fingerprint_changed), default-extensions fallback, custom-extensions on disk, rebuild-when-skip-disabled, missing-source rejection, config-parse defaults+overrides, non-mapping extension rejection, and phase-sequence ordering snapshot < analyzer < bombcell.
@@ -1316,11 +1316,11 @@ Summary:
 - Wired CLI: handlers `spikesort.snapshot_sorter_output` and `spikesort.restore_sorter_output` in `pipeline/cli.py:_STAGE_HANDLERS`; aliases `spikesort.snapshot` / `spikesort.restore`. Registered `--confirm` flag globally on the stages parser (consumed only by restore today; ignored by other handlers).
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - New unit tests exercise snapshot creation, idempotent skip-if-exists, force-refresh, missing-source rejection, restore round-trip (byte-identical), restore-missing-summary refusal, restore-CLI-missing-confirm refusal, config parsing (default + overridden), and phase-sequence ordering.
@@ -1379,9 +1379,9 @@ Summary:
 - Also fixed `use_hyperthreading` typo in `debug/debug.runtime.yml` → `use_hyperthreads` (user had already corrected this).
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/nersc_shaped_local_affinity_plan.md` slice 6
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/plans/active/nersc_shaped_local_affinity_plan.md` slice 6
 
 Acceptance Criteria:
 - Logs record effective env policy and values (covered by `thread_env_applied` / `thread_env_preserved` events).
@@ -1435,11 +1435,11 @@ Summary:
 - Added regression coverage for the singular alias, container forwarding, and enabled allocation preview formatting.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - The requested `--target-dataset 12` command shape works in the pipeline parser and is forwarded unchanged by `axon-recon-container`.
@@ -1509,10 +1509,10 @@ Summary:
 - Wired affinity application through `_distribute_runtime_targets(...)`, preserving target log context and keeping lower-level slot assignment behavior unchanged.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - Unit tests mock affinity application and verify apply/restore behavior.
@@ -1581,11 +1581,11 @@ Summary:
 - Added `--alloc` to `axon-recon stage/stages` so selected stages print allocation details and return without invoking stage handlers; the container wrapper forwards this flag unchanged.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - Task allocation remains opt-in and disabled configs behave as before.
@@ -1655,9 +1655,9 @@ Summary:
 - The implementation currently supports `backend=local_affinity`, returns no plan when task allocation is disabled, computes capacity from CPU units first, applies reserve and resource-cap clamps, and builds concrete `TaskSlot` CPU sets for later integration.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - Disabled task allocation returns no plan.
@@ -1690,7 +1690,7 @@ Logging / Parallelism Impact:
 
 Storage / Cache Impact:
 - Created: none.
-- Modified: `src/axon_recon/pipeline/cpu_allocation.py`, `src/axon_recon/pipeline/tests/test_cpu_allocation.py`, `debug/agent_guardrails_commit_notes.md`.
+- Modified: `src/axon_recon/pipeline/cpu_allocation.py`, `src/axon_recon/pipeline/tests/test_cpu_allocation.py`, `debug/commit_log.md`.
 - Removed: none.
 
 Container / NERSC / MPI Impact:
@@ -1718,9 +1718,9 @@ Summary:
 - Confirmed the existing container wrapper already forwards config-free commands, added coverage for `axon-recon-container systopo`, and added `axon-recon` as a package script alias in project metadata for future installs.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - Unit tests cover sysfs topology detection for 1 socket, 24 cores, 2 threads per core.
@@ -1754,7 +1754,7 @@ Logging / Parallelism Impact:
 
 Storage / Cache Impact:
 - Created: `src/axon_recon/pipeline/cpu_allocation.py`, `src/axon_recon/pipeline/tests/test_cpu_allocation.py`.
-- Modified: `src/axon_recon/pipeline/cli.py`, `src/axon_recon/pipeline/tests/test_cli_stage_sequence.py`, `src/axon_recon/pipeline/tests/test_container_cli.py`, `pyproject.toml`, `debug/agent_guardrails_commit_notes.md`.
+- Modified: `src/axon_recon/pipeline/cli.py`, `src/axon_recon/pipeline/tests/test_cli_stage_sequence.py`, `src/axon_recon/pipeline/tests/test_container_cli.py`, `pyproject.toml`, `debug/commit_log.md`.
 - Removed: none.
 
 Container / NERSC / MPI Impact:
@@ -1781,9 +1781,9 @@ Summary:
 - Added focused parser coverage for defaults, explicit `local_affinity` config, and invalid enum or numeric values.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - Existing runtime YAML remains valid with no behavior change when `resources.task_allocation` is absent.
@@ -1812,7 +1812,7 @@ Logging / Parallelism Impact:
 
 Storage / Cache Impact:
 - Created: none.
-- Modified: `src/axon_recon/pipeline/resources.py`, `src/axon_recon/pipeline/tests/test_resources.py`, `debug/agent_guardrails_commit_notes.md`.
+- Modified: `src/axon_recon/pipeline/resources.py`, `src/axon_recon/pipeline/tests/test_resources.py`, `debug/commit_log.md`.
 - Removed: none.
 
 Container / NERSC / MPI Impact:
@@ -1833,14 +1833,14 @@ Rollback Notes:
 Status: accepted
 
 Summary:
-- Added `debug/nersc_shaped_local_affinity_plan.md`, a sequential planning note for evolving local pipeline parallelism toward NERSC-shaped task allocation.
+- Added `debug/plans/active/nersc_shaped_local_affinity_plan.md`, a sequential planning note for evolving local pipeline parallelism toward NERSC-shaped task allocation.
 - The plan keeps local CPU affinity as the first backend and defers MPI/Slurm until the task allocation abstraction is stable.
 - The note captures config shape, CPU topology detection, task slot planning, target-distribution integration, worker affinity, nested thread env, logging, phase-tune metadata, container smoke, and later MPI/Slurm backends.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/optimization_simplificaiton_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/optimization_simplificaiton_guardrails.md`
 
 Acceptance Criteria:
 - Debug folder gains a markdown roadmap for sequential implementation slices.
@@ -1867,8 +1867,8 @@ Logging / Parallelism Impact:
 - None in code. The document proposes future task-allocation logs and phase-tune metadata.
 
 Storage / Cache Impact:
-- Created: `debug/nersc_shaped_local_affinity_plan.md`.
-- Modified: `debug/agent_guardrails_commit_notes.md`.
+- Created: `debug/plans/active/nersc_shaped_local_affinity_plan.md`.
+- Modified: `debug/commit_log.md`.
 - Removed: none.
 
 Container / NERSC / MPI Impact:
@@ -1894,9 +1894,9 @@ Summary:
 - Restored the v1-style scale-circle concept to v2 and enabled it in the active `debug/debug.runtime.yml` block used for the current smoke path.
 
 Guardrails Consulted:
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
 
 Acceptance Criteria:
 - `plot_templates_v2` honors the configured marker size range from the active runtime YAML.
@@ -1956,9 +1956,9 @@ Summary:
 - Added build artifact resume in the core unit builder so completed unit template artifacts are counted as reused without rebuilding after cancellation.
 
 Guardrails Consulted:
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
 
 Acceptance Criteria:
 - Direct `reconstruct.analyzers` writes per-source unit membership artifacts without broad analyzer/template recompute.
@@ -2023,10 +2023,10 @@ Summary:
 - Added focused coverage for v2 config parsing, renderer output without overlap sizing, phase summary/unit-summary writes, reconstruct phase dispatch, debug-runtime parsing, and CLI selector parsing.
 
 Guardrails Consulted:
-- `debug/optimization_simplificaiton_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
+- `debug/guardrails/optimization_simplificaiton_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
 
 Acceptance Criteria:
 - `stages reconstruct.plot_templates_v2` resolves to a direct reconstruct template phase.
@@ -2095,9 +2095,9 @@ Summary:
 - Added focused tests for current-cache resolution, legacy-root rejection, clear-cache root selection, sequential plot planning, and RAM-based plot/build exclusion.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
 
 Acceptance Criteria:
 - GTR/downstream reconstruct template discovery no longer falls through to `template_outputs`, `templates_outputs`, `stg4_templates_outputs`, `templates`, `merged_units`, or `full_channels_templates` layouts.
@@ -2163,8 +2163,8 @@ Summary:
 - Kept process submissions source-major across selected units so the pool fans out across units for each segment/source.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
 
 Acceptance Criteria:
 - Detailed unit/source payload logs appear during process-mode materialization, before the per-unit completion summaries.
@@ -2228,8 +2228,8 @@ Summary:
 - Added a one-retry guard for `force_restart` source-payload cleanup when generated cache deletion hits an `ENOTEMPTY` directory race.
 
 Guardrails Consulted:
-- `debug/logging_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
 
 Acceptance Criteria:
 - The runtime YAML can turn detailed unit/source materialization logs on or off.
@@ -2295,9 +2295,9 @@ Summary:
 - Applied the same label-filtered unit scope to downstream reconstruct unit discovery, including GTR generation, plots, reports, and full-chip layout summaries.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
 
 Acceptance Criteria:
 - Lazy source payload materialization uses the same unit worker budget as the build_templates phase.
@@ -2362,9 +2362,9 @@ Summary:
 - Added focused tests for direct phase resource-class selection, downstream phase worker allocation, and plot-slot gating for report phases.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
 
 Acceptance Criteria:
 - Direct reconstruct phase selectors derive worker count from the selected phase `resource_class.cpu_cores`.
@@ -2426,8 +2426,8 @@ Summary:
 - Stopped emitting the duplicated post-stage resource/profile recommendation console logs after `stages: completed ...`.
 
 Guardrails Consulted:
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
 
 Acceptance Criteria:
 - Per-phase `--phase-tune` logs show resource tuning recommendation details next to the measured `phase_tune_*` metrics.
@@ -2488,9 +2488,9 @@ Summary:
 - Left normal stage/phase runs unchanged unless `--phase-tune` is explicitly requested.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
 
 Acceptance Criteria:
 - Individual phase runs with `--phase-tune` collect per-phase CPU, RAM, process disk IO, and device IO metrics from established tools when available.
@@ -2558,10 +2558,10 @@ Summary:
 - Added `reconstruct/phases/__init__.py` so the new phase module is included by package discovery.
 
 Guardrails Consulted:
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/optimization_simplificaiton_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/optimization_simplificaiton_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
 
 Acceptance Criteria:
 - The build_templates phase reads as an ordered route: resolve context, force-restart cleanup, payload readiness check, cached-analyzer bootstrap when needed, core build from payloads, summary write.
@@ -2624,8 +2624,8 @@ Summary:
 - Kept entrypoint/smoke script chmod and symlink creation after the final copy so overwritten script metadata is refreshed.
 
 Guardrails Consulted:
-- `debug/optimization_simplificaiton_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/optimization_simplificaiton_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
 
 Acceptance Criteria:
 - Ordinary source changes no longer invalidate the plugin/runtime dependency install layer.
@@ -2678,9 +2678,9 @@ Summary:
 - Updated focused tests to assert terminal streams remain live and progress kwargs are passed even when verbose logging is false.
 
 Guardrails Consulted:
-- `debug/logging_agent_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
 
 Acceptance Criteria:
 - SpikeInterface progress bars are not swallowed by pipeline logging/debug-output suppression.
@@ -2749,10 +2749,10 @@ Summary:
 - Added focused tests for the low-level budget manager warning and for JSONL emission through the shared phase-chain path.
 
 Guardrails Consulted:
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
 
 Acceptance Criteria:
 - Any resource-gated phase that has to wait for a slot emits a warning log.
@@ -2815,10 +2815,10 @@ Summary:
 - Updated phase tuning disk measurement and utilization logic to prefer `phase_read_h5_path` over original `source_h5_path`; scratch read rows remain visible even when scratch inputs share the output device benchmark.
 
 Guardrails Consulted:
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
 
 Acceptance Criteria:
 - With `metadata_source: scratch_h5` and existing scratch inputs, `save_rec_metadata` reads the scratch H5 while the original source path remains recorded as provenance.
@@ -2883,10 +2883,10 @@ Summary:
 - Updated reports/logs so active profile IO recommendations now call out requested demand including queued workers and resource gate wait totals.
 
 Guardrails Consulted:
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
 
 Acceptance Criteria:
 - Waiting workers are represented in tuning observations through resource gate wait metadata.
@@ -2946,9 +2946,9 @@ Summary:
 - Emitted per-path disk bandwidth utilization records to logs so measured capacity and observed read/write utilization are visible in `pipeline.log` and `pipeline.jsonl`.
 
 Guardrails Consulted:
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
 
 Acceptance Criteria:
 - The report explains why underused bandwidth can still produce flat profile slot recommendations.
@@ -3011,10 +3011,10 @@ Summary:
 - Added disk bandwidth measurement and utilization sections to the tuning report and summary JSON.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
 
 Acceptance Criteria:
 - `--phase-tune` measures relevant disk capacity without mutating runtime YAML.
@@ -3082,10 +3082,10 @@ Summary:
 - Kept profile recommendations advisory-only and scoped to the selected tuning run.
 
 Guardrails Consulted:
-- `debug/parallelism_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
 
 Acceptance Criteria:
 - Phase-level IO recommendations still classify whether each observed phase should consume H5 or disk-heavy slots.
@@ -3150,12 +3150,12 @@ Summary:
 - Kept tuning advisory-only; runtime YAML is not modified automatically.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/optimization_simplificaiton_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/optimization_simplificaiton_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - Enabled phase selectors across preprocess, spikesort, and reconstruct emit resource usage logs when run directly or as part of a stage chain.
@@ -3229,10 +3229,10 @@ Summary:
 - Fixed reconstruct non-unit phase result handling, template report unit limiting, configured template-root lookup, shared-root force-restart template-cache preservation, and clear-template-cache output-root selection.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
 - `/memories/repo/pipeline-debug-limits.md`
 - `/memories/repo/templates-artifact-layout.md`
 
@@ -3303,10 +3303,10 @@ Summary:
 - Added wrapper coverage for every current direct preprocess phase module.
 
 Guardrails Consulted:
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
 - `/memories/repo/pipeline-debug-limits.md`
 
 Acceptance Criteria:
@@ -3374,12 +3374,12 @@ Summary:
 - Made observability environment capture robust when container UIDs do not have passwd entries.
 
 Guardrails Consulted:
-- `debug/stage_and_phase_behavior_guardrails.md`
-- `debug/cli_debug_flags_agent_guardrails.md`
-- `debug/logging_agent_guardrails.md`
-- `debug/parallelism_agent_guardrails.md`
-- `debug/container_mpi4py_NERSC_optimization_guardrails.md`
-- `debug/first_version_pipeline_guardrails.md`
+- `debug/guardrails/stage_and_phase_behavior_guardrails.md`
+- `debug/guardrails/cli_debug_flags_agent_guardrails.md`
+- `debug/guardrails/logging_agent_guardrails.md`
+- `debug/guardrails/parallelism_agent_guardrails.md`
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`
+- `debug/guardrails/first_version_pipeline_guardrails.md`
 
 Acceptance Criteria:
 - Disabled phases in `phase_sequence` are visible as skipped, not silently ignored.

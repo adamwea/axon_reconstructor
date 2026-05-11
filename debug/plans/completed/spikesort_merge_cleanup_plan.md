@@ -1,6 +1,6 @@
 # Spikesort merge cleanup plan — finish the SLAy/bombcell repair
 
-Follow-up to `debug/spikesort_label_merge_repair_plan.md` (the 7-slice repair that landed on
+Follow-up to `debug/plans/completed/spikesort_label_merge_repair_plan.md` (the 7-slice repair that landed on
 `claude-migration` as commits `72fe271`..`6c78e7f`). That repair stopped intentionally with
 `SPIKESORT REPAIR PARTIAL` because the remaining work was too entangled to land in one
 plan-slice without a merge-orchestrator rewrite. This plan does that rewrite.
@@ -159,8 +159,8 @@ The runner is ~10K lines; grep, do not read whole.
 
 ### 2.5 Documentation / notes
 
-- `debug/spikesort_label_merge_repair_plan.md` — leave intact (historical record).
-- `debug/agent_guardrails_commit_notes.md` — append a new top-of-section entry after each
+- `debug/plans/completed/spikesort_label_merge_repair_plan.md` — leave intact (historical record).
+- `debug/commit_log.md` — append a new top-of-section entry after each
   slice (mandatory; see operating contract below).
 
 ---
@@ -511,7 +511,7 @@ Expected ≤ 1.
 10. Mutation-safety regression suite covers the new SLAy-only orchestrator shape.
 
 When 1–10 hold, write a `SPIKESORT MERGE CLEANUP COMPLETE` entry at the top of
-`debug/agent_guardrails_commit_notes.md` summarizing test counts and any BLOCKED-SMOKE
+`debug/commit_log.md` summarizing test counts and any BLOCKED-SMOKE
 items. Merge the branch back to `claude-migration`.
 
 ---
@@ -519,9 +519,9 @@ items. Merge the branch back to `claude-migration`.
 ## 9. Operating Contract (if running this under /loop)
 
 If this plan is driven by an autonomous /loop session, reuse the contract from
-`debug/spikesort_label_merge_repair_loop_prompt.md` with these substitutions:
+`debug/plans/completed/spikesort_label_merge_repair_loop_prompt.md` with these substitutions:
 
-- Plan file: `debug/spikesort_merge_cleanup_plan.md` (this file).
+- Plan file: `debug/plans/completed/spikesort_merge_cleanup_plan.md` (this file).
 - Number of slices: 6 (not 7).
 - Branch: `spikesort-merge-cleanup` (off `claude-migration`).
 - Halt condition: §8 DoD satisfied + final commit notes entry titled

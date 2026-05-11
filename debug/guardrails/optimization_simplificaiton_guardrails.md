@@ -7,7 +7,7 @@ This document defines broad goals for keeping the `axon_recon` pipeline small, f
 ## Operating Contract
 
 - Commit frequently after each coherent accepted slice, using an `ai:` prefix in the commit subject.
-- Update `debug/agent_guardrails_commit_notes.md` after every AI commit.
+- Update `debug/commit_log.md` after every AI commit.
 - Test frequently with focused tests and real-data smoke tests using CLI debug flags.
 - Use 1 dataset, 1 well, 2 segments, and a few units by default.
 - Expand datasets or wells only when logging, parallelism, H5 contention, or cross-target behavior requires it.
@@ -66,7 +66,7 @@ Avoid:
 - Preserve compact durable artifacts needed for later analysis: sort outputs, labels, compact summaries, GTRs, reconstruction summaries, and final reports.
 - Treat concat binaries, analyzers, waveform folders, template workspaces, merged-template caches, and temporary report workspaces as cache-like unless Adam marks them durable.
 - Cleanup phases must delete only owned cache paths.
-- When changing storage behavior, record created/modified/deleted paths and any size checks in `debug/agent_guardrails_commit_notes.md`.
+- When changing storage behavior, record created/modified/deleted paths and any size checks in `debug/commit_log.md`.
 
 ## YAML And CLI Simplification Guardrails
 

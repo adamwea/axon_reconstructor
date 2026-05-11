@@ -7,7 +7,7 @@ This document defines the acceptance contract for preparing the container, wrapp
 ## Operating Contract
 
 - Commit frequently after each coherent accepted slice, using an `ai:` prefix in the commit subject.
-- Update `debug/agent_guardrails_commit_notes.md` after every AI commit.
+- Update `debug/commit_log.md` after every AI commit.
 - Keep implementation slices small: container dependency, wrapper behavior, MPI adapter, rank partitioning, Shifter docs, or smoke validation.
 - Validate normal host CLI and container CLI separately.
 - Use real-data smoke tests with CLI debug flags. Do not run full-scope data tests unless Adam explicitly requests them.

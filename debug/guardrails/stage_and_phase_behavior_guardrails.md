@@ -7,7 +7,7 @@ This document gives high-level behavior expectations for the active v2 pipeline 
 ## Operating Contract
 
 - Commit frequently after each coherent accepted slice, using an `ai:` prefix in the commit subject.
-- Update `debug/agent_guardrails_commit_notes.md` after every AI commit.
+- Update `debug/commit_log.md` after every AI commit.
 - Test frequently with real-data smokes using CLI debug flags.
 - Use 1 dataset, 1 well, 2 segments, and a few units by default.
 - Expand datasets or wells only when behavior under test requires it, especially logging and parallelism.
