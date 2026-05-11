@@ -866,32 +866,32 @@ stages:
       - report_summaries
       - clear_templates_cache
 
-    debug_mode:
-      #enabled: true
-      #limit_datasets: null
-      #limit_datasets: 1
-      limit_wells: null
-      #limit_wells_per_dataset: null
-      limit_wells_per_dataset: 1
+    # debug_mode:
+    #   #enabled: true
+    #   #limit_datasets: null
+    #   #limit_datasets: 1
+    #   limit_wells: null
+    #   #limit_wells_per_dataset: null
+    #   limit_wells_per_dataset: 1
 
-      # this option limits a phases so that they run quickly for smoke testing:
-      # - analyzers prepared for each segment in analyzer phase.
-      # - segments loaded to build templates in build_templates phase
-      limit_segments: null
+    #   # this option limits a phases so that they run quickly for smoke testing:
+    #   # - analyzers prepared for each segment in analyzer phase.
+    #   # - segments loaded to build templates in build_templates phase
+    #   limit_segments: null
 
-      # this option limits the number of units to process for faster iterations during debugging; set to null or -1 for no limit.
-      # - number of templates built in build_templates phase.
-      # - number of templates plotted in plot_templates phase.
-      # - number of templates included in report_templates phase.
-      # - number of gtrs generated in generate_gtrs phase.
-      # - number of units included in plot_recons phase.
-      # - number of units included in plot_branch_propagations phase.
-      # - number of units included in plot_branch_velocities phase.
-      # - number of units included in plot_unit_summary phase.
-      # - number of units included in report_recons phase.
-      # - number of units included in report_full_chip_layout phase.
-      # - number of units included in report_summaries phase.
-      unit_limit: null
+    #   # this option limits the number of units to process for faster iterations during debugging; set to null or -1 for no limit.
+    #   # - number of templates built in build_templates phase.
+    #   # - number of templates plotted in plot_templates phase.
+    #   # - number of templates included in report_templates phase.
+    #   # - number of gtrs generated in generate_gtrs phase.
+    #   # - number of units included in plot_recons phase.
+    #   # - number of units included in plot_branch_propagations phase.
+    #   # - number of units included in plot_branch_velocities phase.
+    #   # - number of units included in plot_unit_summary phase.
+    #   # - number of units included in report_recons phase.
+    #   # - number of units included in report_full_chip_layout phase.
+    #   # - number of units included in report_summaries phase.
+    #   unit_limit: null
 
     debug_prints: false # when true, allow raw/unexpected matplotlib/PIL/fontTools debug output during reconstruct plotting and report phases.
 
