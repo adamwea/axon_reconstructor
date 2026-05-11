@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 from dataclasses import replace
@@ -344,6 +345,17 @@ def write_unit_circle_recon_plot(
 	if locs.ndim != 2 or int(locs.shape[1]) < 2:
 		raise ValueError(f"Expected locs_xy to be [N,2+], got shape={locs.shape}")
 	locs = locs[:, :2]
+	# Capture the unfiltered unit-footprint bounds before any channel filtering;
+	# the v2 path uses these so the recon plot's xy extent matches the template
+	# plot's, keeping marker pt² size in proportion to channel pitch.
+	_unfiltered_locs_finite = locs[np.isfinite(locs).all(axis=1)]
+	if int(_unfiltered_locs_finite.shape[0]) > 0:
+		_full_x_lo = float(np.min(_unfiltered_locs_finite[:, 0]))
+		_full_x_hi = float(np.max(_unfiltered_locs_finite[:, 0]))
+		_full_y_lo = float(np.min(_unfiltered_locs_finite[:, 1]))
+		_full_y_hi = float(np.max(_unfiltered_locs_finite[:, 1]))
+	else:
+		_full_x_lo = _full_x_hi = _full_y_lo = _full_y_hi = None
 	tpl = _normalize_template_channels_by_time(template_ch_by_t, n_channels=int(locs.shape[0]))
 
 	output_cfg = circle_config.output
@@ -385,6 +397,21 @@ def write_unit_circle_recon_plot(
 	node_channels = {int(ch) for ch in _gtr_node_indices(gtr) if 0 <= int(ch) < n_channels}
 	branch_channels = {int(ch) for ch in _branch_channel_set(branch_payload) if 0 <= int(ch) < n_channels}
 	filtered_channels = _gtr_selected_channel_indices(gtr, n_channels=n_channels)
+	# Capture the branches' bbox (before any channel filter modifies locs) so the
+	# v2 path can optionally zoom to the reconstruction's branch extent.
+	if len(branch_channels) > 0:
+		_branch_idx = np.asarray(sorted(branch_channels), dtype=int)
+		_branch_locs = np.asarray(locs, dtype=float)[_branch_idx, :]
+		_branch_locs = _branch_locs[np.isfinite(_branch_locs).all(axis=1)]
+		if int(_branch_locs.shape[0]) > 0:
+			_branch_x_lo = float(np.min(_branch_locs[:, 0]))
+			_branch_x_hi = float(np.max(_branch_locs[:, 0]))
+			_branch_y_lo = float(np.min(_branch_locs[:, 1]))
+			_branch_y_hi = float(np.max(_branch_locs[:, 1]))
+		else:
+			_branch_x_lo = _branch_x_hi = _branch_y_lo = _branch_y_hi = None
+	else:
+		_branch_x_lo = _branch_x_hi = _branch_y_lo = _branch_y_hi = None
 
 	channel_scope = str(getattr(display_cfg, "channel_scope", "nodes_and_branches") or "nodes_and_branches").strip().lower()
 	if channel_scope in {"filtered", "filtered_channels", "selected", "selected_channel"}:
@@ -520,14 +547,152 @@ def write_unit_circle_recon_plot(
 			close_figure=close_figure,
 		)
 
-	v2_cfg = TemplatePlotTemplatesV2PhaseConfig(
+	# Start from the actual plot_templates_v2 phase config so the recon plot is
+	# rendered with the SAME settings as templates.plot_templates_v2 (marker
+	# sizing, color bar, scale circle, scale bar, coordinates, etc.). Override
+	# only recon-specific output knobs.
+	v2_base_cfg = getattr(circle_config, "base_template_circles_v2", None)
+	if not isinstance(v2_base_cfg, TemplatePlotTemplatesV2PhaseConfig):
+		v2_base_cfg = TemplatePlotTemplatesV2PhaseConfig()
+	# Pin the recon plot's xy extent. Default = unfiltered unit footprint (with
+	# the v2 renderer's padding_fraction) so it matches the template plot's
+	# extent and the marker pt² stays in proportion to the channel pitch.
+	# When circle_recon.display.zoom_to_branches is true, instead pin the extent
+	# to the branches' bbox (plus zoom_padding_percent) and scale marker sizes
+	# by the linear zoom factor (full_extent_span / zoom_extent_span) so marker
+	# diameter on screen tracks the channel pitch on screen.
+	zoom_to_branches = bool(getattr(display_cfg, "zoom_to_branches", False))
+	v2_extent_overrides: dict[str, float] = {}
+	marker_size_scale: float = 1.0
+	# Resolve renderer-visible flags so the marker scale uses the actual rendered
+	# span (post recenter + square aspect), not just the bbox + padding span.
+	_force_square = bool(getattr(v2_base_cfg, "force_square_aspect", True))
+	_center_on_peak = bool(
+		getattr(display_cfg, "force_center_soma", getattr(v2_base_cfg, "center_on_peak", False))
+	)
+	# Compute peak_xy the same way the renderer does, so the post-recenter span
+	# matches what render_template_circles_plot_v2 will actually produce.
+	_peak_xy: tuple[float, float] | None = None
+	if _center_on_peak:
+		_tpl_arr = np.asarray(tpl, dtype=float)
+		if _tpl_arr.ndim == 2 and int(_tpl_arr.shape[0]) == int(locs.shape[0]) and int(_tpl_arr.shape[0]) > 0:
+			_neg_peak = np.abs(np.min(_tpl_arr, axis=1))
+			if _neg_peak.size > 0:
+				_pk_idx = int(np.argmax(_neg_peak))
+				if 0 <= _pk_idx < int(locs.shape[0]) and bool(np.isfinite(locs[_pk_idx, :]).all()):
+					_peak_xy = (float(locs[_pk_idx, 0]), float(locs[_pk_idx, 1]))
+
+	def _rendered_span(x_lo: float, x_hi: float, y_lo: float, y_hi: float) -> float:
+		# Mirror render._make_square_limits + _recenter_limits_around_point so
+		# the marker scale reflects the actual rendered extent.
+		if _force_square and _center_on_peak and _peak_xy is not None:
+			cx, cy = _peak_xy
+			half_x = max(abs(cx - float(x_lo)), abs(float(x_hi) - cx))
+			half_y = max(abs(cy - float(y_lo)), abs(float(y_hi) - cy))
+			side = float(max(2.0 * half_x, 2.0 * half_y))
+		elif _force_square:
+			side = float(max(abs(float(x_hi) - float(x_lo)), abs(float(y_hi) - float(y_lo))))
+		else:
+			side = float(max(abs(float(x_hi) - float(x_lo)), abs(float(y_hi) - float(y_lo))))
+		return float(max(side, 1.0))
+
+	_full_extent_span: float | None = None
+	if _full_x_lo is not None:
+		_pad_frac_full = float(max(0.0, float(getattr(v2_base_cfg, "padding_fraction", 0.08) or 0.0)))
+		_full_x_span_raw = float(max(abs(_full_x_hi - _full_x_lo), 1.0))
+		_full_y_span_raw = float(max(abs(_full_y_hi - _full_y_lo), 1.0))
+		_full_x_pad = _full_x_span_raw * _pad_frac_full
+		_full_y_pad = _full_y_span_raw * _pad_frac_full
+		_full_extent_span = _rendered_span(
+			_full_x_lo - _full_x_pad,
+			_full_x_hi + _full_x_pad,
+			_full_y_lo - _full_y_pad,
+			_full_y_hi + _full_y_pad,
+		)
+	if zoom_to_branches and _branch_x_lo is not None:
+		_pad_frac = float(max(0.0, float(getattr(display_cfg, "zoom_padding_percent", 20.0)) / 100.0))
+		_x_span_raw = float(max(abs(_branch_x_hi - _branch_x_lo), 1.0))
+		_y_span_raw = float(max(abs(_branch_y_hi - _branch_y_lo), 1.0))
+		_x_pad = _x_span_raw * _pad_frac
+		_y_pad = _y_span_raw * _pad_frac
+		v2_extent_overrides = {
+			"x_min": _branch_x_lo - _x_pad,
+			"x_max": _branch_x_hi + _x_pad,
+			"y_min": _branch_y_lo - _y_pad,
+			"y_max": _branch_y_hi + _y_pad,
+		}
+		_zoom_extent_span = _rendered_span(
+			_branch_x_lo - _x_pad,
+			_branch_x_hi + _x_pad,
+			_branch_y_lo - _y_pad,
+			_branch_y_hi + _y_pad,
+		)
+		if _full_extent_span is not None and _zoom_extent_span > 0.0:
+			# Linear baseline: marker_size_range scales as full_span / zoom_span.
+			# Both spans account for force_square_aspect + center_on_peak so the
+			# scale stays consistent when recentering pushes the rendered side past
+			# the bbox+padding span.
+			_linear_zoom = float(max(1.0, _full_extent_span / _zoom_extent_span))
+			# Apply the same nonlinearity the renderer uses for size-value→diameter
+			# (config.marker_size_scaling) to the zoom factor itself, so "log"/"sqrt"
+			# size mappings get a saturating zoom multiplier rather than full linear.
+			_scaling_token = (
+				str(getattr(v2_base_cfg, "marker_size_scaling", "linear") or "linear")
+				.strip()
+				.lower()
+				.replace("-", "_")
+				.replace(" ", "_")
+			)
+			if _scaling_token == "sqrt":
+				marker_size_scale = float(max(1.0, math.sqrt(_linear_zoom)))
+			elif _scaling_token == "log":
+				marker_size_scale = float(max(1.0, 1.0 + math.log(_linear_zoom)))
+			else:
+				marker_size_scale = _linear_zoom
+	elif _full_x_lo is not None:
+		_pad_frac = float(max(0.0, float(getattr(v2_base_cfg, "padding_fraction", 0.08) or 0.0)))
+		_x_span = float(max(abs(_full_x_hi - _full_x_lo), 1.0))
+		_y_span = float(max(abs(_full_y_hi - _full_y_lo), 1.0))
+		_x_pad = _x_span * _pad_frac
+		_y_pad = _y_span * _pad_frac
+		v2_extent_overrides = {
+			"x_min": _full_x_lo - _x_pad,
+			"x_max": _full_x_hi + _x_pad,
+			"y_min": _full_y_lo - _y_pad,
+			"y_max": _full_y_hi + _y_pad,
+		}
+	marker_overrides: dict[str, float] = {}
+	if marker_size_scale != 1.0:
+		marker_overrides["marker_min_size"] = float(getattr(v2_base_cfg, "marker_min_size", 8.0)) * marker_size_scale
+		marker_overrides["marker_max_size"] = float(getattr(v2_base_cfg, "marker_max_size", 50.0)) * marker_size_scale
+	v2_cfg = replace(
+		v2_base_cfg,
 		write_png=bool(output_cfg.write_png),
 		write_svg=bool(output_cfg.write_svg),
 		dpi=float(max(72.0, float(output_cfg.dpi))),
-		bbox_inches=(str(output_cfg.bbox_inches) if getattr(output_cfg, "bbox_inches", None) is not None else None),
-		invert_y_axis=bool(getattr(display_cfg, "invert_y_axis", True)),
-		background=str(getattr(base_cfg, "background", "black") or "black"),
+		bbox_inches=(
+			str(output_cfg.bbox_inches)
+			if getattr(output_cfg, "bbox_inches", None) is not None
+			else getattr(v2_base_cfg, "bbox_inches", None)
+		),
+		# Wire CircleReconDisplayConfig.force_center_soma -> v2 center_on_peak
+		# so the renderer recenters the (force_square_aspect) limits on the soma
+		# channel (the peak of |min| amplitude).
+		center_on_peak=_center_on_peak,
+		**v2_extent_overrides,
+		**marker_overrides,
 	)
+	if marker_size_scale != 1.0:
+		_scaling_token_log = (
+			str(getattr(v2_base_cfg, "marker_size_scaling", "linear") or "linear").strip().lower()
+		)
+		LOGGER.info(
+			"Unit %s circle_recon zoom_to_branches: linear_zoom=%.3fx scaling=%s applied_marker_scale=%.3fx",
+			unit_id,
+			float(_full_extent_span / _zoom_extent_span) if _full_extent_span and _zoom_extent_span else 1.0,
+			_scaling_token_log,
+			marker_size_scale,
+		)
 	return render_template_circles_plot_v2(
 		template=tpl,
 		locations_xy=locs,

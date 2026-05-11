@@ -13,6 +13,7 @@ class CircleReconDisplayConfig:
 	base: str = "template_circles"
 	channel_scope: str = "nodes_and_branches"
 	zoom_padding_percent: float = 20.0
+	zoom_to_branches: bool = False
 	invert_y_axis: bool = True
 	force_center_soma: bool = True
 	branch_scope: str = "raw"
@@ -41,6 +42,7 @@ class CircleReconConfig:
 	display: CircleReconDisplayConfig = field(default_factory=CircleReconDisplayConfig)
 	output: CircleReconOutputConfig = field(default_factory=CircleReconOutputConfig)
 	base_template_circles: Any | None = None
+	base_template_circles_v2: Any | None = None
 	base_footprint_amplitude: Any | None = None
 	base_footprint_latency: Any | None = None
 

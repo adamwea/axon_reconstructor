@@ -514,6 +514,8 @@ def _reconstruct_runtime_phase_resource_classes(
 			"templates_resolve_sources",
 			"analyzers",
 			"templates_analyzers",
+			"extract_partial_templates",
+			"templates_extract_partial_templates",
 			"build_templates",
 			"templates_build_templates",
 			"compute_template_similarity",

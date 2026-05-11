@@ -694,10 +694,12 @@ def parse_reconstruction_stage_config(
 		tpl_footprint_plots_defaults = getattr(template_defaults_cfg.per_unit_outputs, "footprint_plots", None)
 		tpl_footprint_amplitude_defaults = getattr(tpl_footprint_plots_defaults, "amplitude_map", None)
 		tpl_footprint_latency_defaults = getattr(tpl_footprint_plots_defaults, "latency_map", None)
+		tpl_plot_templates_v2_defaults = getattr(template_defaults_cfg.phases, "plot_templates_v2", None)
 	except Exception:
 		tpl_circles_defaults = None
 		tpl_footprint_amplitude_defaults = None
 		tpl_footprint_latency_defaults = None
+		tpl_plot_templates_v2_defaults = None
 	default_circle_unique_color = bool(
 		getattr(getattr(tpl_circles_defaults, "branch_morphology", None), "unique_color_per_branch", True)
 	)
@@ -1219,11 +1221,13 @@ def parse_reconstruction_stage_config(
 	except Exception:
 		circle_dpi = default_circle_dpi
 
+	circle_zoom_to_branches = _as_bool(circle_display_cfg.get("zoom_to_branches", False), False)
 	circle_recon = CircleReconConfig(
 		display=CircleReconDisplayConfig(
 			base=circle_base,
 			channel_scope=circle_channel_scope,
 			zoom_padding_percent=circle_zoom_padding_percent,
+			zoom_to_branches=circle_zoom_to_branches,
 			invert_y_axis=_as_bool(
 				circle_display_cfg.get("invert_y_axis", getattr(tpl_circles_defaults, "invert_y_axis", True)),
 				getattr(tpl_circles_defaults, "invert_y_axis", True),
@@ -1251,6 +1255,7 @@ def parse_reconstruction_stage_config(
 			dpi=float(max(72.0, circle_dpi)),
 		),
 		base_template_circles=tpl_circles_defaults,
+		base_template_circles_v2=tpl_plot_templates_v2_defaults,
 		base_footprint_amplitude=tpl_footprint_amplitude_defaults,
 		base_footprint_latency=tpl_footprint_latency_defaults,
 	)
