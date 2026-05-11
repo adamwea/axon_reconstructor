@@ -14,7 +14,11 @@ from .core.labels_io import (
 	read_bombcell_labels,
 	read_per_cluster_spike_counts,
 )
-from .core.metrics import compute_unit_metrics
+from .core.metrics import (
+	WELL_SUMMARY_METRIC_COLUMNS,
+	compute_unit_metrics,
+	compute_well_summary,
+)
 from .core.recon_io import (
 	get_recon_status,
 	get_unit_id_from_branches,
@@ -61,6 +65,37 @@ _UNITS_TABLE_COLUMNS: tuple[str, ...] = (
 	"max_delay_ms",
 	"unit_location_x_um",
 	"unit_location_y_um",
+)
+
+
+_WELL_SUMMARY_IDENTITY_COLUMNS: tuple[str, ...] = (
+	"project",
+	"recording_date",
+	"chip_id",
+	"scan_type",
+	"run_id",
+	"well_id",
+	"dataset_id",
+	"DIV",
+	"genotype",
+	"media",
+	"plating_density",
+)
+
+
+_WELL_SUMMARY_AGG_COLUMNS: tuple[str, ...] = (
+	"unit_count_total",
+	"unit_count_recon_ok",
+	"unit_count_bombcell_good",
+	"unit_count_bombcell_non_soma_good",
+	*(f"mean_{m}" for m in WELL_SUMMARY_METRIC_COLUMNS),
+	*(f"median_{m}" for m in WELL_SUMMARY_METRIC_COLUMNS),
+)
+
+
+_WELL_SUMMARY_TABLE_COLUMNS: tuple[str, ...] = (
+	*_WELL_SUMMARY_IDENTITY_COLUMNS,
+	*_WELL_SUMMARY_AGG_COLUMNS,
 )
 
 
@@ -218,7 +253,7 @@ def _write_units_parquet(
 	*,
 	rows: list[dict[str, Any]],
 	parquet_path: Path,
-) -> int:
+) -> tuple[int, Any]:
 	import pandas as pd  # local import — keeps test imports cheap
 
 	parquet_path.parent.mkdir(parents=True, exist_ok=True)
@@ -229,7 +264,23 @@ def _write_units_parquet(
 	else:
 		df = pd.DataFrame({column: [] for column in _UNITS_TABLE_COLUMNS})
 	df.to_parquet(parquet_path, engine="pyarrow", index=False)
-	return int(len(df))
+	return int(len(df)), df
+
+
+def _write_well_summary_parquet(
+	*,
+	units_df: Any,
+	identity_cols: dict[str, Any],
+	parquet_path: Path,
+) -> dict[str, Any]:
+	"""Aggregate units_df into a single-row well_summary table and persist it."""
+	import pandas as pd  # local import for symmetry with _write_units_parquet
+
+	summary_row = compute_well_summary(units_df=units_df, identity_cols=identity_cols)
+	parquet_path.parent.mkdir(parents=True, exist_ok=True)
+	df = pd.DataFrame([summary_row], columns=list(_WELL_SUMMARY_TABLE_COLUMNS))
+	df.to_parquet(parquet_path, engine="pyarrow", index=False)
+	return summary_row
 
 
 def run_analysis_compute_metrics_stage(
@@ -282,6 +333,7 @@ def run_analysis_compute_metrics_stage(
 		relpath=tables_relpath,
 	)
 	units_parquet_path = tables_dir / "units.parquet"
+	well_summary_parquet_path = tables_dir / "well_summary.parquet"
 
 	tables_section: dict[str, Any] = {}
 	unit_count = 0
@@ -310,8 +362,19 @@ def run_analysis_compute_metrics_stage(
 					spike_counts=spike_counts,
 				)
 			)
-		unit_count = _write_units_parquet(rows=rows, parquet_path=units_parquet_path)
+		unit_count, units_df = _write_units_parquet(rows=rows, parquet_path=units_parquet_path)
 		tables_section["units"] = f"{tables_relpath}/units.parquet"
+
+		well_summary_identity = {
+			column: identity_cols.get(column)
+			for column in _WELL_SUMMARY_IDENTITY_COLUMNS
+		}
+		_write_well_summary_parquet(
+			units_df=units_df,
+			identity_cols=well_summary_identity,
+			parquet_path=well_summary_parquet_path,
+		)
+		tables_section["well_summary"] = f"{tables_relpath}/well_summary.parquet"
 
 	manifest_payload: dict[str, Any] = {
 		"artifact_type": "axon_recon_well_analysis",
@@ -339,6 +402,8 @@ def run_analysis_compute_metrics_stage(
 	outputs = {"manifest_json": str(manifest_path)}
 	if "units" in tables_section:
 		outputs["units_parquet"] = str(units_parquet_path)
+	if "well_summary" in tables_section:
+		outputs["well_summary_parquet"] = str(well_summary_parquet_path)
 	return AnalysisResult(
 		well_out_dir=well_out_dir,
 		analysis_out_dir=stage_output_root_dir,

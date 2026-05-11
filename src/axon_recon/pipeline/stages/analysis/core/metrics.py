@@ -179,3 +179,67 @@ def compute_unit_metrics(
 		"unit_location_x_um": float("nan") if x_um is None else float(x_um),
 		"unit_location_y_um": float("nan") if y_um is None else float(y_um),
 	}
+
+
+WELL_SUMMARY_METRIC_COLUMNS: tuple[str, ...] = (
+	"branch_count",
+	"total_branch_length_um",
+	"template_density",
+	"recon_density",
+)
+
+
+def compute_well_summary(
+	units_df: Any,
+	identity_cols: dict[str, Any],
+) -> dict[str, Any]:
+	"""Aggregate a units DataFrame into a one-row well summary dict.
+
+	`units_df` is the per-well `units.parquet` table (or equivalent in-memory
+	DataFrame). Returns a flat dict that combines identity columns with:
+	  - unit_count_total (all rows)
+	  - unit_count_recon_ok (recon_status == "ok")
+	  - unit_count_bombcell_good (bombcell_label == "good")
+	  - unit_count_bombcell_non_soma_good (bombcell_label == "non_soma_good")
+	  - mean_<metric> / median_<metric> for each of the 4 starter metrics,
+	    computed over rows with recon_status == "ok" only. NaN when no ok rows.
+	"""
+	import pandas as pd  # local import keeps tests cheap when only the helper is needed
+
+	row: dict[str, Any] = dict(identity_cols)
+
+	if units_df is None or len(units_df) == 0:
+		row["unit_count_total"] = 0
+		row["unit_count_recon_ok"] = 0
+		row["unit_count_bombcell_good"] = 0
+		row["unit_count_bombcell_non_soma_good"] = 0
+		for metric in WELL_SUMMARY_METRIC_COLUMNS:
+			row[f"mean_{metric}"] = _nan()
+			row[f"median_{metric}"] = _nan()
+		return row
+
+	row["unit_count_total"] = int(len(units_df))
+
+	recon_status = units_df.get("recon_status", pd.Series(dtype=object))
+	ok_mask = recon_status.astype(object) == "ok"
+	row["unit_count_recon_ok"] = int(ok_mask.sum())
+
+	bombcell = units_df.get("bombcell_label", pd.Series(dtype=object))
+	row["unit_count_bombcell_good"] = int((bombcell.astype(object) == "good").sum())
+	row["unit_count_bombcell_non_soma_good"] = int(
+		(bombcell.astype(object) == "non_soma_good").sum()
+	)
+
+	ok_rows = units_df[ok_mask]
+	for metric in WELL_SUMMARY_METRIC_COLUMNS:
+		if metric not in ok_rows.columns or len(ok_rows) == 0:
+			row[f"mean_{metric}"] = _nan()
+			row[f"median_{metric}"] = _nan()
+			continue
+		series = pd.to_numeric(ok_rows[metric], errors="coerce")
+		mean_val = float(series.mean()) if series.notna().any() else _nan()
+		median_val = float(series.median()) if series.notna().any() else _nan()
+		row[f"mean_{metric}"] = mean_val
+		row[f"median_{metric}"] = median_val
+
+	return row

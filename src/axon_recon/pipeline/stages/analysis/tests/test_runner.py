@@ -98,7 +98,10 @@ def test_run_compute_metrics_writes_manifest_with_identity_fields(tmp_path: Path
 	# Slice 2: tables.units always emitted when compute_metrics is enabled (even
 	# when the recon_outputs/units/ tree is empty — units.parquet is then a
 	# zero-row Parquet with the documented schema).
-	assert manifest["tables"] == {"units": "tables/units.parquet"}
+	assert manifest["tables"] == {
+		"units": "tables/units.parquet",
+		"well_summary": "tables/well_summary.parquet",
+	}
 	assert manifest["unit_count"] == 0
 	assert manifest["status"] == "ok"
 	assert manifest["reason"] is None
@@ -299,7 +302,10 @@ def test_units_parquet_emits_documented_schema(tmp_path: Path) -> None:
 		force_restart=False,
 	)
 	manifest = json.loads(result.manifest_json.read_text(encoding="utf-8"))
-	assert manifest["tables"] == {"units": "tables/units.parquet"}
+	assert manifest["tables"] == {
+		"units": "tables/units.parquet",
+		"well_summary": "tables/well_summary.parquet",
+	}
 	assert manifest["unit_count"] == 1
 
 	parquet_path = result.analysis_out_dir / "tables" / "units.parquet"
@@ -466,3 +472,132 @@ def _is_nan_scalar(value: Any) -> bool:
 		return math.isnan(float(value))
 	except (TypeError, ValueError):
 		return False
+
+
+# ---------- slice 3: well_summary.parquet integration ----------
+
+
+def test_well_summary_parquet_emits_documented_schema(tmp_path: Path) -> None:
+	import pandas as pd
+
+	from ..runner import _WELL_SUMMARY_TABLE_COLUMNS
+
+	mea_output_root, well_dir, h5_path = _make_well_dir(tmp_path)
+	# Two ok units (one good, one mua) + one error unit.
+	_make_unit_dir(
+		well_dir,
+		unit_id=1,
+		template_density=0.4,
+		branches=[{"distances": [4.0, 6.0], "polyline_xy": [[0.0, 0.0], [4.0, 0.0], [4.0, 6.0]]}],
+		electrode_ids=["0", "1", "2", "3"],
+	)
+	_make_unit_dir(
+		well_dir,
+		unit_id=2,
+		template_density=0.8,
+		branches=[{"distances": [10.0], "polyline_xy": [[0.0, 0.0], [10.0, 0.0]]}],
+		electrode_ids=["0", "1"],
+	)
+	_make_unit_dir(
+		well_dir,
+		unit_id=3,
+		status="error",
+		branches=None,
+		electrode_ids=None,
+		unit_location_xy=None,
+	)
+	# Spikesort labels: only unit 1 is "good"; unit 2 is "mua".
+	sorter_out = well_dir / "spikesort_outputs" / "sorter_output"
+	sorter_out.mkdir(parents=True, exist_ok=True)
+	(sorter_out / "cluster_group.tsv").write_text(
+		"cluster_id\tKSLabel\tlabel\tlabel_reason\n1\tgood\tgood\t\n2\tmua\tmua\t\n",
+		encoding="utf-8",
+	)
+
+	stage_config = _make_stage_config(well_metadata_lookup=_lookup())
+	result = run_analysis_compute_metrics_stage(
+		dataset_index=0,
+		dataset_id="ds-fixture",
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=mea_output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=stage_config,
+		force_restart=False,
+	)
+	manifest = json.loads(result.manifest_json.read_text(encoding="utf-8"))
+	assert manifest["tables"] == {
+		"units": "tables/units.parquet",
+		"well_summary": "tables/well_summary.parquet",
+	}
+
+	well_summary_path = result.analysis_out_dir / "tables" / "well_summary.parquet"
+	assert well_summary_path.exists()
+	assert result.outputs["well_summary_parquet"] == str(well_summary_path)
+
+	ws = pd.read_parquet(well_summary_path)
+	assert list(ws.columns) == list(_WELL_SUMMARY_TABLE_COLUMNS)
+	assert len(ws) == 1
+
+	row = ws.iloc[0]
+	# Identity threading
+	assert row["project"] == "Media_Density_T5_02182026_AR"
+	assert row["recording_date"] == "2026-03-26"
+	assert row["chip_id"] == "M08073"
+	assert row["scan_type"] == "AxonTracking"
+	assert row["run_id"] == "000208"
+	assert row["well_id"] == "well000"
+	assert row["dataset_id"] == "ds-fixture"
+	assert int(row["DIV"]) == 36
+	assert row["genotype"] == "WT"
+	assert row["media"] == "DMEM"
+	assert int(row["plating_density"]) == 80000
+	# Counts (3 total: 2 ok + 1 error; bombcell_good = 1; non_soma_good = 0).
+	assert int(row["unit_count_total"]) == 3
+	assert int(row["unit_count_recon_ok"]) == 2
+	assert int(row["unit_count_bombcell_good"]) == 1
+	assert int(row["unit_count_bombcell_non_soma_good"]) == 0
+	# Mean/median over the 2 ok units only.
+	# branch_count: ok values are 1, 1 -> mean 1, median 1.
+	assert abs(float(row["mean_branch_count"]) - 1.0) < 1e-9
+	assert abs(float(row["median_branch_count"]) - 1.0) < 1e-9
+	# total_branch_length_um: ok values are (4+6)=10 and 10 -> mean 10, median 10.
+	assert abs(float(row["mean_total_branch_length_um"]) - 10.0) < 1e-9
+	assert abs(float(row["median_total_branch_length_um"]) - 10.0) < 1e-9
+	# template_density: 0.4 and 0.8 -> mean 0.6, median 0.6.
+	assert abs(float(row["mean_template_density"]) - 0.6) < 1e-9
+	assert abs(float(row["median_template_density"]) - 0.6) < 1e-9
+	# recon_density: unit 1 bbox x in [0,4] y in [0,6] area=24, 4 electrodes -> 4/24=0.166...
+	# unit 2 bbox x in [0,10] y in [0,0] area=0 -> NaN (only counts collinear at y=0).
+	# So mean/median over 1 finite value = 4/24.
+	expected = 4.0 / 24.0
+	assert abs(float(row["mean_recon_density"]) - expected) < 1e-9
+	assert abs(float(row["median_recon_density"]) - expected) < 1e-9
+
+
+def test_well_summary_parquet_empty_units_table_writes_zero_row(tmp_path: Path) -> None:
+	"""A well with no recon_outputs/units still gets a single-row well_summary."""
+	import pandas as pd
+
+	from ..runner import _WELL_SUMMARY_TABLE_COLUMNS
+
+	mea_output_root, well_dir, h5_path = _make_well_dir(tmp_path)
+	stage_config = _make_stage_config(well_metadata_lookup=_lookup())
+	result = run_analysis_compute_metrics_stage(
+		dataset_index=0,
+		dataset_id="ds-fixture",
+		h5_path=h5_path,
+		stream_id="well000",
+		mea_output_root=mea_output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=stage_config,
+		force_restart=False,
+	)
+	ws = pd.read_parquet(result.analysis_out_dir / "tables" / "well_summary.parquet")
+	assert list(ws.columns) == list(_WELL_SUMMARY_TABLE_COLUMNS)
+	assert len(ws) == 1
+	row = ws.iloc[0]
+	assert int(row["unit_count_total"]) == 0
+	assert int(row["unit_count_recon_ok"]) == 0
+	assert _is_nan_scalar(row["mean_branch_count"])
+	assert _is_nan_scalar(row["median_branch_count"])

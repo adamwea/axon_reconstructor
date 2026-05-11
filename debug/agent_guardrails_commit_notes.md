@@ -91,6 +91,40 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, well_summary.parquet aggregates (slice 3)
+
+Status: pending
+
+Summary:
+- `core/metrics.py` gains `compute_well_summary(units_df, identity_cols) -> dict` plus a `WELL_SUMMARY_METRIC_COLUMNS` constant tying the metric set to the runner. The aggregator computes per-well counts (`unit_count_total`, `unit_count_recon_ok`, `unit_count_bombcell_good`, `unit_count_bombcell_non_soma_good`) and mean/median over `recon_status == "ok"` rows for the 4 starter metrics. Empty/None DataFrames return zero counts + NaN aggregates.
+- `runner.py` now persists `<well>/analysis_outputs/tables/well_summary.parquet` as a single-row table immediately after `units.parquet`. Manifest grows `tables.well_summary = "tables/well_summary.parquet"`; `result.outputs["well_summary_parquet"]` exposes the path. `_WELL_SUMMARY_IDENTITY_COLUMNS` and `_WELL_SUMMARY_AGG_COLUMNS` constants drive a stable column ordering even when no rows exist.
+- Tests: `core/tests/test_metrics.py` gains 4 well_summary cases (happy path counts + aggregates, empty DataFrame, no-ok-rows, None-DataFrame). `tests/test_runner.py` gains 2 integration tests: a synthetic 3-unit fixture (2 ok + 1 error) verifies the full documented schema + identity stamping + counts + per-metric mean/median values, and an empty-well case verifies the single zero/NaN row is still written.
+
+Guardrails Consulted:
+- `debug/analysis_stage_and_dashboard_plan.md` §5 slice 3 spec (counts + mean/median over ok rows, identity columns).
+- `debug/first_version_pipeline_guardrails.md` — pure-function aggregator, NaN-on-empty semantics, no scope creep.
+
+Tests Run:
+- `pytest src/axon_recon/pipeline/stages/analysis/ -q` → 53 passed (47 from slices 1+2 + 6 new).
+- `pytest src/axon_recon/pipeline/ -q --ignore=test_progress.py` → 15 failures (same strict subset of slice-0 baseline). No new failures.
+
+Smoke A3 (in-process fallback, `/tmp/smoke_slice3_A3.log`):
+```
+conda run -n axon_recon axon-recon stages analysis --config debug/debug.runtime.yml --target-dataset 11 --limit-wells 1
+```
+- targets_total=1, targets_succeeded=1, targets_failed=0; `outputs=3` (manifest_json + units_parquet + well_summary_parquet).
+- `well_summary.parquet` on the dataset-11 well000 fixture has 1 row with: `unit_count_total=218, unit_count_recon_ok=141, unit_count_bombcell_good=13, unit_count_bombcell_non_soma_good=1, mean_branch_count≈2.92, median_branch_count=2.0, mean_total_branch_length_um≈2579.7, mean_template_density≈0.00238, mean_recon_density≈0.511`.
+
+Mutation Safety:
+- `find <well>/ -newer /tmp/slice3_marker -not -path "*/analysis_outputs/*"` returned empty (the user's spikesort run wasn't writing during the smoke window).
+
+Spikesort Hands-off:
+- `git diff 31b4a39..HEAD -- src/axon_recon/pipeline/stages/spikesort/ | wc -l` → 0.
+
+Residual Risk / Follow-ups:
+- Real fixture has `merged` / `non_soma_mua` labels (4 + 12 rows) that don't map to either `unit_count_bombcell_good` or `unit_count_bombcell_non_soma_good`. They count toward `unit_count_total` only, which matches plan §5 slice 3 — the explicit allowlist covers `good` and `non_soma_good` (the labels the dashboard uses by default).
+- Slice 4 will start needing `pandas` for read-side concat in the dashboard; that's already in `environment.yml`.
+
 ## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, starter metrics + units.parquet (slice 2)
 
 Status: pending

@@ -3,8 +3,10 @@ from __future__ import annotations
 import math
 
 from ..metrics import (
+	WELL_SUMMARY_METRIC_COLUMNS,
 	branch_count,
 	compute_unit_metrics,
+	compute_well_summary,
 	passthrough_grid_sort_metric,
 	recon_density,
 	template_density,
@@ -187,3 +189,119 @@ def test_compute_unit_metrics_all_none_payloads_returns_nan() -> None:
 	)
 	for key, value in metrics.items():
 		assert _isnan(value), f"expected NaN for {key}, got {value}"
+
+
+# ---------- compute_well_summary ----------
+
+
+def _make_units_df():
+	"""Return a small synthetic units DataFrame covering the well_summary cases."""
+	import pandas as pd
+
+	return pd.DataFrame(
+		[
+			{
+				"recon_status": "ok",
+				"bombcell_label": "good",
+				"branch_count": 1.0,
+				"total_branch_length_um": 100.0,
+				"template_density": 0.4,
+				"recon_density": 0.2,
+			},
+			{
+				"recon_status": "ok",
+				"bombcell_label": "non_soma_good",
+				"branch_count": 3.0,
+				"total_branch_length_um": 300.0,
+				"template_density": 0.6,
+				"recon_density": 0.4,
+			},
+			{
+				"recon_status": "ok",
+				"bombcell_label": "mua",
+				"branch_count": 5.0,
+				"total_branch_length_um": 500.0,
+				"template_density": 0.8,
+				"recon_density": 0.6,
+			},
+			# error row — must not contribute to the metric aggregates.
+			{
+				"recon_status": "error",
+				"bombcell_label": None,
+				"branch_count": float("nan"),
+				"total_branch_length_um": float("nan"),
+				"template_density": float("nan"),
+				"recon_density": float("nan"),
+			},
+		]
+	)
+
+
+def test_compute_well_summary_counts_and_aggregates() -> None:
+	df = _make_units_df()
+	identity = {
+		"project": "P",
+		"well_id": "well000",
+		"DIV": 36,
+		"genotype": "WT",
+	}
+	summary = compute_well_summary(df, identity)
+
+	# Identity passes through verbatim.
+	assert summary["project"] == "P"
+	assert summary["well_id"] == "well000"
+	assert summary["DIV"] == 36
+	assert summary["genotype"] == "WT"
+
+	# Counts cover the whole table; the recon_ok count excludes the error row.
+	assert summary["unit_count_total"] == 4
+	assert summary["unit_count_recon_ok"] == 3
+	assert summary["unit_count_bombcell_good"] == 1
+	assert summary["unit_count_bombcell_non_soma_good"] == 1
+
+	# Means/medians cover only the 3 ok rows.
+	assert math.isclose(summary["mean_branch_count"], 3.0, rel_tol=1e-9)
+	assert math.isclose(summary["median_branch_count"], 3.0, rel_tol=1e-9)
+	assert math.isclose(summary["mean_total_branch_length_um"], 300.0, rel_tol=1e-9)
+	assert math.isclose(summary["median_total_branch_length_um"], 300.0, rel_tol=1e-9)
+	assert math.isclose(summary["mean_template_density"], 0.6, rel_tol=1e-9)
+	assert math.isclose(summary["median_template_density"], 0.6, rel_tol=1e-9)
+	assert math.isclose(summary["mean_recon_density"], 0.4, rel_tol=1e-9)
+	assert math.isclose(summary["median_recon_density"], 0.4, rel_tol=1e-9)
+
+
+def test_compute_well_summary_empty_df_returns_zero_counts_and_nan_metrics() -> None:
+	import pandas as pd
+
+	empty = pd.DataFrame()
+	summary = compute_well_summary(empty, {"well_id": "well000"})
+	assert summary["well_id"] == "well000"
+	assert summary["unit_count_total"] == 0
+	assert summary["unit_count_recon_ok"] == 0
+	assert summary["unit_count_bombcell_good"] == 0
+	assert summary["unit_count_bombcell_non_soma_good"] == 0
+	for metric in WELL_SUMMARY_METRIC_COLUMNS:
+		assert _isnan(summary[f"mean_{metric}"])
+		assert _isnan(summary[f"median_{metric}"])
+
+
+def test_compute_well_summary_no_ok_rows_returns_nan_metrics() -> None:
+	import pandas as pd
+
+	df = pd.DataFrame(
+		[{"recon_status": "error", "bombcell_label": None, "branch_count": float("nan")}]
+	)
+	summary = compute_well_summary(df, {})
+	assert summary["unit_count_total"] == 1
+	assert summary["unit_count_recon_ok"] == 0
+	for metric in WELL_SUMMARY_METRIC_COLUMNS:
+		assert _isnan(summary[f"mean_{metric}"])
+		assert _isnan(summary[f"median_{metric}"])
+
+
+def test_compute_well_summary_handles_none_units_df() -> None:
+	summary = compute_well_summary(None, {"well_id": "well000"})
+	assert summary["unit_count_total"] == 0
+	assert summary["unit_count_recon_ok"] == 0
+	for metric in WELL_SUMMARY_METRIC_COLUMNS:
+		assert _isnan(summary[f"mean_{metric}"])
