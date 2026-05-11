@@ -105,6 +105,7 @@ from .stages.reconstruct.templates.config import (
 from .stages.spikesort.api import (
 	bootstrap_spikesort_concat_binary,
 	build_spikesort_concat_analyzer,
+	cleanup_spikesort_analyzers,
 	cleanup_spikesort_concat_binary,
 	restore_spikesort_sorter_output,
 	run_spikesort,
@@ -449,6 +450,7 @@ def _spikesort_phase_resource_classes_from_labels(
 		"bombcell_label": "bombcell_label_resource_class",
 		"merge_slay": "merge_slay_resource_class",
 		"cleanup_concat_binary": "cleanup_concat_binary_resource_class",
+		"cleanup_analyzers": "cleanup_analyzers_resource_class",
 	}
 	resource_classes: list[str] = []
 	for phase_label in phase_labels:
@@ -1802,6 +1804,7 @@ def _build_preprocess_allocation_preview(
 _SPIKESORT_DIRECT_PHASE_LABELS: dict[str, str] = {
 	"spikesort.bootstrap_concat_binary": "bootstrap_concat_binary",
 	"spikesort.cleanup_concat_binary": "cleanup_concat_binary",
+	"spikesort.cleanup_analyzers": "cleanup_analyzers",
 	"spikesort.sort": "sort",
 	"spikesort.summarize_sort": "summarize_sort",
 	"spikesort.bombcell_label": "bombcell_label",
@@ -3033,6 +3036,19 @@ def _enabled_spikesort_runtime_phase_plan(
 				resource_class=getattr(stage_config, "cleanup_concat_binary_resource_class", None),
 			)
 		)
+	if bool(getattr(stage_config, "cleanup_analyzers_enabled", False)):
+		available_phases["cleanup_analyzers"] = (
+			_SpikesortRuntimePhase(
+				name="spikesort.cleanup_analyzers",
+				phase_label="cleanup_analyzers",
+				debug_enabled_attr="cleanup_analyzers_debug_mode_enabled",
+				debug_limit_datasets_attr="cleanup_analyzers_debug_limit_datasets",
+				debug_limit_wells_attr="cleanup_analyzers_debug_limit_wells",
+				target_runner=_run_spikesort_cleanup_analyzers_target,
+				debug_limit_wells_per_dataset_attr="cleanup_analyzers_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "cleanup_analyzers_resource_class", None),
+			)
+		)
 	configured_sequence = tuple(getattr(stage_config, "phase_sequence", None) or DEFAULT_SPIKESORT_PHASE_SEQUENCE)
 	phase_plan: list[_SpikesortRuntimePhase] = []
 	for phase_name in configured_sequence:
@@ -3074,6 +3090,17 @@ def _run_spikesort_bootstrap_concat_binary_target(*, target: Any, stage_config: 
 
 def _run_spikesort_cleanup_concat_binary_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
 	return cleanup_spikesort_concat_binary(
+		h5_path=target.h5_path,
+		stream_id=target.stream_id,
+		mea_output_root=target.mea_output_root,
+		output_rel_root=_spikesort_output_rel_root(stage_config),
+		stage_config=stage_config,
+		force_restart=bool(getattr(stage_config, "force_restart", False) or getattr(stage_config, "force_replot", False)),
+	)
+
+
+def _run_spikesort_cleanup_analyzers_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
+	return cleanup_spikesort_analyzers(
 		h5_path=target.h5_path,
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
@@ -3461,6 +3488,37 @@ def run_spikesort_cleanup_concat_binary_from_runtime(
 		debug_limit_datasets_attr="cleanup_concat_binary_debug_limit_datasets",
 		debug_limit_wells_attr="cleanup_concat_binary_debug_limit_wells",
 		debug_limit_wells_per_dataset_attr="cleanup_concat_binary_debug_limit_wells_per_dataset",
+		publish_after_run=True,
+	)
+
+
+def run_spikesort_cleanup_analyzers_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	return _run_spikesort_concat_binary_phase_from_runtime(
+		config_path=config_path,
+		stage_name="spikesort.cleanup_analyzers",
+		runner_fn=cleanup_spikesort_analyzers,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		target_datasets_override=target_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
+		debug_phase_label="cleanup_analyzers",
+		debug_enabled_attr="cleanup_analyzers_debug_mode_enabled",
+		debug_limit_datasets_attr="cleanup_analyzers_debug_limit_datasets",
+		debug_limit_wells_attr="cleanup_analyzers_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="cleanup_analyzers_debug_limit_wells_per_dataset",
 		publish_after_run=True,
 	)
 

@@ -481,6 +481,7 @@ stages:
     - bombcell_label
     - merge_SLAy
     - cleanup_concat_binary
+    - cleanup_analyzers
     debug_outputs: false
     phases:
       #resolve_sources:
@@ -813,6 +814,18 @@ stages:
         resource_class: disk_cleanup
         relpath: cache/bootstrap_concat_binary
         summary_json_relpath: cache/bootstrap_concat_binary_cleanup_summary.json
+
+      # Slice 13: dedicated post-merge analyzer cleanup. Runs after
+      # cleanup_concat_binary and deletes <well>/spikesort_outputs/concat_analyzer/
+      # so the analyzer cache doesn't linger after SLAy has applied merges to
+      # the canonical sorter_output. dry_run=true logs the paths that would
+      # be removed without touching the filesystem.
+      cleanup_analyzers:
+        enabled: true
+        dry_run: true
+        resource_class: disk_cleanup
+        relpath: concat_analyzer
+        summary_json_relpath: concat_analyzer_cleanup_summary.json
 
   reconstruct:
     phase_sequence:

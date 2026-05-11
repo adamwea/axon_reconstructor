@@ -101,6 +101,9 @@ from .stages.spikesort.cli import (
 	_run_bootstrap_concat_binary_from_args as _run_spikesort_bootstrap_concat_binary_from_args,
 )
 from .stages.spikesort.cli import (
+	_run_cleanup_analyzers_from_args as _run_spikesort_cleanup_analyzers_from_args,
+)
+from .stages.spikesort.cli import (
 	_run_cleanup_concat_binary_from_args as _run_spikesort_cleanup_concat_binary_from_args,
 )
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
@@ -166,6 +169,14 @@ _STAGE_ALIASES: dict[str, str] = {
 	"cleanup_concat_binary": "spikesort.cleanup_concat_binary",
 	"clear_concat_binary": "spikesort.cleanup_concat_binary",
 	"spikesort.clear_concat_binary": "spikesort.cleanup_concat_binary",
+	"cleanup_analyzers": "spikesort.cleanup_analyzers",
+	"cleanup_analyzer": "spikesort.cleanup_analyzers",
+	"clear_analyzers": "spikesort.cleanup_analyzers",
+	"clear_analyzer": "spikesort.cleanup_analyzers",
+	"spikesort.cleanup_analyzer": "spikesort.cleanup_analyzers",
+	"spikesort.clear_analyzers": "spikesort.cleanup_analyzers",
+	"spikesort.clear_analyzer": "spikesort.cleanup_analyzers",
+	"spikesort.cleanup_concat_analyzer": "spikesort.cleanup_analyzers",
 	"bombcell": "spikesort.bombcell_label",
 	"spikesort.bombcell": "spikesort.bombcell_label",
 	"merge": "spikesort.merge",
@@ -267,6 +278,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"spikesort": _run_spikesort_from_args,
 	"spikesort.bootstrap_concat_binary": _run_spikesort_bootstrap_concat_binary_from_args,
 	"spikesort.cleanup_concat_binary": _run_spikesort_cleanup_concat_binary_from_args,
+	"spikesort.cleanup_analyzers": _run_spikesort_cleanup_analyzers_from_args,
 	"spikesort.sort": _run_spikesort_sort_from_args,
 	"spikesort.bombcell_label": _run_spikesort_bombcell_from_args,
 	"spikesort.summarize_sort": _run_spikesort_summarize_sort_from_args,

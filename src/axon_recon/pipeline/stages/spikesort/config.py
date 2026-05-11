@@ -273,6 +273,7 @@ DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
 	"bombcell_label",
 	"merge_SLAy",
 	"cleanup_concat_binary",
+	"cleanup_analyzers",
 )
 
 
@@ -306,6 +307,11 @@ _SPIKESORT_PHASE_ALIASES: dict[str, str] = {
 	"cleanup_concat": "cleanup_concat_binary",
 	"cleanup_binary": "cleanup_concat_binary",
 	"cleanup": "cleanup_concat_binary",
+	"cleanup_analyzers": "cleanup_analyzers",
+	"cleanup_analyzer": "cleanup_analyzers",
+	"clear_analyzers": "cleanup_analyzers",
+	"clear_analyzer": "cleanup_analyzers",
+	"cleanup_concat_analyzer": "cleanup_analyzers",
 }
 
 
@@ -404,6 +410,10 @@ class SpikesortStageConfig:
 	cleanup_concat_binary_debug_limit_datasets: int | None
 	cleanup_concat_binary_debug_limit_wells: int | None
 	cleanup_concat_binary_debug_limit_wells_per_dataset: int | None
+	cleanup_analyzers_debug_mode_enabled: bool
+	cleanup_analyzers_debug_limit_datasets: int | None
+	cleanup_analyzers_debug_limit_wells: int | None
+	cleanup_analyzers_debug_limit_wells_per_dataset: int | None
 	bootstrap_concat_binary_resource_class: str | None
 	sort_resource_class: str | None
 	summarize_sort_resource_class: str | None
@@ -412,6 +422,7 @@ class SpikesortStageConfig:
 	bombcell_label_resource_class: str | None
 	merge_slay_resource_class: str | None
 	cleanup_concat_binary_resource_class: str | None
+	cleanup_analyzers_resource_class: str | None
 	summarize_sort_debug_mode_enabled: bool
 	summarize_sort_debug_limit_datasets: int | None
 	summarize_sort_debug_limit_wells: int | None
@@ -479,6 +490,10 @@ class SpikesortStageConfig:
 	cleanup_concat_binary_enabled: bool
 	cleanup_concat_binary_relpath: str
 	cleanup_concat_binary_summary_json_relpath: str
+	cleanup_analyzers_enabled: bool
+	cleanup_analyzers_dry_run: bool
+	cleanup_analyzers_relpath: str
+	cleanup_analyzers_summary_json_relpath: str
 	summarize_sort_enabled: bool
 	summarize_sort_emit_logs: bool
 	summarize_sort_generate_artifacts: bool
@@ -720,6 +735,15 @@ def parse_spikesort_stage_config(
 			{},
 		)
 	)
+	cleanup_analyzers_phase_cfg = _as_section(
+		_coalesce(
+			phases_cfg.get("cleanup_analyzers", None),
+			phases_cfg.get("cleanup_analyzer", None),
+			phases_cfg.get("cleanup_concat_analyzer", None),
+			phases_cfg.get("clear_analyzers", None),
+			{},
+		)
+	)
 	merge_units_phase_cfg = _as_section(phases_cfg.get("merge_units", {}))
 	merge_slay_phase_cfg = _as_section(
 		_coalesce(
@@ -775,6 +799,10 @@ def parse_spikesort_stage_config(
 	cleanup_concat_binary_resource_class = _phase_resource_class(
 		cleanup_concat_binary_phase_cfg,
 		"cleanup_concat_binary",
+	)
+	cleanup_analyzers_resource_class = _phase_resource_class(
+		cleanup_analyzers_phase_cfg,
+		"cleanup_analyzers",
 	)
 	logging_cfg = _as_section(stage_cfg.get("logging", {}))
 	legacy_debug_cfg = _as_section(stage_cfg.get("debug", {}))
@@ -1068,6 +1096,20 @@ def parse_spikesort_stage_config(
 	cleanup_concat_binary_debug_limit_wells_per_dataset = _as_optional_positive_int(
 		cleanup_concat_binary_debug_cfg.get("limit_wells_per_dataset", None)
 	)
+	cleanup_analyzers_debug_cfg = _as_section(cleanup_analyzers_phase_cfg.get("debug_mode", {}))
+	cleanup_analyzers_debug_mode_enabled = _as_bool(
+		cleanup_analyzers_debug_cfg.get("enabled", False),
+		False,
+	)
+	cleanup_analyzers_debug_limit_datasets = _as_optional_positive_int(
+		cleanup_analyzers_debug_cfg.get("limit_datasets", None)
+	)
+	cleanup_analyzers_debug_limit_wells = _as_optional_positive_int(
+		cleanup_analyzers_debug_cfg.get("limit_wells", None)
+	)
+	cleanup_analyzers_debug_limit_wells_per_dataset = _as_optional_positive_int(
+		cleanup_analyzers_debug_cfg.get("limit_wells_per_dataset", None)
+	)
 	summarize_sort_debug_cfg = _as_section(summarize_sort_phase_cfg.get("debug_mode", {}))
 	summarize_sort_debug_mode_enabled = _as_bool(summarize_sort_debug_cfg.get("enabled", False), False)
 	summarize_sort_debug_limit_datasets = _as_optional_positive_int(
@@ -1287,6 +1329,34 @@ def parse_spikesort_stage_config(
 			"cache/bootstrap_concat_binary_cleanup_summary.json",
 		)
 	) or "cache/bootstrap_concat_binary_cleanup_summary.json"
+	cleanup_analyzers_enabled = _as_bool(
+		_coalesce(
+			cleanup_analyzers_phase_cfg.get("enabled", None),
+			False,
+		),
+		False,
+	)
+	cleanup_analyzers_dry_run = _as_bool(
+		_coalesce(
+			cleanup_analyzers_phase_cfg.get("dry_run", None),
+			True,
+		),
+		True,
+	)
+	cleanup_analyzers_relpath = _normalize_optional_relpath(
+		_coalesce(
+			cleanup_analyzers_phase_cfg.get("relpath", None),
+			cleanup_analyzers_phase_cfg.get("target_relpath", None),
+			concat_analyzer_phase_cfg.get("relpath", None),
+			"concat_analyzer",
+		)
+	) or "concat_analyzer"
+	cleanup_analyzers_summary_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			cleanup_analyzers_phase_cfg.get("summary_json_relpath", None),
+			"concat_analyzer_cleanup_summary.json",
+		)
+	) or "concat_analyzer_cleanup_summary.json"
 	summarize_sort_enabled = _as_bool(
 		_coalesce(
 			summarize_sort_phase_cfg.get("enabled", None),
@@ -3072,6 +3142,12 @@ def parse_spikesort_stage_config(
 		cleanup_concat_binary_debug_limit_wells_per_dataset=(
 			cleanup_concat_binary_debug_limit_wells_per_dataset
 		),
+		cleanup_analyzers_debug_mode_enabled=bool(cleanup_analyzers_debug_mode_enabled),
+		cleanup_analyzers_debug_limit_datasets=cleanup_analyzers_debug_limit_datasets,
+		cleanup_analyzers_debug_limit_wells=cleanup_analyzers_debug_limit_wells,
+		cleanup_analyzers_debug_limit_wells_per_dataset=(
+			cleanup_analyzers_debug_limit_wells_per_dataset
+		),
 		bootstrap_concat_binary_resource_class=bootstrap_concat_binary_resource_class,
 		sort_resource_class=sort_resource_class,
 		summarize_sort_resource_class=summarize_sort_resource_class,
@@ -3080,6 +3156,7 @@ def parse_spikesort_stage_config(
 		bombcell_label_resource_class=bombcell_label_resource_class,
 		merge_slay_resource_class=merge_slay_resource_class,
 		cleanup_concat_binary_resource_class=cleanup_concat_binary_resource_class,
+		cleanup_analyzers_resource_class=cleanup_analyzers_resource_class,
 		summarize_sort_debug_mode_enabled=bool(summarize_sort_debug_mode_enabled),
 		summarize_sort_debug_limit_datasets=summarize_sort_debug_limit_datasets,
 		summarize_sort_debug_limit_wells=summarize_sort_debug_limit_wells,
@@ -3226,6 +3303,10 @@ def parse_spikesort_stage_config(
 		cleanup_concat_binary_enabled=bool(cleanup_concat_binary_enabled),
 		cleanup_concat_binary_relpath=str(cleanup_concat_binary_relpath),
 		cleanup_concat_binary_summary_json_relpath=str(cleanup_concat_binary_summary_json_relpath),
+		cleanup_analyzers_enabled=bool(cleanup_analyzers_enabled),
+		cleanup_analyzers_dry_run=bool(cleanup_analyzers_dry_run),
+		cleanup_analyzers_relpath=str(cleanup_analyzers_relpath),
+		cleanup_analyzers_summary_json_relpath=str(cleanup_analyzers_summary_json_relpath),
 		summarize_sort_enabled=bool(summarize_sort_enabled),
 		summarize_sort_emit_logs=bool(summarize_sort_emit_logs),
 		summarize_sort_generate_artifacts=bool(summarize_sort_generate_artifacts),

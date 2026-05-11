@@ -3325,6 +3325,97 @@ def run_spikesort_cleanup_concat_binary_stage(
 	)
 
 
+def run_spikesort_cleanup_analyzers_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	"""Delete the canonical concat_analyzer directory after merge_SLAy.
+
+	The dedicated cleanup phase keeps merge_SLAy from rmtree-ing its own
+	analyzer mid-phase (which used to clobber the concat_analyzer cache
+	on every successful run). Honors a phase-local ``dry_run`` toggle: when
+	true, paths that would be removed are logged into the summary but the
+	directory stays on disk.
+	"""
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+	summary_json = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=str(
+			getattr(
+				stage_config,
+				"cleanup_analyzers_summary_json_relpath",
+				"concat_analyzer_cleanup_summary.json",
+			)
+		),
+	)
+	target_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=str(
+			getattr(stage_config, "cleanup_analyzers_relpath", None)
+			or getattr(stage_config, "concat_analyzer_relpath", None)
+			or "concat_analyzer"
+		),
+	)
+	enabled = bool(getattr(stage_config, "cleanup_analyzers_enabled", False))
+	dry_run = bool(getattr(stage_config, "cleanup_analyzers_dry_run", True))
+	removed_paths: list[str] = []
+	would_remove_paths: list[str] = []
+	if enabled and target_dir.exists():
+		if dry_run:
+			would_remove_paths.append(str(target_dir))
+		else:
+			if target_dir.is_dir():
+				shutil.rmtree(target_dir, ignore_errors=True)
+			else:
+				target_dir.unlink(missing_ok=True)
+			removed_paths.append(str(target_dir))
+	if enabled:
+		status = "ok"
+		reason: str | None = None
+	else:
+		status = "skipped"
+		reason = "cleanup_analyzers_disabled"
+	outputs = {"summary_json": str(summary_json)}
+	_write_json(
+		summary_json,
+		{
+			"status": status,
+			"reason": reason,
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"target_dir": str(target_dir),
+			"dry_run": bool(dry_run),
+			"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
+			"removed_paths": removed_paths,
+			"would_remove_paths": would_remove_paths,
+			"force_restart": bool(force_restart),
+			"outputs": outputs,
+		},
+	)
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
 def run_spikesort_snapshot_sorter_output_stage(
 	*,
 	h5_path: Path,

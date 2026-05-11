@@ -265,6 +265,121 @@ def test_run_spikesort_cleanup_concat_binary_stage_removes_cache(monkeypatch, tm
     assert payload["removed_paths"] == [str(cache_dir.resolve())]
 
 
+def test_run_spikesort_cleanup_analyzers_stage_removes_concat_analyzer(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.runner import run_spikesort_cleanup_analyzers_stage
+
+    well_out_dir = tmp_path / "well001"
+    analyzer_dir = well_out_dir / "spikesort_outputs/concat_analyzer"
+    analyzer_dir.mkdir(parents=True)
+    (analyzer_dir / "templates.npy").write_bytes(b"data")
+    monkeypatch.setattr(
+        spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir
+    )
+
+    stage_config = SimpleNamespace(
+        cleanup_analyzers_enabled=True,
+        cleanup_analyzers_dry_run=False,
+        cleanup_analyzers_relpath="concat_analyzer",
+        cleanup_analyzers_summary_json_relpath="concat_analyzer_cleanup_summary.json",
+    )
+
+    result = run_spikesort_cleanup_analyzers_stage(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_config,
+        force_restart=False,
+    )
+
+    assert not analyzer_dir.exists()
+    payload = _read_json(result.summary_json)
+    assert payload["status"] == "ok"
+    assert payload["dry_run"] is False
+    assert payload["removed_paths"] == [str(analyzer_dir.resolve())]
+    assert payload["would_remove_paths"] == []
+
+
+def test_run_spikesort_cleanup_analyzers_stage_dry_run_leaves_dir(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.runner import run_spikesort_cleanup_analyzers_stage
+
+    well_out_dir = tmp_path / "well001"
+    analyzer_dir = well_out_dir / "spikesort_outputs/concat_analyzer"
+    analyzer_dir.mkdir(parents=True)
+    (analyzer_dir / "templates.npy").write_bytes(b"data")
+    monkeypatch.setattr(
+        spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir
+    )
+
+    stage_config = SimpleNamespace(
+        cleanup_analyzers_enabled=True,
+        cleanup_analyzers_dry_run=True,
+        cleanup_analyzers_relpath="concat_analyzer",
+        cleanup_analyzers_summary_json_relpath="concat_analyzer_cleanup_summary.json",
+    )
+
+    result = run_spikesort_cleanup_analyzers_stage(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_config,
+        force_restart=False,
+    )
+
+    assert analyzer_dir.exists()
+    assert (analyzer_dir / "templates.npy").exists()
+    payload = _read_json(result.summary_json)
+    assert payload["status"] == "ok"
+    assert payload["dry_run"] is True
+    assert payload["removed_paths"] == []
+    assert payload["would_remove_paths"] == [str(analyzer_dir.resolve())]
+
+
+def test_run_spikesort_cleanup_analyzers_stage_skipped_when_disabled(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.runner import run_spikesort_cleanup_analyzers_stage
+
+    well_out_dir = tmp_path / "well001"
+    analyzer_dir = well_out_dir / "spikesort_outputs/concat_analyzer"
+    analyzer_dir.mkdir(parents=True)
+    (analyzer_dir / "templates.npy").write_bytes(b"data")
+    monkeypatch.setattr(
+        spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir
+    )
+
+    stage_config = SimpleNamespace(
+        cleanup_analyzers_enabled=False,
+        cleanup_analyzers_dry_run=False,
+        cleanup_analyzers_relpath="concat_analyzer",
+        cleanup_analyzers_summary_json_relpath="concat_analyzer_cleanup_summary.json",
+    )
+
+    result = run_spikesort_cleanup_analyzers_stage(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        output_rel_root="spikesort_outputs",
+        stage_config=stage_config,
+        force_restart=False,
+    )
+
+    assert analyzer_dir.exists()
+    payload = _read_json(result.summary_json)
+    assert payload["status"] == "skipped"
+    assert payload["reason"] == "cleanup_analyzers_disabled"
+    assert payload["removed_paths"] == []
+    assert payload["would_remove_paths"] == []
+
+
 def test_run_spikesort_stage_generates_sort_summary_artifacts(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 

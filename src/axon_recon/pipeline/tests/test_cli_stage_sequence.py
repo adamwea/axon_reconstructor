@@ -191,6 +191,25 @@ def test_parse_stage_list_tokens_supports_spikesort_concat_binary_phase_tokens(r
     assert parsed == [expected]
 
 
+@pytest.mark.parametrize(
+    ("raw_token", "expected"),
+    [
+        ("cleanup_analyzers", "spikesort.cleanup_analyzers"),
+        ("cleanup_analyzer", "spikesort.cleanup_analyzers"),
+        ("clear_analyzers", "spikesort.cleanup_analyzers"),
+        ("clear_analyzer", "spikesort.cleanup_analyzers"),
+        ("spikesort.cleanup_analyzers", "spikesort.cleanup_analyzers"),
+        ("spikesort.cleanup_analyzer", "spikesort.cleanup_analyzers"),
+        ("spikesort.clear_analyzers", "spikesort.cleanup_analyzers"),
+        ("spikesort.clear_analyzer", "spikesort.cleanup_analyzers"),
+        ("spikesort.cleanup_concat_analyzer", "spikesort.cleanup_analyzers"),
+    ],
+)
+def test_parse_stage_list_tokens_supports_spikesort_cleanup_analyzers_phase_tokens(raw_token: str, expected: str) -> None:
+    parsed = pipeline_cli._parse_stage_list_tokens([raw_token])
+    assert parsed == [expected]
+
+
 def test_parse_stage_list_tokens_supports_spikesort_merge_substage() -> None:
     parsed = pipeline_cli._parse_stage_list_tokens(["spikesort.merge"])
     assert parsed == ["spikesort.merge"]
