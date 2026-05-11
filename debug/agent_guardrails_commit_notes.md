@@ -91,6 +91,58 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, starter metrics + units.parquet (slice 2)
+
+Status: pending
+
+Summary:
+- New `src/axon_recon/pipeline/stages/analysis/core/` subpackage: `recon_io.py` (JSON readers, no pickle), `labels_io.py` (cluster_group.tsv / cluster_KSLabel.tsv / spike_clusters.npy readers, handles the doubly-nested `sorter_output/sorter_output/` layout produced by SpikeInterface+Kilosort), `metrics.py` (pure helpers: `branch_count`, `total_branch_length_um` with distances→polyline fallback, `template_density`, `recon_density`, `passthrough_grid_sort_metric`, and `compute_unit_metrics` aggregator).
+- `runner.py` now enumerates `<well>/recon_outputs/units/*`, computes per-unit metrics + filter columns + handy passthroughs, writes `tables/units.parquet` via pyarrow, and updates the manifest with `tables.units = "tables/units.parquet"` plus an inline `unit_count: int`. The full documented schema (identity + filter + 4 metrics + passthroughs) is always emitted, even for empty wells.
+- Filter columns wired per plan §4: `recon_status` (always emit), `bombcell_label` (from `cluster_group.tsv` `label` column; fallback to `cluster_KSLabel.tsv` `KSLabel`), `num_spikes` (per-cluster from `spike_clusters.npy`), `num_branches` (mirrors `branch_count` int-cast or None for NaN), `recon_quality_score` (always None — recon doesn't emit this at MVP).
+- Identity threading: `unit_id` parsed from `branches.json.unit_id` with fallback to the directory-name int. `well_attributes.{genotype,media,plating_density}` promoted to top-level columns per plan §7 risk 1.
+- Non-ok recon units stay in the parquet with `recon_status` populated and metrics as NaN — so the dashboard's `recon_status == "ok"` filter does the gating, not metric-level None.
+- `environment.yml` and `containers/axon-recon/Dockerfile` `AXON_RECON_RUNTIME_SPEC` bumped to include `pyarrow`. Per plan §7 risk 4, no container rebuild — user will rebuild on next launch.
+- `pyarrow` installed via `pip install` into the local `axon_recon` conda env so the slice 2 smoke + tests can actually exercise parquet IO; the env update is implicit in the environment.yml change.
+
+Slice 1 entry's "pending" status applies to slice 2 too — both will resolve when the analysis-stage-and-dashboard branch lands.
+
+Guardrails Consulted:
+- `debug/analysis_stage_and_dashboard_plan.md` §5 slice 2 spec + §4 filter contract + §7 risks.
+- `debug/first_version_pipeline_guardrails.md` — pure JSON readers, no pickle, NaN-on-missing semantics.
+- `debug/stage_and_phase_behavior_guardrails.md` — manifest update + tables_relpath conventions.
+
+Tests Run:
+- `pytest src/axon_recon/pipeline/stages/analysis/ -q` → 47 passed (12 from slice 1 + 35 new).
+- `pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` → 153 passed (unchanged).
+- `pytest src/axon_recon/pipeline/ -q --ignore=test_progress.py` → 15 failures, same strict subset of the slice-0 baseline (preprocess/reconstruct/templates — see slice 1 notes for the list). No new failures.
+
+Acceptance (plan §5 slice 2):
+- `units.parquet` written for dataset-11 well000 smoke: 218 rows (141 `recon_status=ok` + 77 `error`).
+- Schema verified via `pa.read_table(...).schema` — matches the documented column list (12 identity + 5 filter + 4 metric + 5 passthrough columns).
+- All four metrics non-null for all 141 `recon_status == "ok"` rows: `branch_count` 0 NaN / `total_branch_length_um` 0 NaN / `template_density` 0 NaN / `recon_density` 0 NaN.
+- Spikesort stage untouched: `git diff cffae39..HEAD -- src/axon_recon/pipeline/stages/spikesort/ | wc -l` → 0.
+- `git grep -nE "axon_analysis_v1" src/axon_recon/` → 2 hits (runner + test).
+- bombcell_label distribution on the fixture: `mua=96, noise=94, good=13, merged=12, non_soma_mua=2, non_soma_good=1`. (`merged` is a real spikesort label not in the plan's allowlist; my reader passes it through as-is — the dashboard will filter on the configured allowlist in slice 4.)
+
+Smoke A2 (in-process fallback, see `/tmp/smoke_slice2_A2.log`):
+```
+conda run -n axon_recon axon-recon stages analysis --config debug/debug.runtime.yml --target-dataset 11 --limit-wells 1
+```
+- targets_total=1, targets_succeeded=1, targets_failed=0.
+- Manifest at `<well>/analysis_outputs/manifest.json` has `tables.units = "tables/units.parquet"`, `unit_count=218`, `schema_version=axon_analysis_v1`.
+
+Mutation Safety:
+- `find <well>/ -newer /tmp/slice2_marker -not -path "*/analysis_outputs/*"` returns only:
+  - `<well>/spikesort_outputs/merge_SLAy/template_heatmaps_per_merge` (the user's ongoing spikesort run)
+  - `<well>/spikesort_outputs/sorter_output/sorter_output/kilosort4.log` (same)
+  - Plus the `analysis_outputs` parent dir mtime (allowed).
+- No analysis writes leaked outside `analysis_outputs/`.
+
+Residual Risk / Follow-ups:
+- Plan §4 expects `bombcell_label ∈ {good, non_soma_good, mua, noise, unsorted, None}` but real fixture shows `merged` (cluster was merged into another) and `non_soma_mua` too. The reader passes labels through verbatim; the dashboard allowlist in slice 4 will need to surface the broader set or normalize.
+- `recon_quality_score` is always None at MVP because recon doesn't emit this scalar. The plan covers this — the dashboard's threshold filter treats None as "include".
+- `cpu_light` resource class still unreferenced (slice 1 follow-up); compute_metrics continues to use `disk_cleanup`.
+
 ## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, analysis stage skeleton + per-well manifest (slice 1)
 
 Status: pending

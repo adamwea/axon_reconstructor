@@ -8,10 +8,60 @@ from typing import Any
 
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
+from .core.labels_io import (
+	lookup_label,
+	lookup_spike_count,
+	read_bombcell_labels,
+	read_per_cluster_spike_counts,
+)
+from .core.metrics import compute_unit_metrics
+from .core.recon_io import (
+	get_recon_status,
+	get_unit_id_from_branches,
+	iter_unit_dirs,
+	read_branches,
+	read_merged_contributing_electrode_ids,
+	read_unit_reconstruction_summary,
+	read_unit_templates_summary,
+)
 from .models.results import AnalysisResult
 
 
 LOGGER = logging.getLogger("axon_recon.analysis.runner")
+
+
+_UNITS_TABLE_COLUMNS: tuple[str, ...] = (
+	# Identity
+	"project",
+	"recording_date",
+	"chip_id",
+	"scan_type",
+	"run_id",
+	"well_id",
+	"dataset_id",
+	"unit_id",
+	"DIV",
+	"genotype",
+	"media",
+	"plating_density",
+	# Filter columns (see plan §4)
+	"recon_status",
+	"bombcell_label",
+	"num_spikes",
+	"num_branches",
+	"recon_quality_score",
+	# Starter metrics
+	"branch_count",
+	"total_branch_length_um",
+	"template_density",
+	"recon_density",
+	# Handy passthroughs
+	"max_amplitude_uv",
+	"max_ptp_uv",
+	"max_delay_ms",
+	"unit_location_x_um",
+	"unit_location_y_um",
+)
 
 
 def _resolve_under_well(*, well_out_dir: Path, relpath: str) -> Path:
@@ -67,6 +117,121 @@ def _identity_for_target(
 	return dict(entry)
 
 
+def _unit_id_from_dir_name(unit_dir: Path) -> int | None:
+	name = unit_dir.name
+	try:
+		return int(name)
+	except (TypeError, ValueError):
+		return None
+
+
+def _row_for_unit(
+	*,
+	unit_dir: Path,
+	identity_cols: dict[str, Any],
+	bombcell_labels: dict[int, str],
+	spike_counts: dict[int, int],
+) -> dict[str, Any]:
+	unit_summary = read_unit_reconstruction_summary(unit_dir)
+	branches_payload = read_branches(unit_dir)
+	merged_payload = read_merged_contributing_electrode_ids(unit_dir)
+	templates_payload = read_unit_templates_summary(unit_dir)
+
+	recon_status = get_recon_status(unit_summary)
+	unit_id = get_unit_id_from_branches(branches_payload)
+	if unit_id is None:
+		unit_id = _unit_id_from_dir_name(unit_dir)
+
+	if recon_status == "ok":
+		metrics = compute_unit_metrics(
+			unit_summary_payload=unit_summary,
+			branches_payload=branches_payload,
+			merged_payload=merged_payload,
+			templates_payload=templates_payload,
+		)
+	else:
+		# Non-ok units carry NaN metrics so the dashboard's recon_status filter
+		# does the gating instead of metric-level None.
+		metrics = compute_unit_metrics(
+			unit_summary_payload=None,
+			branches_payload=None,
+			merged_payload=None,
+			templates_payload=None,
+		)
+
+	bombcell_label = lookup_label(bombcell_labels, unit_id) if unit_id is not None else None
+	num_spikes = lookup_spike_count(spike_counts, unit_id) if unit_id is not None else None
+
+	row: dict[str, Any] = {
+		**identity_cols,
+		"unit_id": int(unit_id) if unit_id is not None else None,
+		"recon_status": str(recon_status),
+		"bombcell_label": bombcell_label,
+		"num_spikes": int(num_spikes) if num_spikes is not None else None,
+		"num_branches": int(metrics["branch_count"])
+		if not _is_nan(metrics["branch_count"])
+		else None,
+		"recon_quality_score": None,
+		"branch_count": metrics["branch_count"],
+		"total_branch_length_um": metrics["total_branch_length_um"],
+		"template_density": metrics["template_density"],
+		"recon_density": metrics["recon_density"],
+		"max_amplitude_uv": metrics["max_amplitude_uv"],
+		"max_ptp_uv": metrics["max_ptp_uv"],
+		"max_delay_ms": metrics["max_delay_ms"],
+		"unit_location_x_um": metrics["unit_location_x_um"],
+		"unit_location_y_um": metrics["unit_location_y_um"],
+	}
+	return row
+
+
+def _is_nan(value: Any) -> bool:
+	try:
+		return value != value  # type: ignore[no-any-return]
+	except Exception:
+		return False
+
+
+def _build_identity_cols(
+	*,
+	identity: dict[str, Any],
+	stream_id: str,
+	resolved_dataset_id: Any,
+) -> dict[str, Any]:
+	well_attributes = identity.get("well_attributes", {}) or {}
+	return {
+		"project": identity.get("project"),
+		"recording_date": identity.get("recording_date"),
+		"chip_id": identity.get("chip_id"),
+		"scan_type": identity.get("scan_type"),
+		"run_id": identity.get("run_id"),
+		"well_id": str(stream_id),
+		"dataset_id": resolved_dataset_id,
+		"DIV": identity.get("DIV"),
+		"genotype": well_attributes.get("genotype", None),
+		"media": well_attributes.get("media", None),
+		"plating_density": well_attributes.get("plating_density", None),
+	}
+
+
+def _write_units_parquet(
+	*,
+	rows: list[dict[str, Any]],
+	parquet_path: Path,
+) -> int:
+	import pandas as pd  # local import — keeps test imports cheap
+
+	parquet_path.parent.mkdir(parents=True, exist_ok=True)
+	# Always emit the full column set in the documented order, even when rows
+	# is empty (so downstream schema asserts remain stable across wells).
+	if rows:
+		df = pd.DataFrame(rows, columns=list(_UNITS_TABLE_COLUMNS))
+	else:
+		df = pd.DataFrame({column: [] for column in _UNITS_TABLE_COLUMNS})
+	df.to_parquet(parquet_path, engine="pyarrow", index=False)
+	return int(len(df))
+
+
 def run_analysis_compute_metrics_stage(
 	*,
 	dataset_index: int,
@@ -80,9 +245,9 @@ def run_analysis_compute_metrics_stage(
 ) -> AnalysisResult:
 	"""Per-well runner for analysis.compute_metrics.
 
-	Slice 1 scope: writes <well>/analysis_outputs/manifest.json with identity
-	fields populated. tables: {} (slice 2 will populate units.parquet, slice 3
-	well_summary.parquet).
+	Reads each recon unit dir under `<well>/recon_outputs/units/`, computes the
+	starter metrics + filter columns, writes `tables/units.parquet`, and
+	publishes the manifest with `tables.units` populated and `unit_count` set.
 	"""
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=mea_output_root,
@@ -108,8 +273,45 @@ def run_analysis_compute_metrics_stage(
 		stream_id=str(stream_id),
 		stage_config=stage_config,
 	)
-	# Prefer caller-provided dataset_id; otherwise the data-config-derived one.
 	resolved_dataset_id = dataset_id if dataset_id is not None else identity.get("dataset_id")
+
+	tables_relpath = str(getattr(stage_config, "tables_relpath", "tables") or "tables")
+	tables_dir = _resolve_under_analysis_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=tables_relpath,
+	)
+	units_parquet_path = tables_dir / "units.parquet"
+
+	tables_section: dict[str, Any] = {}
+	unit_count = 0
+	if enabled:
+		recon_output_rel_root = str(
+			getattr(stage_config, "recon_output_rel_root", "recon_outputs") or "recon_outputs"
+		)
+		recon_outputs_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath=recon_output_rel_root)
+		spikesort_outputs_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath="spikesort_outputs")
+
+		bombcell_labels = read_bombcell_labels(spikesort_outputs_dir)
+		spike_counts = read_per_cluster_spike_counts(spikesort_outputs_dir)
+
+		identity_cols = _build_identity_cols(
+			identity=identity,
+			stream_id=stream_id,
+			resolved_dataset_id=resolved_dataset_id,
+		)
+		rows: list[dict[str, Any]] = []
+		for unit_dir in iter_unit_dirs(recon_outputs_dir):
+			rows.append(
+				_row_for_unit(
+					unit_dir=unit_dir,
+					identity_cols=identity_cols,
+					bombcell_labels=bombcell_labels,
+					spike_counts=spike_counts,
+				)
+			)
+		unit_count = _write_units_parquet(rows=rows, parquet_path=units_parquet_path)
+		tables_section["units"] = f"{tables_relpath}/units.parquet"
 
 	manifest_payload: dict[str, Any] = {
 		"artifact_type": "axon_recon_well_analysis",
@@ -125,7 +327,8 @@ def run_analysis_compute_metrics_stage(
 		"DIV": identity.get("DIV"),
 		"well_attributes": identity.get("well_attributes", {}),
 		"written_at": datetime.now(timezone.utc).isoformat(),
-		"tables": {},
+		"tables": tables_section,
+		"unit_count": int(unit_count),
 		"status": "ok" if enabled else "skipped",
 		"reason": None if enabled else "compute_metrics_disabled",
 		"force_restart": bool(force_restart),
@@ -134,6 +337,8 @@ def run_analysis_compute_metrics_stage(
 	_write_json(manifest_path, manifest_payload)
 
 	outputs = {"manifest_json": str(manifest_path)}
+	if "units" in tables_section:
+		outputs["units_parquet"] = str(units_parquet_path)
 	return AnalysisResult(
 		well_out_dir=well_out_dir,
 		analysis_out_dir=stage_output_root_dir,

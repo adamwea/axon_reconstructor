@@ -18,6 +18,7 @@ dependencies:
   - spikeinterface=0.104.3
   - matplotlib
   - pandas
+  - pyarrow
   - openpyxl
   - scipy
   # - torch
