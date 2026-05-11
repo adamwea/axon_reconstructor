@@ -7,6 +7,8 @@ without bringing in the full app.
 
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 import pandas as pd
@@ -126,3 +128,48 @@ def apply_filter_spec(df: pd.DataFrame, spec: dict[str, Any]) -> pd.DataFrame:
 		mask &= filter_multiselect(df, column, spec.get(column, None))
 	mask &= filter_numeric_range(df, "DIV", lo=spec.get("div_lo", None), hi=spec.get("div_hi", None))
 	return df.loc[mask].reset_index(drop=True)
+
+
+# ---------- filter + plot spec JSON round-trip (slice 6) ----------
+
+
+SPEC_SCHEMA_VERSION = "axon_dashboard_spec_v1"
+
+
+def filter_spec_to_json(
+	filter_spec: dict[str, Any],
+	*,
+	plot_spec: dict[str, Any] | None = None,
+) -> str:
+	"""Serialize the current filter + plot UI state to JSON for download/replay.
+
+	The payload is sorted, indented, and includes a schema version + a UTC
+	timestamp so consumers can detect drift across dashboard revisions.
+	"""
+	payload = {
+		"schema_version": SPEC_SCHEMA_VERSION,
+		"written_at": datetime.now(timezone.utc).isoformat(),
+		"filters": dict(filter_spec or {}),
+		"plot": dict(plot_spec or {}),
+	}
+	return json.dumps(payload, indent=2, sort_keys=True, default=str)
+
+
+def filter_spec_from_json(payload: str | bytes) -> dict[str, Any]:
+	"""Parse a previously-serialized filter+plot spec.
+
+	Returns `{"filters": ..., "plot": ...}` (always with both keys). Drops the
+	schema_version / written_at metadata so the result plugs straight into
+	`apply_filter_spec` + the plot callbacks.
+	"""
+	if isinstance(payload, bytes):
+		payload = payload.decode("utf-8")
+	parsed = json.loads(payload)
+	if not isinstance(parsed, dict):
+		raise ValueError("Filter spec JSON must decode to an object/mapping.")
+	filters = parsed.get("filters", {})
+	plot = parsed.get("plot", {})
+	return {
+		"filters": dict(filters) if isinstance(filters, dict) else {},
+		"plot": dict(plot) if isinstance(plot, dict) else {},
+	}

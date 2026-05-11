@@ -23,6 +23,7 @@ dependencies:
   - dash
   - dash-ag-grid
   - statsmodels
+  - kaleido
   - openpyxl
   - scipy
   # - torch

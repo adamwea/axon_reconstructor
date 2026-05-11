@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from ..filters import (
 	apply_filter_spec,
@@ -126,3 +127,64 @@ def test_apply_filter_spec_default_inputs_keep_all_ok_rows() -> None:
 	# Default: require_recon_ok=True drops 1 error row; nothing else applied.
 	assert len(filtered) == 3
 	assert all(s == "ok" for s in filtered["recon_status"])
+
+
+# ---------- slice 6: filter + plot spec JSON round-trip ----------
+
+
+def test_filter_spec_json_round_trip_preserves_filter_and_plot_contents() -> None:
+	import json as _json
+
+	from ..filters import SPEC_SCHEMA_VERSION, filter_spec_from_json, filter_spec_to_json
+
+	filter_spec = {
+		"require_recon_ok": True,
+		"bombcell_allowlist": ["good", "non_soma_good", None],
+		"min_num_spikes": 50,
+		"min_num_branches": 2,
+		"min_recon_quality_score": 0.5,
+		"project": ["Media_Density_T5_02182026_AR"],
+		"chip_id": ["M08073"],
+		"div_lo": 6,
+		"div_hi": 36,
+	}
+	plot_spec = {
+		"active_tab": "box",
+		"box": {"value_col": "branch_count", "group_col": "genotype", "test": "mann_whitney", "correction": "bh"},
+		"scatter": {"x": "branch_count", "y": "total_branch_length_um", "color": "genotype", "facet_col": "DIV"},
+	}
+	text = filter_spec_to_json(filter_spec, plot_spec=plot_spec)
+	assert SPEC_SCHEMA_VERSION in text
+	# Sorted, indented JSON: parseable round-trip.
+	parsed_raw = _json.loads(text)
+	assert parsed_raw["schema_version"] == SPEC_SCHEMA_VERSION
+	round_tripped = filter_spec_from_json(text)
+	assert round_tripped["filters"] == filter_spec
+	assert round_tripped["plot"] == plot_spec
+
+
+def test_filter_spec_from_json_handles_bytes_payload() -> None:
+	from ..filters import filter_spec_from_json, filter_spec_to_json
+
+	text = filter_spec_to_json({"require_recon_ok": False}, plot_spec={"active_tab": "histogram"})
+	parsed = filter_spec_from_json(text.encode("utf-8"))
+	assert parsed["filters"] == {"require_recon_ok": False}
+	assert parsed["plot"] == {"active_tab": "histogram"}
+
+
+def test_filter_spec_from_json_rejects_non_object_payload() -> None:
+	from ..filters import filter_spec_from_json
+
+	with pytest.raises(ValueError):
+		filter_spec_from_json("[1, 2, 3]")
+
+
+def test_filter_spec_to_json_serializes_non_str_types_via_default() -> None:
+	from pathlib import Path
+
+	from ..filters import filter_spec_to_json
+
+	# A path object must survive serialization (the `default=str` fallback
+	# in the writer turns it into a string instead of raising TypeError).
+	text = filter_spec_to_json({"output_path": Path("/tmp/something")})
+	assert "/tmp/something" in text

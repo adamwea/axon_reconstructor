@@ -223,3 +223,102 @@ def test_build_box_plot_missing_group_column_returns_empty_figure() -> None:
 	fig = build_box_plot(df, value_col="branch_count", group_col="missing", show_significance=True)
 	# Falls back to an empty box figure rather than raising.
 	assert fig is not None
+
+
+# ---------- slice 6: scatter + facet + download endpoints ----------
+
+
+def test_build_app_exposes_scatter_component_ids() -> None:
+	from ..app import (
+		ID_DOWNLOAD_BOX_PDF,
+		ID_DOWNLOAD_BOX_PNG,
+		ID_DOWNLOAD_BOX_SVG,
+		ID_DOWNLOAD_CSV,
+		ID_DOWNLOAD_HIST_PDF,
+		ID_DOWNLOAD_HIST_PNG,
+		ID_DOWNLOAD_HIST_SVG,
+		ID_DOWNLOAD_SCATTER_PDF,
+		ID_DOWNLOAD_SCATTER_PNG,
+		ID_DOWNLOAD_SCATTER_SVG,
+		ID_DOWNLOAD_SPEC_JSON,
+		ID_SCATTER_COLOR,
+		ID_SCATTER_FACET_COL,
+		ID_SCATTER_FACET_ROW,
+		ID_SCATTER_PLOT,
+		ID_SCATTER_X,
+		ID_SCATTER_Y,
+	)
+
+	app = build_app(_two_group_units_df(), pd.DataFrame())
+	ids = _component_ids(app)
+	expected = {
+		ID_SCATTER_X,
+		ID_SCATTER_Y,
+		ID_SCATTER_COLOR,
+		ID_SCATTER_FACET_COL,
+		ID_SCATTER_FACET_ROW,
+		ID_SCATTER_PLOT,
+		ID_DOWNLOAD_HIST_PNG,
+		ID_DOWNLOAD_HIST_SVG,
+		ID_DOWNLOAD_HIST_PDF,
+		ID_DOWNLOAD_BOX_PNG,
+		ID_DOWNLOAD_BOX_SVG,
+		ID_DOWNLOAD_BOX_PDF,
+		ID_DOWNLOAD_SCATTER_PNG,
+		ID_DOWNLOAD_SCATTER_SVG,
+		ID_DOWNLOAD_SCATTER_PDF,
+		ID_DOWNLOAD_CSV,
+		ID_DOWNLOAD_SPEC_JSON,
+	}
+	missing = expected - ids
+	assert not missing, f"missing component ids: {sorted(missing)}"
+
+
+def test_build_scatter_renders_with_color_and_facet_col() -> None:
+	from ..app import build_scatter
+
+	df = _two_group_units_df()
+	df = df.copy()
+	df["DIV"] = [12, 18] * (len(df) // 2)
+	fig = build_scatter(
+		df,
+		x_col="branch_count",
+		y_col="total_branch_length_um",
+		color_col="genotype",
+		facet_col="DIV",
+	)
+	# Color split + DIV facets → multiple traces (one per genotype × DIV cell).
+	assert len(fig.data) >= 2
+
+
+def test_build_scatter_empty_df_returns_empty_figure() -> None:
+	from ..app import build_scatter
+
+	fig = build_scatter(pd.DataFrame(), x_col="x", y_col="y")
+	assert fig is not None
+
+
+def test_build_scatter_missing_columns_returns_empty_figure() -> None:
+	from ..app import build_scatter
+
+	fig = build_scatter(pd.DataFrame({"x": [1, 2]}), x_col="x", y_col="missing")
+	assert fig is not None
+
+
+def test_image_exports_produce_non_zero_content_for_each_format() -> None:
+	"""Direct kaleido export shapes used by the download endpoints."""
+	from ..app import _IMAGE_MIME_BY_FORMAT, build_scatter
+
+	df = _two_group_units_df()
+	fig = build_scatter(df, x_col="branch_count", y_col="total_branch_length_um")
+	for fmt, expected_mime in _IMAGE_MIME_BY_FORMAT.items():
+		blob = fig.to_image(format=fmt)
+		assert isinstance(blob, (bytes, bytearray))
+		assert len(blob) > 100, f"{fmt} export was suspiciously small: {len(blob)} bytes"
+		if fmt == "svg":
+			assert b"<svg" in blob
+		if fmt == "pdf":
+			assert blob.startswith(b"%PDF")
+		if fmt == "png":
+			assert blob.startswith(b"\x89PNG")
+		assert expected_mime in {"image/png", "image/svg+xml", "application/pdf"}

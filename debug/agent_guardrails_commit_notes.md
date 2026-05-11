@@ -91,6 +91,45 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, scatter + facet + export buttons (slice 6)
+
+Status: pending
+
+Summary:
+- `dashboard/app.py` gains a `Scatter` tab with `x / y / color / facet_col / facet_row` dropdowns and a `build_scatter(df, ...)` helper. Empty / missing-column inputs return an empty Plotly figure rather than raising. New component IDs: `ID_SCATTER_X`, `ID_SCATTER_Y`, `ID_SCATTER_COLOR`, `ID_SCATTER_FACET_COL`, `ID_SCATTER_FACET_ROW`, `ID_SCATTER_PLOT`.
+- Per-plot download button groups (PNG/SVG/PDF) rendered under each tab; CSV + JSON-spec download buttons live below the AgGrid. A `_register_image_download(...)` helper wires every image button into its own callback that recomputes the filtered DataFrame + figure on click and serializes via `fig.to_image(format=…)` (kaleido) + `dcc.send_bytes`. CSV export uses `dcc.send_data_frame`; spec export uses `dcc.send_string`.
+- `dashboard/filters.py` exposes a JSON round-trip surface: `filter_spec_to_json(filter_spec, plot_spec=...)` emits a sorted, indented payload with a schema-version sentinel (`axon_dashboard_spec_v1`) and UTC timestamp; `filter_spec_from_json(payload)` reverses it (accepts bytes or str). Non-mapping payloads raise `ValueError`.
+- `environment.yml` + the Dockerfile `AXON_RECON_RUNTIME_SPEC` gain `kaleido`. Installed locally via `pip install kaleido` (version 1.3.0) so the image export tests can actually exercise PNG/SVG/PDF rendering. No container rebuild — user owns next launch per plan §7 risk 4.
+- 9 new tests:
+  - `tests/test_filters.py`: spec round-trip preserves filter + plot contents (incl. schema_version sentinel), accepts bytes payload, rejects non-object JSON, serializes non-str types (Path) via the `default=str` fallback.
+  - `tests/test_app.py`: every Scatter + download component id is present in the layout; `build_scatter` renders multi-trace figures with color + facet_col splits, returns empty figures for missing-column / empty-df inputs, and `fig.to_image(format=...)` produces non-zero `png`/`svg`/`pdf` blobs with the correct magic bytes (PNG `\x89PNG`, PDF `%PDF`, SVG `<svg`).
+
+Guardrails Consulted:
+- `debug/analysis_stage_and_dashboard_plan.md` §5 slice 6 (scatter UX + per-figure downloads + CSV + filter+plot JSON for provenance), §7 risks (no container rebuild for env/Dockerfile bumps).
+- `debug/first_version_pipeline_guardrails.md` — recompute-on-click is simpler than threading dcc.Store, matches plan's MVP scope.
+
+Plan deviations:
+- The per-button download callbacks recompute the filtered DataFrame + figure on click rather than reading from a hidden `dcc.Store`. This keeps state authoritative in the inputs (no stale-cache risk) at the cost of recomputing the figure once per export click. Acceptable at slice 6 MVP scope; if export latency becomes a problem later, a Store-backed export pipeline can replace it without touching the public CLI.
+- One `_register_image_download` helper drives all 9 image buttons (3 plots × 3 formats) so the wiring code stays surgical. Plan §5 prescribed "Download button group on every plot"; the result satisfies that without an explosion of nearly-identical callback definitions.
+
+Tests Run:
+- `pytest src/axon_recon/pipeline/stages/analysis/ src/axon_recon/dashboard/ -q` → 115 passed (53 analysis from slices 1+2+3 unchanged; 62 dashboard incl. 9 new slice-6 tests).
+- `pytest src/axon_recon/pipeline/ -q --ignore=test_progress.py` → 15 baseline failures (same set captured at slice 0). No new failures.
+
+Smokes:
+- Smoke A4 re-run (the post-slice-6 dashboard boots & serves): server ready in 4s, `GET /_dash-layout` → HTTP 200, **19714 bytes** (vs 7635 in slice 4 — the layout grew by the Scatter tab + download buttons), `GET /_dash-dependencies` → HTTP 200, clean SIGTERM (rc=143). Captured under `/tmp/smoke_slice6_A4.log` (empty file — output buffer didn't flush before SIGTERM; HTTP checks above are the authoritative evidence).
+- Plan §3 only names smokes A1–A5; slice 6 has no slice-specific smoke beyond "all previous smokes still pass", which the A4 re-run satisfies.
+
+Mutation Safety:
+- `find <well>/ -newer /tmp/slice6_marker -not -path "*/analysis_outputs/*"` returned empty.
+
+Spikesort Hands-off:
+- `git diff e979a0a..HEAD -- src/axon_recon/pipeline/stages/spikesort/ | wc -l` → 0.
+
+Residual Risk / Follow-ups:
+- Manual visual sanity (plan §5 acceptance: "scatter with color=genotype, facet_col=DIV renders") was not captured as a screenshot in commit notes — the autonomous loop can't grab screenshots. `test_build_scatter_renders_with_color_and_facet_col` is the automated proof.
+- `kaleido` 1.3.0 brings transitive deps (`choreographer`, `logistro`, `simplejson`, `orjson`); these are bundled in the wheel and don't widen the user-visible API surface. They will be re-pulled on next container rebuild.
+
 ## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, box plot + significance brackets (slice 5)
 
 Status: pending
