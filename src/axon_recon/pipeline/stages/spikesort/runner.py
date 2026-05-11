@@ -24,6 +24,7 @@ from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 
 from .core.debug_outputs import suppress_spikesort_external_debug_output
 from .core.local_spikeinterface import run_local_spikeinterface_sort_stage
+from .core.pre_merge_cache import write_pre_merge_cache
 from .models.inputs import SpikesortInputs
 from .models.results import SpikesortBombcellResult, SpikesortMergeResult, SpikesortResult
 
@@ -8737,6 +8738,32 @@ def run_spikesort_merge_stage(
 			if pre_merge_metadata_enabled and pre_merge_metadata_write_json:
 				pre_merge_metadata_error = err
 
+	# Pre-merge cache: snapshot the analyzer-derived values that downstream
+	# plotting needs (templates, unit_locations, per-unit spike counts) so
+	# post-merge plots can be derived from new2old.json without building a
+	# second analyzer. Consumed in later slices by the post-snapshot and
+	# report writers; written here while the loaded analyzer is still in
+	# scope and the extensions have been ensured.
+	pre_merge_cache_dir: Path | None = None
+	pre_merge_cache_info: dict[str, Any] | None = None
+	pre_merge_cache_error: str | None = None
+	if replot_workspace_analyzer is not None:
+		pre_merge_cache_dir = (merge_phase_out_dir / "pre_merge_cache").resolve()
+		try:
+			_log_phase_step_start(
+				"Merge pre-merge cache write step start",
+				stream_id=str(stream_id),
+				cache_dir=pre_merge_cache_dir,
+			)
+			pre_merge_cache_info = write_pre_merge_cache(
+				analyzer=replot_workspace_analyzer,
+				cache_dir=pre_merge_cache_dir,
+			)
+		except Exception as exc:
+			pre_merge_cache_error = (
+				f"pre_merge_cache_write_failed:{type(exc).__name__}:{exc}"
+			)
+
 	if replot_workspace_analyzer is not None:
 		_log_phase_step_start(
 			"Merge pre-merge analyzer release step start",
@@ -8767,6 +8794,15 @@ def run_spikesort_merge_stage(
 		combined_outputs["merge.replot_workspace_analyzer_output_dir"] = str(
 			replot_workspace_analyzer_output_dir.resolve()
 		)
+	if pre_merge_cache_dir is not None:
+		combined_outputs["merge.pre_merge_cache_dir"] = str(pre_merge_cache_dir)
+		if isinstance(pre_merge_cache_info, dict):
+			templates_path = pre_merge_cache_info.get("templates_path")
+			meta_path = pre_merge_cache_info.get("meta_path")
+			if templates_path:
+				combined_outputs["merge.pre_merge_cache_templates_npz"] = str(templates_path)
+			if meta_path:
+				combined_outputs["merge.pre_merge_cache_meta_json"] = str(meta_path)
 	primary_out_dir: Path = merge_phase_out_dir
 	resolved_sorter_output_dir: Path | None = pre_snapshot_sorter_output_dir
 	if isinstance(bombcell_report, dict):
@@ -9316,6 +9352,19 @@ def run_spikesort_merge_stage(
 		payload["replot_workspace_analyzer_error"] = str(replot_workspace_analyzer_error)
 	if bombcell_report_error is not None:
 		payload["bombcell_label_error"] = str(bombcell_report_error)
+	if pre_merge_cache_dir is not None:
+		pre_merge_cache_status: dict[str, Any] = {
+			"cache_dir": str(pre_merge_cache_dir),
+		}
+		if isinstance(pre_merge_cache_info, dict):
+			pre_merge_cache_status["templates_path"] = pre_merge_cache_info.get("templates_path")
+			pre_merge_cache_status["meta_path"] = pre_merge_cache_info.get("meta_path")
+			pre_merge_cache_status["n_units"] = pre_merge_cache_info.get("n_units")
+			pre_merge_cache_status["n_samples"] = pre_merge_cache_info.get("n_samples")
+			pre_merge_cache_status["n_channels"] = pre_merge_cache_info.get("n_channels")
+		if pre_merge_cache_error is not None:
+			pre_merge_cache_status["error"] = str(pre_merge_cache_error)
+		payload["pre_merge_cache"] = pre_merge_cache_status
 	if pre_merge_metadata_json is not None:
 		payload["pre_merge_metadata_summary_json"] = str(pre_merge_metadata_json)
 	if isinstance(pre_merge_metadata_payload, dict):

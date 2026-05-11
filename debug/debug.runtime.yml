@@ -644,7 +644,7 @@ stages:
 
       merge_SLAy:
 
-        enabled: false
+        enabled: true
         resource_class: spikeinterface_analyzer_concat
         rel_output_root: merge_SLAy
         delete_outputs_on_force_restart: true
