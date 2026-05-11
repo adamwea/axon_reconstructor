@@ -582,14 +582,14 @@ stages:
           random_spikes:
             max_spikes_per_unit: 500
           waveforms:
-            ms_before: 1.0
-            ms_after: 2.0
+            ms_before: 2.0
+            ms_after: 3.0
           templates:
             # Optional template build parameters; when null, defaults are used.
             seed: 0
             #random_spikes_percentage: 25
             #min_spikes_per_unit: 1000
-            max_spikes_per_unit: 100
+            max_spikes_per_unit: 500
             log_before_after_spike_counts: true
           noise_levels: {}
         # n_jobs: null  # take from phase budget by default
@@ -657,7 +657,7 @@ stages:
         # automerge/, candidates.tsv) land under <merge_out_dir>/dry_run/. The
         # canonical sorter_output stays byte-identical. Flip to false once you
         # want SLAy to apply merges (with auto_accept_merges=true).
-        dry_run: true
+        dry_run: false
 
         # merge_SLAy does not build its own analyzer. The canonical concat-level
         # analyzer (built by spikesort.concat_analyzer) is read once to cache
