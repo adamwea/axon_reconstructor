@@ -7138,6 +7138,7 @@ def _write_merge_unit_location_reports(
 		legend_loc: str,
 		legend_anchor: tuple[float, float] | None,
 		legend_ordered_highlight_uids: list[str] | None = None,
+		legend_grouped_entries: list[tuple[Any, str]] | None = None,
 	) -> None:
 		ax.set_title(str(title))
 		ax.set_xlabel("x_um")
@@ -7185,22 +7186,29 @@ def _write_merge_unit_location_reports(
 				ax.text(x, y, str(uid), ha="left", va="bottom")
 
 			if show_highlight_legend and highlight_map:
-				if isinstance(legend_ordered_highlight_uids, list) and legend_ordered_highlight_uids:
-					highlight_uids_for_legend = [
-						uid
-						for uid in legend_ordered_highlight_uids
-						if uid in highlight_map and uid in points
-					]
+				grouped_entries_present = bool(legend_grouped_entries)
+				if grouped_entries_present:
+					handle_entries: list[tuple[Any, str]] = list(legend_grouped_entries or [])
 				else:
-					highlight_uids_for_legend = sorted(
-						[uid for uid in ordered_uids if uid in highlight_map],
-						key=_unit_sort_key,
-					)
-				if highlight_uids_for_legend and callable(getattr(ax, "legend", None)):
+					if isinstance(legend_ordered_highlight_uids, list) and legend_ordered_highlight_uids:
+						highlight_uids_for_legend = [
+							uid
+							for uid in legend_ordered_highlight_uids
+							if uid in highlight_map and uid in points
+						]
+					else:
+						highlight_uids_for_legend = sorted(
+							[uid for uid in ordered_uids if uid in highlight_map],
+							key=_unit_sort_key,
+						)
+					handle_entries = [
+						(highlight_map.get(uid, default_color), str(uid))
+						for uid in highlight_uids_for_legend
+					]
+				if handle_entries and callable(getattr(ax, "legend", None)):
 					if Line2D is not None:
 						handles: list[Any] = []
-						for uid in highlight_uids_for_legend:
-							color = highlight_map.get(uid, default_color)
+						for color, label_text in handle_entries:
 							handles.append(
 								Line2D(
 									[],
@@ -7210,13 +7218,17 @@ def _write_merge_unit_location_reports(
 									markersize=5,
 									markerfacecolor=color,
 									markeredgecolor=color,
-									label=str(uid),
+									label=str(label_text),
 								)
 							)
 						try:
 								legend_kwargs: dict[str, Any] = {
 									"handles": handles,
-									"title": "Highlighted units",
+									"title": (
+										"Merge groups"
+										if grouped_entries_present
+										else "Highlighted units"
+									),
 									"loc": str(legend_loc),
 								}
 								if legend_anchor is not None:
@@ -7227,12 +7239,19 @@ def _write_merge_unit_location_reports(
 					else:
 						try:
 								legend_kwargs = {
-									"title": "Highlighted units",
+									"title": (
+										"Merge groups"
+										if grouped_entries_present
+										else "Highlighted units"
+									),
 									"loc": str(legend_loc),
 								}
 								if legend_anchor is not None:
 									legend_kwargs["bbox_to_anchor"] = legend_anchor
-								ax.legend(highlight_uids_for_legend, **legend_kwargs)
+								ax.legend(
+									[label for _color, label in handle_entries],
+									**legend_kwargs,
+								)
 						except Exception:
 							pass
 		else:
@@ -7329,6 +7348,42 @@ def _write_merge_unit_location_reports(
 			1.02,
 			float(highlight_legend_y),
 		)
+		# Collapse the left-panel legend into one "post ← pre, pre" entry per
+		# real merge group (skip singletons, which are pass-through). The
+		# right-panel legend already lists one post-unit per group, so this
+		# keeps the two legends symmetric without exploding the left panel
+		# into one entry per pre-unit.
+		left_panel_grouped_entries: list[tuple[Any, str]] = []
+		seen_group_pre_signatures: set[tuple[str, ...]] = set()
+		for mapping_raw in list(applied_unit_mappings or []):
+			mapping = (mapping_raw if isinstance(mapping_raw, dict) else {})
+			pre_ids = _normalize_unit_id_list(mapping.get("pre_unit_ids", []))
+			if len(pre_ids) <= 1:
+				continue
+			sorted_pre_ids = sorted(pre_ids, key=_unit_sort_key)
+			signature = tuple(sorted_pre_ids)
+			if signature in seen_group_pre_signatures:
+				continue
+			seen_group_pre_signatures.add(signature)
+			color = next(
+				(before_highlight_map[uid] for uid in pre_ids if uid in before_highlight_map),
+				None,
+			)
+			if color is None:
+				continue
+			post_raw = mapping.get("post_unit_id", None)
+			post_id = (
+				_normalize_cluster_id(post_raw)
+				if post_raw is not None and str(post_raw).strip()
+				else ""
+			)
+			pre_text = ", ".join(sorted_pre_ids)
+			label = (
+				f"{post_id} ← {pre_text}"
+				if post_id
+				else f"← {pre_text}"
+			)
+			left_panel_grouped_entries.append((color, label))
 		_plot_points(
 			axes[0],
 			before_points,
@@ -7342,6 +7397,7 @@ def _write_merge_unit_location_reports(
 			highlight_legend_position,
 			highlight_legend_anchor,
 			pre_legend_ordered_highlight_uids,
+			left_panel_grouped_entries or None,
 		)
 		_plot_points(
 			axes[1],
@@ -7355,6 +7411,7 @@ def _write_merge_unit_location_reports(
 			highlight_show_legend,
 			"center left",
 			right_panel_legend_anchor,
+			None,
 			None,
 		)
 		for fmt, enabled in (("png", panel_write_png), ("svg", panel_write_svg)):

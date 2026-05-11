@@ -1714,10 +1714,14 @@ def test_write_merge_unit_location_reports_links_reused_post_ids_blocks_gray_and
     assert before_colors[0] == "#e41a1c"
 
     before_legend = fake_plt.axes_created[0].legend_calls[0]
-    assert before_legend.get("labels") == ["10", "2", "7"]
+    # The 2-panel left legend now collapses multi-unit merges into one
+    # entry per group ("post ← pre, pre"); singleton mappings (e.g. 7 → 7)
+    # are pass-through and don't appear.
+    assert before_legend.get("labels") == ["2 ← 2, 10"]
     legend_kwargs = dict(before_legend.get("kwargs", {}))
     assert legend_kwargs.get("loc") == "center left"
     assert legend_kwargs.get("bbox_to_anchor") == (-0.25, 0.4)
+    assert legend_kwargs.get("title") == "Merge groups"
 
 
 def test_write_merge_unit_location_reports_writes_highlight_linkage_debug_json(tmp_path: Path, monkeypatch) -> None:
