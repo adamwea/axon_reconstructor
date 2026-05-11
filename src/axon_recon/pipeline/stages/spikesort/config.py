@@ -1603,9 +1603,9 @@ def parse_spikesort_stage_config(
 			merge_units_phase_cfg.get("merge_cleanup_generated_analyzers_on_success", None),
 			execution_cfg.get("merge_cleanup_generated_analyzers_on_success", None),
 			stage_cfg.get("merge_cleanup_generated_analyzers_on_success", None),
-			True,
+			False,
 		),
-		True,
+		False,
 	)
 	def _parse_standalone_merge_phase_settings(
 		phase_cfg: dict[str, Any],

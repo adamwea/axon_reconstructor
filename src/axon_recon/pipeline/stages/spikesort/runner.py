@@ -24,7 +24,8 @@ from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 
 from .core.debug_outputs import suppress_spikesort_external_debug_output
 from .core.local_spikeinterface import run_local_spikeinterface_sort_stage
-from .core.pre_merge_cache import write_pre_merge_cache
+from .core.post_merge_view import PostMergeView, build_post_merge_view
+from .core.pre_merge_cache import read_pre_merge_cache, write_pre_merge_cache
 from .models.inputs import SpikesortInputs
 from .models.results import SpikesortBombcellResult, SpikesortMergeResult, SpikesortResult
 
@@ -8865,6 +8866,53 @@ def run_spikesort_merge_stage(
 
 	post_merge_report_analyzer: Any | None = None
 
+	# Build the post-merge view from cache + new2old.json. Replaces the
+	# pre-slice-11 path that recomputed a SortingAnalyzer against the
+	# merged sorter_output: the view assembles post-merge templates and
+	# unit_locations from the pre-merge cache plus SLAy's merge map
+	# without re-traversing the recording.
+	post_merge_view: PostMergeView | None = None
+	post_merge_view_error: str | None = None
+	post_merge_view_stats: dict[str, Any] | None = None
+	if pre_merge_cache_dir is not None and pre_merge_cache_dir.exists() and ok_reports:
+		slay_report = next(
+			(r for r in method_reports if r.get("name") == "slay" and r.get("status") == "ok"),
+			None,
+		)
+		if slay_report is not None:
+			slay_ks_dir_str = slay_report.get("ks_dir")
+			if slay_ks_dir_str:
+				new2old_path = Path(str(slay_ks_dir_str)) / "automerge" / "new2old.json"
+				try:
+					if new2old_path.exists():
+						new2old_payload = json.loads(
+							new2old_path.read_text(encoding="utf-8")
+						)
+						if not isinstance(new2old_payload, dict):
+							raise RuntimeError(
+								"post_merge_view: automerge/new2old.json is not a JSON object"
+							)
+						_post_merge_view_cache = read_pre_merge_cache(pre_merge_cache_dir)
+						post_merge_view = build_post_merge_view(
+							cache=_post_merge_view_cache,
+							new2old=new2old_payload,
+						)
+						post_merge_view_stats = {
+							"n_pre_merge_units": int(_post_merge_view_cache.n_units),
+							"n_post_merge_units": int(len(post_merge_view.unit_ids)),
+							"n_merge_groups": int(len(new2old_payload)),
+							"new2old_path": str(new2old_path),
+							"missing_unit_ids": list(post_merge_view.missing_unit_ids),
+						}
+					else:
+						post_merge_view_error = (
+							f"post_merge_view: new2old.json missing at {new2old_path}"
+						)
+				except Exception as exc:
+					post_merge_view_error = (
+						f"post_merge_view_build_failed:{type(exc).__name__}:{exc}"
+					)
+
 	post_snapshot_capture_needed = bool(
 		(merge_metadata_enabled and merge_metadata_write_json)
 		or (post_merge_metadata_enabled and post_merge_metadata_write_json)
@@ -8885,6 +8933,7 @@ def run_spikesort_merge_stage(
 			stream_id=str(stream_id),
 			include_unit_locations=bool(post_snapshot_include_unit_locations),
 			sorter_output_dir=resolved_sorter_output_dir,
+			post_merge_view_available=bool(post_merge_view is not None),
 		)
 		try:
 			post_snapshot_kwargs: dict[str, Any] = {
@@ -8894,12 +8943,19 @@ def run_spikesort_merge_stage(
 				"stage_config": stage_config,
 				"capture_label": "after_merge",
 				"include_unit_locations": bool(post_snapshot_include_unit_locations),
-				"allow_analyzer_recompute": bool(post_merge_runtime_analyzer_needed),
+				# When the view is available, no analyzer recompute is needed
+				# and the snapshot code takes the "analyzer_obj is not None"
+				# branch with the view in place of a real SortingAnalyzer.
+				"allow_analyzer_recompute": bool(
+					post_merge_runtime_analyzer_needed and post_merge_view is None
+				),
 			}
 			if resolved_sorter_output_dir is not None:
 				post_snapshot_kwargs["sorter_output_dir"] = resolved_sorter_output_dir
 			if merge_reports_template_heatmaps_enabled:
 				post_snapshot_kwargs["return_analyzer_obj"] = True
+			if post_merge_view is not None:
+				post_snapshot_kwargs["analyzer_obj"] = post_merge_view
 			post_merge_snapshot_result = _call_capture_merge_state_snapshot_compat(**post_snapshot_kwargs)
 			if isinstance(post_merge_snapshot_result, tuple):
 				post_merge_snapshot, post_merge_report_analyzer = post_merge_snapshot_result
@@ -9221,8 +9277,15 @@ def run_spikesort_merge_stage(
 			released_extensions=int(len(released_post_merge_extensions)),
 		)
 
+	# Default flipped to False: post-merge analyzer cleanup is now the job of
+	# the dedicated phases.cleanup_analyzers phase (slice 13). The legacy
+	# in-phase cleanup path was unsafe because
+	# _load_concat_analyzer_for_phase reassigns
+	# replot_workspace_analyzer_output_dir to the canonical concat_analyzer
+	# directory, so the cleanup would rmtree the shared concat_analyzer on
+	# every successful merge_SLAy run.
 	generated_analyzer_cleanup_enabled = bool(
-		getattr(stage_config, "merge_cleanup_generated_analyzers_on_success", True)
+		getattr(stage_config, "merge_cleanup_generated_analyzers_on_success", False)
 	)
 	generated_analyzer_cleanup_removed: list[str] = []
 	if str(status) == "ok" and generated_analyzer_cleanup_enabled:
@@ -9234,9 +9297,14 @@ def run_spikesort_merge_stage(
 		generated_analyzer_candidates.append((stage_output_root_dir / "analyzer_output").resolve())
 
 		seen_cleanup_targets: set[Path] = set()
+		canonical_concat_analyzer = (stage_output_root_dir / "concat_analyzer").resolve()
 		for analyzer_dir in generated_analyzer_candidates:
 			resolved_analyzer_dir = Path(analyzer_dir).expanduser().resolve()
 			if resolved_analyzer_dir in seen_cleanup_targets or not resolved_analyzer_dir.exists():
+				continue
+			# Belt-and-suspenders: never rmtree the canonical concat_analyzer
+			# from the merge phase. The dedicated cleanup phase owns this.
+			if resolved_analyzer_dir == canonical_concat_analyzer:
 				continue
 			seen_cleanup_targets.add(resolved_analyzer_dir)
 			shutil.rmtree(resolved_analyzer_dir, ignore_errors=True)
@@ -9365,6 +9433,15 @@ def run_spikesort_merge_stage(
 		if pre_merge_cache_error is not None:
 			pre_merge_cache_status["error"] = str(pre_merge_cache_error)
 		payload["pre_merge_cache"] = pre_merge_cache_status
+	if post_merge_view_stats is not None or post_merge_view_error is not None:
+		post_merge_view_payload: dict[str, Any] = {
+			"available": bool(post_merge_view is not None),
+		}
+		if post_merge_view_stats is not None:
+			post_merge_view_payload.update(dict(post_merge_view_stats))
+		if post_merge_view_error is not None:
+			post_merge_view_payload["error"] = str(post_merge_view_error)
+		payload["post_merge_view"] = post_merge_view_payload
 	if pre_merge_metadata_json is not None:
 		payload["pre_merge_metadata_summary_json"] = str(pre_merge_metadata_json)
 	if isinstance(pre_merge_metadata_payload, dict):

@@ -145,7 +145,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_delete_outputs_on_force_restart is False
     assert parsed.merge_force_restart is False
     assert parsed.merge_force_replot is False
-    assert parsed.merge_cleanup_generated_analyzers_on_success is True
+    assert parsed.merge_cleanup_generated_analyzers_on_success is False
     assert parsed.merge_analyzer_compute_sparsity is True
     assert parsed.merge_template_random_spikes_method == "default"
     assert parsed.merge_template_random_spikes_percentage is None
