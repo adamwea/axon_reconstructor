@@ -926,6 +926,11 @@ def _register_dashboard_parser(
 	parser.add_argument("--limit-wells-per-dataset", type=_parse_positive_int, default=None)
 	parser.add_argument("--port", type=_parse_positive_int, default=8050)
 	parser.add_argument("--host", default="127.0.0.1")
+	parser.add_argument(
+		"--lan",
+		action="store_true",
+		help="Bind to 0.0.0.0 and print every LAN URL the server is reachable at",
+	)
 	parser.add_argument("--no-browser", action="store_true")
 	parser.add_argument("--debug", action="store_true")
 
@@ -945,6 +950,8 @@ def _register_dashboard_parser(
 				argv.extend([flag_name, str(value)])
 		if getattr(args, "host", None) is not None:
 			argv.extend(["--host", str(args.host)])
+		if bool(getattr(args, "lan", False)):
+			argv.append("--lan")
 		if bool(getattr(args, "no_browser", False)):
 			argv.append("--no-browser")
 		if bool(getattr(args, "debug", False)):
