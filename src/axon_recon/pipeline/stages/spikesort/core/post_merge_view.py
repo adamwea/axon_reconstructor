@@ -32,6 +32,7 @@ class _PostMergeExtension:
 
 	_data: np.ndarray
 	_templates_view: bool
+	_unit_id_to_row: dict[str, int] | None = None
 
 	def get_data(self) -> np.ndarray:
 		return self._data
@@ -40,6 +41,22 @@ class _PostMergeExtension:
 		if not self._templates_view:
 			raise AttributeError("get_templates is only available on the templates extension")
 		return self._data
+
+	def get_unit_template(self, unit_id: Any) -> np.ndarray:
+		if not self._templates_view:
+			raise AttributeError("get_unit_template is only available on the templates extension")
+		if self._unit_id_to_row is None:
+			raise RuntimeError("get_unit_template: unit_id index not initialized on extension")
+		key = str(unit_id)
+		row = self._unit_id_to_row.get(key)
+		if row is None:
+			try:
+				row = self._unit_id_to_row.get(str(int(unit_id)))
+			except Exception:
+				row = None
+		if row is None:
+			raise KeyError(f"get_unit_template: unit_id {unit_id!r} not in post-merge view")
+		return self._data[row]
 
 
 class PostMergeView:
@@ -121,7 +138,11 @@ class PostMergeView:
 
 	def get_extension(self, name: str) -> _PostMergeExtension | None:
 		if name == "templates":
-			return _PostMergeExtension(self._templates_arr, _templates_view=True)
+			return _PostMergeExtension(
+				self._templates_arr,
+				_templates_view=True,
+				_unit_id_to_row={uid: row for row, uid in enumerate(self._post_unit_ids)},
+			)
 		if name == "unit_locations":
 			return _PostMergeExtension(self._unit_locations_arr, _templates_view=False)
 		return None

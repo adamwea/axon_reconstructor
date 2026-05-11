@@ -129,6 +129,36 @@ def test_view_has_extension_and_get_extension_unknown_returns_none() -> None:
 	assert view.get_extension("waveforms") is None
 	with pytest.raises(AttributeError):
 		view.get_extension("unit_locations").get_templates()
+	with pytest.raises(AttributeError):
+		view.get_extension("unit_locations").get_unit_template("0")
+
+
+def test_get_unit_template_passthrough_and_merged() -> None:
+	cache = _simple_cache_3units()
+	view = build_post_merge_view(cache=cache, new2old={"100": [0, 1]})
+	templates_ext = view.get_extension("templates")
+	# Passthrough unit 2 returns the cached row verbatim.
+	np.testing.assert_array_equal(
+		templates_ext.get_unit_template("2"), cache.templates[2]
+	)
+	# Merged unit 100 returns the weighted-average derived template.
+	np.testing.assert_allclose(
+		templates_ext.get_unit_template("100"),
+		np.full((1, 2), 2.5, dtype=np.float32),
+		atol=1e-6,
+	)
+	# Numeric unit_id (e.g., numpy int) round-trips via str() coercion.
+	np.testing.assert_array_equal(
+		templates_ext.get_unit_template(2), cache.templates[2]
+	)
+
+
+def test_get_unit_template_unknown_raises_keyerror() -> None:
+	cache = _simple_cache_3units()
+	view = build_post_merge_view(cache=cache, new2old={})
+	templates_ext = view.get_extension("templates")
+	with pytest.raises(KeyError):
+		templates_ext.get_unit_template("999")
 
 
 def test_view_loaded_extension_names() -> None:

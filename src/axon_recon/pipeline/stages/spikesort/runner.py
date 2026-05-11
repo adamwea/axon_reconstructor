@@ -5542,12 +5542,16 @@ def _extract_template_and_locations_for_unit(
 				recording = get_recording()
 			except Exception:
 				recording = None
-	if recording is None:
-		return None, None, "analyzer_recording_unavailable"
 
-	get_channel_locations = getattr(recording, "get_channel_locations", None)
+	get_channel_locations: Any | None = None
+	if recording is not None:
+		get_channel_locations = getattr(recording, "get_channel_locations", None)
 	if not callable(get_channel_locations):
-		return None, None, "recording_channel_locations_api_unavailable"
+		# Fall back to the analyzer's own channel-locations API (PostMergeView
+		# exposes this directly without a backing recording).
+		get_channel_locations = getattr(analyzer, "get_channel_locations", None)
+	if not callable(get_channel_locations):
+		return None, None, "channel_locations_api_unavailable"
 
 	try:
 		locations = np.asarray(get_channel_locations(), dtype=float)
@@ -7315,6 +7319,16 @@ def _write_merge_unit_location_reports(
 	panel_relpath = str(getattr(stage_config, "merge_reports_2panel_relpath", "unit_locations_before_after_merge.png"))
 	if panel_write_png or panel_write_svg:
 		fig, axes = plt.subplots(1, 2, figsize=(12.5, 5.5), constrained_layout=True)
+		# In the 2-panel composite the configured negative-x anchor sends the
+		# right (After) panel's legend leftward into the gap between subplots
+		# (i.e. on top of the Before panel). Override only the right-panel
+		# anchor so the legend sits just outside axes[1] on the right; keep
+		# the configured anchor for axes[0] so its legend stays to the left
+		# of the figure as before.
+		right_panel_legend_anchor: tuple[float, float] = (
+			1.02,
+			float(highlight_legend_y),
+		)
 		_plot_points(
 			axes[0],
 			before_points,
@@ -7339,8 +7353,8 @@ def _write_merge_unit_location_reports(
 			label_affected_units,
 			plot_highlight_after_other_units,
 			highlight_show_legend,
-			highlight_legend_position,
-			highlight_legend_anchor,
+			"center left",
+			right_panel_legend_anchor,
 			None,
 		)
 		for fmt, enabled in (("png", panel_write_png), ("svg", panel_write_svg)):
