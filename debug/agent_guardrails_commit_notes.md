@@ -91,6 +91,69 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-10 - pending - claude: spikesort-merge-cleanup, merge orchestrator is SLAy-only (slice 2)
+
+Status: pending
+
+Pre-slice baseline (after slice 1): 193 spikesort tests / 451 pipeline tests.
+
+Summary:
+- Slice 2 of `debug/spikesort_merge_cleanup_plan.md`. Collapses `run_spikesort_merge_stage` to a linear SLAy-only flow.
+- Deleted `_run_auto_merge_method` (~265 lines: `runner.py:8262-8528`); the legacy `_load_or_recompute_spikesort_analyzer` chain it owned is now reachable only from the snapshot-helper code path that slice 4 will rewrite.
+- Inside `run_spikesort_merge_stage`:
+  - Replaced the per-method dispatch loop (`for idx, raw_method in enumerate(requested_sequence_raw): ...` over `slay`/`auto_merge`/`unitmatch`/unknown branches) with a linear SLAy block (assertion → `_run_slay_merge_method` → optional `_run_slay_analyzer_recompute`).
+  - Pinned `requested_sequence_raw = ["SLAy"]` and dropped the `_normalize_merge_method_token`-based normalization plus the `slay_requested = slay_enabled AND ("slay" in normalized)` derivation, since the only entry is now SLAy. `merge_sequence` config is no longer consulted for dispatch.
+- Plan deviation documented:
+  - The orchestrator is named `run_spikesort_merge_stage`, not `_run_merge_methods_for_target` as the plan §4 wording suggested. Acceptance grep `_run_merge_methods_for_target` is trivially 0 hits because the function never had that name.
+  - `_run_slay_analyzer_recompute` survives because the SLAy branch still calls it under `slay_recompute_analyzer && slay_auto_accept_merges && applied_merges`. Plan §4's acceptance allows this when the recompute is still used on the SLAy code path; slice 4 deletes the legacy analyzer family it depends on.
+  - `_normalize_merge_method_token` is still used by `_extract_applied_merge_operations` and `_build_merge_metadata_summary` (slice §0 non-goal: don't restructure metadata helpers); only the orchestrator's call to it was removed.
+- Test rewrites in `tests/test_runner.py` (plan §4 slice 2 "tests that asserted on the methods loop become single-call assertions"):
+  - DELETED 12 auto_merge-only or methods-loop-specific tests: `test_run_spikesort_merge_stage_runs_methods_in_working_cache_without_publish`, `..._asserts_auto_merge_uses_working_cache_by_default`, `..._publishes_working_cache_when_enabled`, `..._logs_working_cache_publish_skip_when_disabled`, `..._sequences_methods_and_recomputes_after_slay`, `..._writes_single_merge_metadata_summary_when_enabled`, `..._writes_pre_and_post_metadata_summaries_when_enabled`, `..._merge_metadata_flags_no_change_when_auto_accept_applied`, `..._logs_merge_summary_details_when_enabled`, `..._writes_merge_reports_when_enabled`, `..._template_heatmaps_only_do_not_require_unit_locations`, `..._writes_unit_diff_json_and_uses_it_for_2panel`. Each uses `merge_sequence=("auto_merge",)` (or sole-auto_merge stage_cfg) and primarily exercises the deleted dispatch loop.
+  - UPDATED `test_run_spikesort_merge_stage_does_not_recompute_when_slay_auto_accept_disabled`: dropped the `_fake_auto_merge`/`auto_merge` monkeypatch+sequence; now asserts `order == ["slay"]` and `method_names == ["slay"]`.
+  - FIXED 4 `force_replot_*` tests by removing the `monkeypatch.setattr(spikesort_runner, "_run_auto_merge_method", _fail_if_called)` lines (function no longer exists; force-replot mode never reaches the dispatch anyway).
+
+Why:
+- Plan §1.1: removing the merge_si_auto/merge_unitmatch phases (slice 1) leaves `_run_auto_merge_method` orphaned and the methods-dispatch loop has no remaining branch other than SLAy. Linear SLAy-only flow unlocks slice 3 cache-helper deletion.
+
+Guardrails Consulted:
+- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 2 + §0 non-goal).
+- `debug/first_version_pipeline_guardrails.md` (delete dispatch, no shims).
+- `debug/stage_and_phase_behavior_guardrails.md` (orchestrator linearization preserves stage-level behavior).
+- `debug/optimization_simplificaiton_guardrails.md` (no scope creep beyond named files).
+
+Acceptance Criteria (plan §4 slice 2):
+- `git grep -n "_run_auto_merge_method\|_run_slay_analyzer_recompute" src/axon_recon/` → only `_run_slay_analyzer_recompute` survives, and it's allowed because the SLAy branch in `run_spikesort_merge_stage` still calls it (verified — see runner.py:9615 + tests/test_runner.py monkeypatch sites).
+- `git grep -n "_run_merge_methods_for_target" src/axon_recon/` → 0 hits (function never existed by that name in this branch).
+- Spikesort tests: 181 passed / 0 failed (193 prior minus 12 deleted).
+
+Validation:
+- Focused tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/` → 181 passed.
+- Pipeline tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ --ignore=src/axon_recon/pipeline/tests/test_progress.py` → 451 passed (unchanged from slice 1).
+- Real-data smoke (S1–S6): BLOCKED-SMOKE — no post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` fixture available; correctness rides on the unit tests and the linear flow's structural simplicity (single SLAy call sequence, no branch removal touched the SLAy invocation kwargs).
+
+CLI / Debug Flag Impact:
+- `merge_sequence` YAML/config field is no longer consulted by `run_spikesort_merge_stage`. Existing `merge_sequence: ["SLAy", "auto_merge", "unitmatch"]` configs are silently ignored; only SLAy runs.
+
+Logging / Parallelism Impact:
+- The merge-phase log line changed from `Merge method step start [method=<token>, sequence_index=N, sequence_length=M]` (variable per dispatch) to `Merge method step start [method=slay, sequence_index=1, sequence_length=1]` (fixed).
+
+Storage / Cache Impact:
+- No production data touched. `working_cache` YAML survives until slice 3.
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- Linear SLAy flow respects the same `force_restart` / `force_replot` gating as the SLAy branch in the prior dispatch loop.
+
+Residual Risk And Follow-Ups:
+- `_run_slay_analyzer_recompute` calls `_recompute_spikesort_analyzer` (legacy analyzer family); slice 4 rewrites or deletes the recompute helper.
+- `_normalize_merge_method_token`, `auto_merge_*` flat config fields, and the `assert_auto_merge_uses_canonical_workspace` summary key remain in `runner.py` / config / summary payloads. Slice 5 cleans those up.
+- Some metadata/reports tests covered orchestrator-level paths via the auto_merge fake; equivalent SLAy-only coverage already exists for `working_cache_assert_slay` (test 5485) and `recomputes_after_slay_without_pending_auto_merge` (test 5979); broader SLAy-driven metadata/reports coverage is left to future work if the SLAy fakes can be expanded — currently the dropped tests' assertions about merge_metadata payloads are not duplicated SLAy-side.
+
+Rollback Notes:
+- Revert this single commit to restore the methods-dispatch loop and `_run_auto_merge_method`. Test deletions revert with the file.
+
 ## 2026-05-10 - pending - claude: spikesort-merge-cleanup, drop merge_si_auto and merge_unitmatch phases (slice 1)
 
 Status: pending

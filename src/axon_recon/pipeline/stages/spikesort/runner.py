@@ -8259,275 +8259,6 @@ def _run_slay_analyzer_recompute(
 	}
 
 
-def _run_auto_merge_method(
-	*,
-	well_out_dir: Path,
-	stage_output_root_dir: Path,
-	output_rel_root: str,
-	stage_config: Any,
-	force_restart: bool,
-	sorter_output_dir: Path | None,
-) -> dict[str, Any]:
-	merge_output_rel_root = _compose_output_rel_root(
-		stage_output_rel_root=output_rel_root,
-		child_rel_root=getattr(stage_config, "merge_rel_output_root", None),
-	)
-	auto_merge_out_dir = _resolve_under_spikesort_output_root(
-		well_out_dir=well_out_dir,
-		output_rel_root=merge_output_rel_root,
-		relpath=str(getattr(stage_config, "auto_merge_relpath", "automerge_outputs")),
-	)
-	summary_json = auto_merge_out_dir / "auto_merge_method_summary.json"
-
-	delete_on_force_restart = bool(getattr(stage_config, "auto_merge_delete_outputs_on_force_restart", True))
-	removed_on_force_restart: list[str] = []
-	if bool(force_restart) and bool(delete_on_force_restart) and auto_merge_out_dir.exists():
-		removed_on_force_restart.append(str(auto_merge_out_dir))
-		shutil.rmtree(auto_merge_out_dir, ignore_errors=True)
-	auto_merge_out_dir.mkdir(parents=True, exist_ok=True)
-
-	auto_merge_enabled = bool(getattr(stage_config, "auto_merge_enabled", False))
-	if not auto_merge_enabled:
-		payload = {
-			"status": "skipped",
-			"reason": "auto_merge_disabled",
-			"well_out_dir": str(well_out_dir),
-			"stage_output_root_dir": str(stage_output_root_dir),
-			"auto_merge_out_dir": str(auto_merge_out_dir),
-			"force_restart": bool(force_restart),
-			"delete_outputs_on_force_restart": bool(delete_on_force_restart),
-			"removed_on_force_restart": list(removed_on_force_restart),
-		}
-		_write_json(summary_json, payload)
-		return {
-			"name": "auto_merge",
-			"status": "skipped",
-			"reason": "auto_merge_disabled",
-			"out_dir": str(auto_merge_out_dir),
-			"summary_json": str(summary_json),
-			"outputs": {
-				"auto_merge.summary_json": str(summary_json),
-			},
-			"removed_on_force_restart": list(removed_on_force_restart),
-		}
-
-	effective_sorter_output_dir = sorter_output_dir
-	if effective_sorter_output_dir is None:
-		effective_sorter_output_dir = _resolve_sorter_output_dir(
-			well_out_dir=well_out_dir,
-			output_rel_root=output_rel_root,
-			stage_config=stage_config,
-		)
-
-	si_module = _import_spikeinterface_full_module()
-	current_analyzer, analyzer_dir, analyzer_rebuilt = _load_or_recompute_spikesort_analyzer(
-		si_module=si_module,
-		well_out_dir=well_out_dir,
-		stage_output_root_dir=stage_output_root_dir,
-		sorter_output_dir=effective_sorter_output_dir,
-		stage_config=stage_config,
-	)
-
-	template_diff_thresholds_raw = getattr(stage_config, "auto_merge_template_diff_thresholds", (0.25,))
-	template_diff_thresholds: tuple[float, ...]
-	if isinstance(template_diff_thresholds_raw, (list, tuple, set)) and template_diff_thresholds_raw:
-		template_diff_thresholds = tuple(float(v) for v in template_diff_thresholds_raw)
-	else:
-		template_diff_thresholds = (0.25,)
-
-	auto_accept_merges = bool(getattr(stage_config, "auto_merge_auto_accept_merges", False))
-	# Slice 5: dry_run gates the canonical analyzer writeback. Per-iteration
-	# `merged_units/iteration_NNN/analyzer_output/` snapshots still get written
-	# (those are dry-run inspection artifacts); only the canonical
-	# `<stage_output_root_dir>/analyzer_output/` overwrite is suppressed.
-	dry_run = bool(getattr(stage_config, "merge_si_auto_dry_run", True))
-	candidate_pairs_root = auto_merge_out_dir / str(getattr(stage_config, "auto_merge_candidate_pairs_reldir", "recommended_merge_candidates"))
-	merged_units_root = auto_merge_out_dir / str(getattr(stage_config, "auto_merge_merged_units_reldir", "merged_units"))
-	candidate_pairs_root.mkdir(parents=True, exist_ok=True)
-	merged_units_root.mkdir(parents=True, exist_ok=True)
-
-	_log_phase_step_start(
-		"Auto-merge analyzer step start",
-		well_out_dir=well_out_dir,
-		analyzer_dir=analyzer_dir,
-		thresholds=template_diff_thresholds,
-		auto_accept_merges=bool(auto_accept_merges),
-	)
-
-	iteration_payloads: list[dict[str, Any]] = []
-	iteration_index = 0
-	total_merge_groups = 0
-	total_candidate_pairs = 0
-	total_applied_groups = 0
-	final_unit_count = int(_unit_count(current_analyzer))
-
-	for threshold in template_diff_thresholds:
-		continue_iterations = True
-		while continue_iterations:
-			iteration_index += 1
-			_log_phase_step_start(
-				"Auto-merge iteration start",
-				well_out_dir=well_out_dir,
-				iteration=int(iteration_index),
-				template_diff_thresh=float(threshold),
-			)
-			merge_groups = _compute_auto_merge_groups(
-				sorting_analyzer=current_analyzer,
-				template_diff_thresh=float(threshold),
-			)
-			pair_rows = _build_auto_merge_pair_rows(
-				merge_groups=merge_groups,
-				iteration_index=int(iteration_index),
-				template_diff_thresh=float(threshold),
-			)
-			iter_prefix = f"iteration_{int(iteration_index):03d}"
-			iter_groups_json = candidate_pairs_root / f"{iter_prefix}.json"
-			iter_pairs_tsv = candidate_pairs_root / f"{iter_prefix}.tsv"
-
-			_write_json(
-				iter_groups_json,
-				{
-					"iteration": int(iteration_index),
-					"template_diff_thresh": float(threshold),
-					"n_groups": int(len(merge_groups)),
-					"merge_groups": merge_groups,
-				},
-			)
-			_write_auto_merge_candidate_pairs_tsv(iter_pairs_tsv, pair_rows)
-
-			total_merge_groups += int(len(merge_groups))
-			total_candidate_pairs += int(len(pair_rows))
-
-			iteration_info: dict[str, Any] = {
-				"iteration": int(iteration_index),
-				"template_diff_thresh": float(threshold),
-				"n_groups": int(len(merge_groups)),
-				"n_candidate_pairs": int(len(pair_rows)),
-				"groups_json": str(iter_groups_json),
-				"pairs_tsv": str(iter_pairs_tsv),
-				"applied": False,
-			}
-
-			if not merge_groups or not auto_accept_merges:
-				iteration_payloads.append(iteration_info)
-				continue_iterations = False
-				continue
-
-			units_before = int(_unit_count(current_analyzer))
-			current_analyzer = current_analyzer.merge_units(
-				merge_unit_groups=[list(group) for group in merge_groups],
-				format="memory",
-				merging_mode="soft",
-				raise_error_if_overlap_fails=False,
-			)
-			units_after = int(_unit_count(current_analyzer))
-			final_unit_count = int(units_after)
-			total_applied_groups += int(len(merge_groups))
-
-			merged_iter_dir = merged_units_root / iter_prefix
-			merged_iter_dir.mkdir(parents=True, exist_ok=True)
-			iter_apply_json = merged_iter_dir / "applied_merge_groups.json"
-			_write_json(
-				iter_apply_json,
-				{
-					"iteration": int(iteration_index),
-					"template_diff_thresh": float(threshold),
-					"units_before": int(units_before),
-					"units_after": int(units_after),
-					"n_applied_groups": int(len(merge_groups)),
-					"applied_groups": merge_groups,
-				},
-			)
-
-			iter_analyzer_dir = merged_iter_dir / "analyzer_output"
-			analyzer_saved = False
-			analyzer_save_error: str | None = None
-			try:
-				if iter_analyzer_dir.exists():
-					shutil.rmtree(iter_analyzer_dir, ignore_errors=True)
-				current_analyzer.save_as(format="binary_folder", folder=iter_analyzer_dir)
-				analyzer_saved = True
-			except Exception as exc:
-				analyzer_save_error = f"{type(exc).__name__}: {exc}"
-
-			iteration_info["applied"] = True
-			iteration_info["applied_groups_json"] = str(iter_apply_json)
-			if analyzer_saved:
-				iteration_info["analyzer_output_dir"] = str(iter_analyzer_dir)
-			if analyzer_save_error is not None:
-				iteration_info["analyzer_output_error"] = str(analyzer_save_error)
-			iteration_payloads.append(iteration_info)
-
-			if units_after >= units_before:
-				continue_iterations = False
-
-	canonical_analyzer_writeback_skipped_for_dry_run = False
-	if auto_accept_merges and total_applied_groups > 0:
-		if bool(dry_run):
-			# Dry-run: keep the canonical <stage_output_root_dir>/analyzer_output
-			# untouched. Per-iteration snapshots in merged_units/.../analyzer_output
-			# are the inspection artifacts.
-			canonical_analyzer_writeback_skipped_for_dry_run = True
-		else:
-			try:
-				canonical_analyzer_dir = (stage_output_root_dir / "analyzer_output").resolve()
-				if canonical_analyzer_dir.exists():
-					shutil.rmtree(canonical_analyzer_dir, ignore_errors=True)
-				current_analyzer.save_as(format="binary_folder", folder=canonical_analyzer_dir)
-			except Exception:
-				pass
-
-	outputs: dict[str, str] = {
-		"auto_merge.summary_json": str(summary_json),
-		"auto_merge.candidate_pairs_dir": str(candidate_pairs_root),
-		"auto_merge.merged_units_dir": str(merged_units_root),
-		"auto_merge.analyzer_dir": str(analyzer_dir),
-	}
-
-	payload = {
-		"status": "ok",
-		"well_out_dir": str(well_out_dir),
-		"stage_output_root_dir": str(stage_output_root_dir),
-		"auto_merge_out_dir": str(auto_merge_out_dir),
-		"sorter_output_dir": str(effective_sorter_output_dir),
-		"analyzer_dir": str(analyzer_dir),
-		"analyzer_rebuilt": bool(analyzer_rebuilt),
-		"force_restart": bool(force_restart),
-		"delete_outputs_on_force_restart": bool(delete_on_force_restart),
-		"removed_on_force_restart": list(removed_on_force_restart),
-		"auto_accept_merges": bool(auto_accept_merges),
-		"dry_run": bool(dry_run),
-		"canonical_analyzer_writeback_skipped_for_dry_run": bool(canonical_analyzer_writeback_skipped_for_dry_run),
-		"template_diff_thresholds": [float(v) for v in template_diff_thresholds],
-		"n_iterations": int(len(iteration_payloads)),
-		"n_candidate_groups_total": int(total_merge_groups),
-		"n_candidate_pairs_total": int(total_candidate_pairs),
-		"n_applied_groups_total": int(total_applied_groups),
-		"final_unit_count": int(final_unit_count),
-		"iterations": iteration_payloads,
-		"outputs": outputs,
-	}
-	_write_json(summary_json, payload)
-
-	return {
-		"name": "auto_merge",
-		"status": "ok",
-		"reason": None,
-		"out_dir": str(auto_merge_out_dir),
-		"summary_json": str(summary_json),
-		"outputs": outputs,
-		"dry_run": bool(dry_run),
-		"canonical_analyzer_writeback_skipped_for_dry_run": bool(
-			canonical_analyzer_writeback_skipped_for_dry_run
-		),
-		"n_candidate_groups_total": int(total_merge_groups),
-		"n_candidate_pairs_total": int(total_candidate_pairs),
-		"n_applied_groups_total": int(total_applied_groups),
-		"n_iterations": int(len(iteration_payloads)),
-		"removed_on_force_restart": list(removed_on_force_restart),
-	}
-
-
 def run_spikesort_merge_stage(
 	*,
 	h5_path: Path,
@@ -8567,11 +8298,10 @@ def run_spikesort_merge_stage(
 			relpath=str(getattr(stage_config, "slay_relpath", "SLAy_outputs")),
 		)
 
-	requested_sequence_raw = list(getattr(stage_config, "merge_sequence", ()) or [])
-	if not requested_sequence_raw:
-		requested_sequence_raw = ["SLAy", "auto_merge", "unitmatch"]
-	requested_sequence_normalized = [_normalize_merge_method_token(token) for token in requested_sequence_raw]
-	slay_requested = bool(bool(getattr(stage_config, "slay_enabled", False)) and ("slay" in requested_sequence_normalized))
+	# Slice 2: SLAy is the only merge method; merge_sequence config is no longer
+	# consulted for dispatch.
+	requested_sequence_raw: list[Any] = ["SLAy"]
+	slay_requested = bool(getattr(stage_config, "slay_enabled", False))
 	_log_phase_step_start(
 		"Spikesort merge stage start",
 		stream_id=str(stream_id),
@@ -9832,121 +9562,73 @@ def run_spikesort_merge_stage(
 	if isinstance(bombcell_report, dict):
 		combined_outputs.update(dict(bombcell_report.get("outputs", {})))
 
-	for idx, raw_method in enumerate(requested_sequence_raw):
-		method = _normalize_merge_method_token(raw_method)
-		_log_phase_step_start(
-			"Merge method step start",
-			stream_id=str(stream_id),
-			method=method,
-			sequence_index=int(idx + 1),
-			sequence_length=int(len(requested_sequence_raw)),
+	# Slice 2: SLAy is the only merge method.
+	_log_phase_step_start(
+		"Merge method step start",
+		stream_id=str(stream_id),
+		method="slay",
+		sequence_index=1,
+		sequence_length=1,
+	)
+	if (
+		cache_sorting_outputs_before_merge_use_canonical_workspace
+		and cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
+	):
+		_assert_method_uses_working_cache_sorter_output(
+			method_name="SLAy",
+			sorter_output_dir=resolved_sorter_output_dir,
+			working_cache_root_dir=canonical_workspace_root_dir,
+			knob_name="assert_selected_sorter_output",
 		)
-		if method == "slay":
-			if (
-				cache_sorting_outputs_before_merge_use_canonical_workspace
-				and cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
-			):
-				_assert_method_uses_working_cache_sorter_output(
-					method_name="SLAy",
-					sorter_output_dir=resolved_sorter_output_dir,
-					working_cache_root_dir=canonical_workspace_root_dir,
-					knob_name="assert_selected_sorter_output",
-				)
-			slay_call_kwargs: dict[str, Any] = {
-				"well_out_dir": well_out_dir,
-				"stage_output_root_dir": active_stage_output_root_dir,
-				"output_rel_root": output_rel_root,
-				"stage_config": stage_config,
-				"force_restart": bool(force_restart),
-			}
-			if resolved_sorter_output_dir is not None:
-				slay_call_kwargs["sorter_output_dir"] = resolved_sorter_output_dir
-			report = _run_slay_merge_method(**slay_call_kwargs)
-			method_reports.append(report)
-			combined_outputs.update(dict(report.get("outputs", {})))
-			if report.get("ks_dir"):
-				resolved_sorter_output_dir = Path(str(report.get("ks_dir"))).resolve()
-				if (
-					cache_sorting_outputs_before_merge_use_canonical_workspace
-					and cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
-				):
-					_assert_method_uses_working_cache_sorter_output(
-						method_name="SLAy",
-						sorter_output_dir=resolved_sorter_output_dir,
-						working_cache_root_dir=canonical_workspace_root_dir,
-						knob_name="assert_selected_sorter_output",
-					)
-
-			should_recompute_after_slay = (
-				bool(getattr(stage_config, "slay_recompute_analyzer", False))
-				and bool(report.get("status") == "ok")
-				and bool(getattr(stage_config, "slay_auto_accept_merges", False))
-				and bool(report.get("applied_merges", False))
-			)
-			if should_recompute_after_slay and resolved_sorter_output_dir is not None:
-				recompute_report = _run_slay_analyzer_recompute(
-					well_out_dir=well_out_dir,
-					stage_output_root_dir=active_stage_output_root_dir,
-					stage_config=stage_config,
-					sorter_output_dir=resolved_sorter_output_dir,
-				)
-				method_reports.append(recompute_report)
-				combined_outputs.update(dict(recompute_report.get("outputs", {})))
-				recomputed_analyzer_dir_raw = (
-					recompute_report.get("outputs", {}).get("slay.recompute_analyzer.analyzer_dir", None)
-					if isinstance(recompute_report.get("outputs", {}), dict)
-					else None
-				)
-				if recomputed_analyzer_dir_raw is not None:
-					combined_outputs["merge.post_merge_analyzer_output_dir"] = str(
-						Path(str(recomputed_analyzer_dir_raw)).expanduser().resolve()
-					)
-			continue
-
-		if method == "auto_merge":
-			if (
-				cache_sorting_outputs_before_merge_use_canonical_workspace
-				and cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace
-			):
-				_assert_method_uses_working_cache_sorter_output(
-					method_name="auto_merge",
-					sorter_output_dir=resolved_sorter_output_dir,
-					working_cache_root_dir=canonical_workspace_root_dir,
-					knob_name="assert_selected_sorter_output",
-				)
-			report = _run_auto_merge_method(
-				well_out_dir=well_out_dir,
-				stage_output_root_dir=active_stage_output_root_dir,
-				output_rel_root=output_rel_root,
-				stage_config=stage_config,
-				force_restart=bool(force_restart),
+	slay_call_kwargs: dict[str, Any] = {
+		"well_out_dir": well_out_dir,
+		"stage_output_root_dir": active_stage_output_root_dir,
+		"output_rel_root": output_rel_root,
+		"stage_config": stage_config,
+		"force_restart": bool(force_restart),
+	}
+	if resolved_sorter_output_dir is not None:
+		slay_call_kwargs["sorter_output_dir"] = resolved_sorter_output_dir
+	report = _run_slay_merge_method(**slay_call_kwargs)
+	method_reports.append(report)
+	combined_outputs.update(dict(report.get("outputs", {})))
+	if report.get("ks_dir"):
+		resolved_sorter_output_dir = Path(str(report.get("ks_dir"))).resolve()
+		if (
+			cache_sorting_outputs_before_merge_use_canonical_workspace
+			and cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
+		):
+			_assert_method_uses_working_cache_sorter_output(
+				method_name="SLAy",
 				sorter_output_dir=resolved_sorter_output_dir,
+				working_cache_root_dir=canonical_workspace_root_dir,
+				knob_name="assert_selected_sorter_output",
 			)
-			method_reports.append(report)
-			combined_outputs.update(dict(report.get("outputs", {})))
-			continue
 
-		if method == "unitmatch":
-			report = {
-				"name": "unitmatch",
-				"status": "skipped",
-				"reason": "unitmatch_not_implemented_in_v2_merge_phase",
-				"out_dir": str(active_stage_output_root_dir),
-				"summary_json": None,
-				"outputs": {},
-			}
-			method_reports.append(report)
-			continue
-
-		report = {
-			"name": str(method),
-			"status": "skipped",
-			"reason": "unknown_merge_method",
-			"out_dir": str(active_stage_output_root_dir),
-			"summary_json": None,
-			"outputs": {},
-		}
-		method_reports.append(report)
+	should_recompute_after_slay = (
+		bool(getattr(stage_config, "slay_recompute_analyzer", False))
+		and bool(report.get("status") == "ok")
+		and bool(getattr(stage_config, "slay_auto_accept_merges", False))
+		and bool(report.get("applied_merges", False))
+	)
+	if should_recompute_after_slay and resolved_sorter_output_dir is not None:
+		recompute_report = _run_slay_analyzer_recompute(
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=active_stage_output_root_dir,
+			stage_config=stage_config,
+			sorter_output_dir=resolved_sorter_output_dir,
+		)
+		method_reports.append(recompute_report)
+		combined_outputs.update(dict(recompute_report.get("outputs", {})))
+		recomputed_analyzer_dir_raw = (
+			recompute_report.get("outputs", {}).get("slay.recompute_analyzer.analyzer_dir", None)
+			if isinstance(recompute_report.get("outputs", {}), dict)
+			else None
+		)
+		if recomputed_analyzer_dir_raw is not None:
+			combined_outputs["merge.post_merge_analyzer_output_dir"] = str(
+				Path(str(recomputed_analyzer_dir_raw)).expanduser().resolve()
+			)
 
 	primary_out_dir.mkdir(parents=True, exist_ok=True)
 	summary_json = primary_out_dir / "merge_stage_summary.json"
