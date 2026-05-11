@@ -25,6 +25,7 @@ dev = [
 axon-recon = "axon_recon.pipeline.cli:main"
 axon-reconstructor = "axon_recon.pipeline.cli:main"
 axon-recon-container = "axon_recon.pipeline.container_cli:main"
+axon-recon-dashboard = "axon_recon.dashboard.cli:entry_point"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

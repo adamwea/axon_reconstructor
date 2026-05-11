@@ -891,8 +891,67 @@ def build_parser() -> argparse.ArgumentParser:
 		help_text="Alias for stages",
 	)
 	_register_system_topology_parser(subparsers=subparsers)
+	_register_dashboard_parser(subparsers=subparsers)
 
 	return parser
+
+
+def _register_dashboard_parser(
+	*,
+	subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+	"""Register `axon-recon dashboard` as a sibling subcommand of `stages`.
+
+	Delegates argument parsing + entrypoint to `axon_recon.dashboard.cli` so
+	the dashboard's CLI surface stays owned by the dashboard package.
+	"""
+	from ..dashboard import cli as dashboard_cli
+
+	# Mirror the dashboard's own parser so help text matches.
+	parser = subparsers.add_parser(
+		"dashboard",
+		help="Serve a Plotly Dash dashboard over per-well analysis_outputs/ artifacts",
+	)
+	parser.add_argument("--config", required=True, help="Path to runtime YAML/JSON config")
+	parser.add_argument(
+		"--target-dataset",
+		"--target-datasets",
+		nargs="+",
+		default=None,
+		dest="target_datasets",
+		help="0-based dataset indices to load",
+	)
+	parser.add_argument("--limit-wells", type=_parse_positive_int, default=None, dest="limit_wells")
+	parser.add_argument("--limit-datasets", type=_parse_positive_int, default=None)
+	parser.add_argument("--limit-wells-per-dataset", type=_parse_positive_int, default=None)
+	parser.add_argument("--port", type=_parse_positive_int, default=8050)
+	parser.add_argument("--host", default="127.0.0.1")
+	parser.add_argument("--no-browser", action="store_true")
+	parser.add_argument("--debug", action="store_true")
+
+	def _handler(args: argparse.Namespace) -> int:
+		argv: list[str] = ["--config", str(args.config)]
+		if args.target_datasets is not None:
+			argv.append("--target-dataset")
+			argv.extend(str(item) for item in args.target_datasets)
+		for flag_name, attr_name in (
+			("--limit-wells", "limit_wells"),
+			("--limit-datasets", "limit_datasets"),
+			("--limit-wells-per-dataset", "limit_wells_per_dataset"),
+			("--port", "port"),
+		):
+			value = getattr(args, attr_name, None)
+			if value is not None:
+				argv.extend([flag_name, str(value)])
+		if getattr(args, "host", None) is not None:
+			argv.extend(["--host", str(args.host)])
+		if bool(getattr(args, "no_browser", False)):
+			argv.append("--no-browser")
+		if bool(getattr(args, "debug", False)):
+			argv.append("--debug")
+		return int(dashboard_cli.main(argv))
+
+	parser.set_defaults(handler=_handler)
 
 
 def _configure_runtime_logging_from_args(args: argparse.Namespace) -> None:

@@ -91,6 +91,57 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, dashboard CLI + minimal Dash app (slice 4)
+
+Status: pending
+
+Summary:
+- New `src/axon_recon/dashboard/` package:
+  - `discovery.py`: `iter_manifest_paths(bundle, …)` + `iter_manifest_paths_from_config(config_path, …)` walk the same `select_execution_targets` scope `axon-recon stages analysis` uses, then probe for `<well>/<output_rel_root>/manifest.json`; missing manifests are silently skipped.
+  - `data.py`: `load_all(manifest_paths) -> dict[str, pd.DataFrame]` reads each manifest's `tables` section, loads each parquet relative to the manifest's parent directory, stamps identity columns from the manifest (defense in depth against schema drift), and concatenates. Always returns both `units` and `well_summary` keys (empty DataFrame when nothing is found).
+  - `filters.py`: pure pandas-mask helpers with no Dash imports. `apply_filter_spec(df, spec)` composes the per-control filters from plan §4 (recon_status, bombcell allowlist with `None`-passthrough semantics, min-threshold numeric filters that pass NaN through, multi-select identity filters, DIV numeric range).
+  - `app.py`: `build_app(units_df, well_summary_df) -> dash.Dash` renders a left rail with all plan §4 controls + a main pane with a Plotly histogram (axis + color dropdowns) and a `dash_ag_grid.AgGrid` table view. Callbacks operate on data captured in closures so the app is testable headlessly.
+  - `cli.py`: argparse parser + `main(argv)` + `entry_point()` console-script wrapper. Supports `--config`, `--target-dataset`, `--limit-wells`, `--limit-datasets`, `--limit-wells-per-dataset`, `--port` (default 8050), `--host` (default 127.0.0.1), `--no-browser`, `--debug`. `app.run(use_reloader=False)` to keep the process single-PID for clean SIGTERM.
+- `src/axon_recon/pipeline/cli.py` registers a sibling `dashboard` subparser that delegates to `axon_recon.dashboard.cli.main(argv)` — the `axon-recon dashboard …` form works alongside `axon-recon stages …`.
+- `pyproject.toml` adds the `axon-recon-dashboard = "axon_recon.dashboard.cli:entry_point"` console script.
+- `environment.yml` gains `plotly, dash, dash-ag-grid, statsmodels`; the Dockerfile `AXON_RECON_RUNTIME_SPEC` gains `plotly>=5.18 dash>=2.14 dash-ag-grid statsmodels`. Installed locally via `conda run -n axon_recon pip install` (versions: plotly 6.7.0, dash 4.1.0, dash-ag-grid 35.2.0, statsmodels 0.14.6) — no container rebuild per plan §7 risk 4.
+- 26 new dashboard tests: 14 for `filters` (each knob's pass-through + drop semantics), 4 for `discovery` (synthetic scratch tree with target_datasets / limit_wells / missing-manifest cases), 5 for `data` (concat + identity stamping, missing-tables, missing-parquet, empty-list, bad-json), 3 for `app` (Dash instance shape, expected component ids, empty-df handling).
+
+Guardrails Consulted:
+- `debug/analysis_stage_and_dashboard_plan.md` §3 smoke matrix (A4), §4 modular filter contract, §5 slice 4 spec, §7 risks.
+- `debug/first_version_pipeline_guardrails.md` — minimal scope, no precomputed `qc_pass`, no Dash imports in `filters.py`.
+
+Plan deviations:
+- `app.run(use_reloader=False)` is set unconditionally so SIGTERM cleanly terminates the single PID; reloader spawns a second process that complicates teardown in the smoke. `--debug` still flips Dash's debug toolbar on; we just don't pick up file changes automatically.
+- Dash 4.x's `app.run(...)` is used instead of the deprecated `app.run_server(...)` referenced informally in the plan §5 narrative — both are equivalent for our purposes.
+
+Tests Run:
+- `pytest src/axon_recon/dashboard/ -q` → 26 passed.
+- `pytest src/axon_recon/pipeline/stages/analysis/ -q` → 53 passed (slice 1+2+3 unchanged).
+- `pytest src/axon_recon/pipeline/tests/test_cli_stage_sequence.py -q` → 153 passed (CLI alias surface unchanged for analysis).
+- `pytest src/axon_recon/pipeline/ -q --ignore=test_progress.py` → 15 baseline failures, no new ones.
+
+Smoke A4:
+```
+axon-recon dashboard --config debug/debug.runtime.yml --port 8051 --no-browser --target-dataset 11 --limit-wells 1
+```
+- Server ready in 4s.
+- `GET /_dash-layout` → HTTP 200, 7635 bytes (the assembled layout JSON for the dataset-11 well000 manifest + the 218-row units DataFrame).
+- `GET /_dash-dependencies` → HTTP 200 (the callback graph).
+- `kill -TERM` → exit rc=143 (= 128 + 15 SIGTERM) — clean.
+- `/tmp/smoke_slice4_A4.log` is empty because the conda-run stdout buffer didn't flush before SIGTERM; the HTTP-response verification above is the smoke's authoritative evidence.
+
+Mutation Safety:
+- `find <well>/ -newer /tmp/slice4_marker -not -path "*/analysis_outputs/*"` returned empty — the dashboard only reads under `analysis_outputs/`.
+
+Spikesort Hands-off:
+- `git diff cd1db26..HEAD -- src/axon_recon/pipeline/stages/spikesort/ | wc -l` → 0.
+
+Residual Risk / Follow-ups:
+- Bombcell allowlist UI uses a `__null__` sentinel for missing-label rows; the wrapper decodes it back to `None` before handing the list to `filter_bombcell_allowlist`. Slice 5 should keep this convention.
+- `min_num_spikes` / `min_num_branches` default to `0` so the unit-table starts unfiltered by those knobs even when the column has NaN values (NaN passes through the threshold filter per plan §4).
+- The `axon-recon dashboard` CLI re-validates its argument set in two places (the pipeline/cli.py shim and dashboard/cli.py itself). The shim's argv translation is the single source of truth for delegation; slice 6's downloader-export work should mirror this shape if more flags arrive.
+
 ## 2026-05-11 - pending - claude: analysis-stage-and-dashboard, well_summary.parquet aggregates (slice 3)
 
 Status: pending
