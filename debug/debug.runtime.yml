@@ -476,8 +476,10 @@ stages:
     - bootstrap_concat_binary
     - sort
     #- summarize_sort
-    #- bombcell_label
-    #- merge_SLAy
+    - snapshot_sorter_output
+    - concat_analyzer
+    - bombcell_label
+    - merge_SLAy
     - cleanup_concat_binary
     debug_outputs: false
     phases:
@@ -558,7 +560,7 @@ stages:
         # Cheap recursive copy of <well>/spikesort_outputs/sorter_output taken once after
         # summarize_sort. Lets bombcell_label / merge_SLAy iterate without re-running sort.
         # Restore via the spikesort.restore_sorter_output CLI utility (--confirm required).
-        enabled: false
+        enabled: true
         resource_class: template_build
         relpath: sorter_output_snapshot
         skip_if_exists: true
@@ -569,12 +571,27 @@ stages:
         # building their own.
         # rebuild_on_sorter_output_change=true uses sorter_output_fingerprint.json to skip
         # rebuilds when sorter_output is unchanged.
-        enabled: false
+        enabled: true
         resource_class: spikeinterface_analyzer_concat
         relpath: concat_analyzer
         format: binary_folder
         rebuild_on_sorter_output_change: true
-        compute_sparsity: true
+        #compute_sparsity: true
+        compute_sparsity: false
+        extensions:
+          random_spikes:
+            max_spikes_per_unit: 500
+          waveforms:
+            ms_before: 1.0
+            ms_after: 2.0
+          templates:
+            # Optional template build parameters; when null, defaults are used.
+            seed: 0
+            #random_spikes_percentage: 25
+            #min_spikes_per_unit: 1000
+            max_spikes_per_unit: 100
+            log_before_after_spike_counts: true
+          noise_levels: {}
         # n_jobs: null  # take from phase budget by default
         # extensions: null  # null → use DEFAULT_CONCAT_ANALYZER_EXTENSIONS (random_spikes,
         #                   #   waveforms, templates, noise_levels). Override with a mapping:
@@ -602,7 +619,7 @@ stages:
         # cluster_KSLabel.tsv / cluster_group.tsv land in
         # <bombcell_out_dir>/dry_run/proposed_*.tsv for inspection. Flip to
         # false once the labels are validated and you want them written back.
-        dry_run: true
+        dry_run: false
 
         # Canonical Bombcell labeling function arguments.
         # Mirrors spikeinterface.curation.bombcell_label_units(...)
@@ -642,27 +659,13 @@ stages:
         # want SLAy to apply merges (with auto_accept_merges=true).
         dry_run: true
 
-        cleanup_generated_analyzers_on_success: true
-
-        analyzer:
-          regenerate_on_replot: false
-          check_if_regen_is_needed: true
-          template_extraction:
-            seed: 0
-            #random_spikes_percentage: 25
-            #min_spikes_per_unit: 1000
-            max_spikes_per_unit: 100
-            log_before_after_spike_counts: true
-          sparsity:
-            #compute_sparsity: false
-            compute_sparsity: true
-            #method: best_channels
-            #num_channels: 300
-            #peak_sign: both
-            num_spikes_for_sparsity: 100
-          waveforms:
-            ms_before: 2.0
-            ms_after: 5.0
+        # merge_SLAy does not build its own analyzer. The canonical concat-level
+        # analyzer (built by spikesort.concat_analyzer) is read once to cache
+        # pre-merge templates / unit_locations / spike counts, then post-merge
+        # values are derived from automerge/new2old.json (weighted average over
+        # constituent pre-merge templates). Analyzer-shaped knobs (random_spikes,
+        # sparsity, waveforms ms_before/after) belong in phases.concat_analyzer.
+        # Post-merge analyzer cleanup is handled by phases.cleanup_analyzers.
 
         pre_merge_metadata:
           enabled: true
@@ -766,7 +769,6 @@ stages:
           output_json_relpath: run-output.json
           candidate_pairs_relpath: recommended_merge_candidates.tsv
           merge_groups_relpath: recommended_merge_groups.json
-          recompute_analyzer: false
 
           model_cache:
             enabled: true
