@@ -39,7 +39,7 @@ def assert_directory_unchanged(root: Path, baseline: Mapping[str, str]) -> None:
 
 	Raises AssertionError with a diff summary on failure. Use after a
 	phase that promised not to mutate ``root`` (e.g., dry_run=True for
-	bombcell_label / merge_SLAy / merge_si_auto / merge_unitmatch).
+	bombcell_label / merge_SLAy).
 	"""
 	current = hash_directory(root)
 	if current == dict(baseline):

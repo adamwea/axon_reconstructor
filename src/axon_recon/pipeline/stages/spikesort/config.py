@@ -272,8 +272,6 @@ DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
 	"concat_analyzer",
 	"bombcell_label",
 	"merge_SLAy",
-	"merge_si_auto",
-	"merge_unitmatch",
 	"cleanup_concat_binary",
 )
 
@@ -304,13 +302,6 @@ _SPIKESORT_PHASE_ALIASES: dict[str, str] = {
 	"merge_sla_y": "merge_SLAy",
 	"merge_slay_outputs": "merge_SLAy",
 	"slay": "merge_SLAy",
-	"merge_si_auto": "merge_si_auto",
-	"merge_auto": "merge_si_auto",
-	"merge_auto_merge": "merge_si_auto",
-	"auto_merge": "merge_si_auto",
-	"si_auto": "merge_si_auto",
-	"merge_unitmatch": "merge_unitmatch",
-	"unitmatch": "merge_unitmatch",
 	"cleanup_concat_binary": "cleanup_concat_binary",
 	"cleanup_concat": "cleanup_concat_binary",
 	"cleanup_binary": "cleanup_concat_binary",
@@ -420,8 +411,6 @@ class SpikesortStageConfig:
 	concat_analyzer_resource_class: str | None
 	bombcell_label_resource_class: str | None
 	merge_slay_resource_class: str | None
-	merge_si_auto_resource_class: str | None
-	merge_unitmatch_resource_class: str | None
 	cleanup_concat_binary_resource_class: str | None
 	summarize_sort_debug_mode_enabled: bool
 	summarize_sort_debug_limit_datasets: int | None
@@ -572,8 +561,6 @@ class SpikesortStageConfig:
 	merge_slay_force_restart: bool
 	merge_slay_force_replot: bool
 	merge_slay_dry_run: bool
-	merge_si_auto_dry_run: bool
-	merge_unitmatch_dry_run: bool
 	merge_slay_use_canonical_workspace: bool
 	merge_slay_canonical_workspace_relpath: str
 	merge_slay_canonical_workspace_refresh_on_run: bool
@@ -585,38 +572,6 @@ class SpikesortStageConfig:
 	merge_slay_debug_limit_datasets: int | None
 	merge_slay_debug_limit_wells: int | None
 	merge_slay_debug_limit_wells_per_dataset: int | None
-	merge_si_auto_enabled: bool
-	merge_si_auto_rel_output_root: str
-	merge_si_auto_delete_outputs_on_force_restart: bool
-	merge_si_auto_force_restart: bool
-	merge_si_auto_force_replot: bool
-	merge_si_auto_use_canonical_workspace: bool
-	merge_si_auto_canonical_workspace_relpath: str
-	merge_si_auto_canonical_workspace_refresh_on_run: bool
-	merge_si_auto_canonical_workspace_rebuild_analyzer: bool
-	merge_si_auto_publish_canonical_to_stage_outputs_on_success: bool
-	merge_si_auto_publish_canonical_to_stage_outputs_on_failure: bool
-	merge_si_auto_assert_uses_canonical_workspace: bool
-	merge_si_auto_debug_mode_enabled: bool
-	merge_si_auto_debug_limit_datasets: int | None
-	merge_si_auto_debug_limit_wells: int | None
-	merge_si_auto_debug_limit_wells_per_dataset: int | None
-	merge_unitmatch_enabled: bool
-	merge_unitmatch_rel_output_root: str
-	merge_unitmatch_delete_outputs_on_force_restart: bool
-	merge_unitmatch_force_restart: bool
-	merge_unitmatch_force_replot: bool
-	merge_unitmatch_use_canonical_workspace: bool
-	merge_unitmatch_canonical_workspace_relpath: str
-	merge_unitmatch_canonical_workspace_refresh_on_run: bool
-	merge_unitmatch_canonical_workspace_rebuild_analyzer: bool
-	merge_unitmatch_publish_canonical_to_stage_outputs_on_success: bool
-	merge_unitmatch_publish_canonical_to_stage_outputs_on_failure: bool
-	merge_unitmatch_assert_uses_canonical_workspace: bool
-	merge_unitmatch_debug_mode_enabled: bool
-	merge_unitmatch_debug_limit_datasets: int | None
-	merge_unitmatch_debug_limit_wells: int | None
-	merge_unitmatch_debug_limit_wells_per_dataset: int | None
 	merge_phase_runtime_overrides: dict[str, dict[str, Any]] | None
 	merge_units_enabled: bool
 	merge_rel_output_root: str | None
@@ -811,14 +766,6 @@ def parse_spikesort_stage_config(
 			{},
 		)
 	)
-	merge_si_auto_phase_cfg = _as_section(
-		_coalesce(
-			phases_cfg.get("merge_si_auto", None),
-			phases_cfg.get("merge_auto_merge", None),
-			{},
-		)
-	)
-	merge_unitmatch_phase_cfg = _as_section(phases_cfg.get("merge_unitmatch", {}))
 	merge_analyzer_cfg = _as_section(merge_units_phase_cfg.get("analyzer", {}))
 	merge_analyzer_waveforms_cfg = _as_section(merge_analyzer_cfg.get("waveforms", {}))
 	merge_analyzer_sparsity_cfg = _as_section(merge_analyzer_cfg.get("sparsity", {}))
@@ -863,8 +810,6 @@ def parse_spikesort_stage_config(
 	concat_analyzer_resource_class = _phase_resource_class(concat_analyzer_phase_cfg, "concat_analyzer")
 	bombcell_label_resource_class = _phase_resource_class(bombcell_phase_cfg, "bombcell_label")
 	merge_slay_resource_class = _phase_resource_class(merge_slay_phase_cfg, "merge_SLAy")
-	merge_si_auto_resource_class = _phase_resource_class(merge_si_auto_phase_cfg, "merge_si_auto")
-	merge_unitmatch_resource_class = _phase_resource_class(merge_unitmatch_phase_cfg, "merge_unitmatch")
 	cleanup_concat_binary_resource_class = _phase_resource_class(
 		cleanup_concat_binary_phase_cfg,
 		"cleanup_concat_binary",
@@ -932,7 +877,6 @@ def parse_spikesort_stage_config(
 	unitmatch_cfg = dict(stage_unitmatch_cfg)
 	unitmatch_cfg.update(execution_unitmatch_cfg)
 	unitmatch_cfg.update(legacy_merge_phase_unitmatch_cfg)
-	unitmatch_cfg.update(merge_unitmatch_phase_cfg)
 	unitmatch_limits_cfg = _as_section(unitmatch_cfg.get("limits", {}))
 	unitmatch_iterations_cfg = _as_section(unitmatch_cfg.get("iterations", {}))
 
@@ -970,7 +914,6 @@ def parse_spikesort_stage_config(
 	auto_merge_cfg = dict(stage_auto_merge_cfg)
 	auto_merge_cfg.update(execution_auto_merge_cfg)
 	auto_merge_cfg.update(legacy_merge_phase_auto_merge_cfg)
-	auto_merge_cfg.update(merge_si_auto_phase_cfg)
 
 	stage_slay_cfg = _as_section(
 		_coalesce(
@@ -2134,50 +2077,6 @@ def parse_spikesort_stage_config(
 		),
 		True,
 	)
-	merge_si_auto_dry_run = _as_bool(
-		_coalesce(
-			merge_si_auto_phase_cfg.get("dry_run", None),
-			True,
-		),
-		True,
-	)
-	merge_unitmatch_dry_run = _as_bool(
-		_coalesce(
-			merge_unitmatch_phase_cfg.get("dry_run", None),
-			True,
-		),
-		True,
-	)
-	merge_si_auto_phase_settings = _parse_standalone_merge_phase_settings(
-		merge_si_auto_phase_cfg,
-		default_enabled=False,
-		default_rel_output_root="merge_si_auto",
-		default_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
-		default_force_restart=bool(merge_force_restart),
-		default_force_replot=bool(merge_force_replot),
-		default_use_canonical_workspace=True,
-		default_canonical_workspace_relpath="cache/merge_workspace",
-		default_canonical_workspace_refresh_on_run=True,
-		default_canonical_workspace_rebuild_analyzer=False,
-		default_publish_on_success=True,
-		default_publish_on_failure=False,
-		default_assert_uses_canonical_workspace=True,
-	)
-	merge_unitmatch_phase_settings = _parse_standalone_merge_phase_settings(
-		merge_unitmatch_phase_cfg,
-		default_enabled=False,
-		default_rel_output_root="merge_unitmatch",
-		default_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
-		default_force_restart=bool(merge_force_restart),
-		default_force_replot=bool(merge_force_replot),
-		default_use_canonical_workspace=True,
-		default_canonical_workspace_relpath="cache/merge_workspace",
-		default_canonical_workspace_refresh_on_run=True,
-		default_canonical_workspace_rebuild_analyzer=False,
-		default_publish_on_success=True,
-		default_publish_on_failure=False,
-		default_assert_uses_canonical_workspace=True,
-	)
 	merge_reports_enabled = _as_bool(
 		_coalesce(
 			merge_reports_cfg.get("enabled", None),
@@ -2825,8 +2724,6 @@ def parse_spikesort_stage_config(
 
 		merge_phase_runtime_overrides = {
 			"merge_slay": _build_merge_phase_runtime_override(merge_slay_phase_cfg),
-			"merge_si_auto": _build_merge_phase_runtime_override(merge_si_auto_phase_cfg),
-			"merge_unitmatch": _build_merge_phase_runtime_override(merge_unitmatch_phase_cfg),
 		}
 
 	bombcell_label_enabled = _as_bool(
@@ -3614,8 +3511,6 @@ def parse_spikesort_stage_config(
 		concat_analyzer_resource_class=concat_analyzer_resource_class,
 		bombcell_label_resource_class=bombcell_label_resource_class,
 		merge_slay_resource_class=merge_slay_resource_class,
-		merge_si_auto_resource_class=merge_si_auto_resource_class,
-		merge_unitmatch_resource_class=merge_unitmatch_resource_class,
 		cleanup_concat_binary_resource_class=cleanup_concat_binary_resource_class,
 		summarize_sort_debug_mode_enabled=bool(summarize_sort_debug_mode_enabled),
 		summarize_sort_debug_limit_datasets=summarize_sort_debug_limit_datasets,
@@ -3851,8 +3746,6 @@ def parse_spikesort_stage_config(
 		merge_slay_force_restart=bool(merge_slay_phase_settings["force_restart"]),
 		merge_slay_force_replot=bool(merge_slay_phase_settings["force_replot"]),
 		merge_slay_dry_run=bool(merge_slay_dry_run),
-		merge_si_auto_dry_run=bool(merge_si_auto_dry_run),
-		merge_unitmatch_dry_run=bool(merge_unitmatch_dry_run),
 		merge_slay_use_canonical_workspace=bool(merge_slay_phase_settings["use_canonical_workspace"]),
 		merge_slay_canonical_workspace_relpath=str(
 			merge_slay_phase_settings["canonical_workspace_relpath"]
@@ -3876,72 +3769,6 @@ def parse_spikesort_stage_config(
 		merge_slay_debug_limit_datasets=merge_slay_phase_settings["debug_limit_datasets"],
 		merge_slay_debug_limit_wells=merge_slay_phase_settings["debug_limit_wells"],
 		merge_slay_debug_limit_wells_per_dataset=merge_slay_phase_settings[
-			"debug_limit_wells_per_dataset"
-		],
-		merge_si_auto_enabled=bool(merge_si_auto_phase_settings["enabled"]),
-		merge_si_auto_rel_output_root=str(merge_si_auto_phase_settings["rel_output_root"]),
-		merge_si_auto_delete_outputs_on_force_restart=bool(
-			merge_si_auto_phase_settings["delete_outputs_on_force_restart"]
-		),
-		merge_si_auto_force_restart=bool(merge_si_auto_phase_settings["force_restart"]),
-		merge_si_auto_force_replot=bool(merge_si_auto_phase_settings["force_replot"]),
-		merge_si_auto_use_canonical_workspace=bool(merge_si_auto_phase_settings["use_canonical_workspace"]),
-		merge_si_auto_canonical_workspace_relpath=str(
-			merge_si_auto_phase_settings["canonical_workspace_relpath"]
-		),
-		merge_si_auto_canonical_workspace_refresh_on_run=bool(
-			merge_si_auto_phase_settings["canonical_workspace_refresh_on_run"]
-		),
-		merge_si_auto_canonical_workspace_rebuild_analyzer=bool(
-			merge_si_auto_phase_settings["canonical_workspace_rebuild_analyzer"]
-		),
-		merge_si_auto_publish_canonical_to_stage_outputs_on_success=bool(
-			merge_si_auto_phase_settings["publish_canonical_to_stage_outputs_on_success"]
-		),
-		merge_si_auto_publish_canonical_to_stage_outputs_on_failure=bool(
-			merge_si_auto_phase_settings["publish_canonical_to_stage_outputs_on_failure"]
-		),
-		merge_si_auto_assert_uses_canonical_workspace=bool(
-			merge_si_auto_phase_settings["assert_uses_canonical_workspace"]
-		),
-		merge_si_auto_debug_mode_enabled=bool(merge_si_auto_phase_settings["debug_mode_enabled"]),
-		merge_si_auto_debug_limit_datasets=merge_si_auto_phase_settings["debug_limit_datasets"],
-		merge_si_auto_debug_limit_wells=merge_si_auto_phase_settings["debug_limit_wells"],
-		merge_si_auto_debug_limit_wells_per_dataset=merge_si_auto_phase_settings[
-			"debug_limit_wells_per_dataset"
-		],
-		merge_unitmatch_enabled=bool(merge_unitmatch_phase_settings["enabled"]),
-		merge_unitmatch_rel_output_root=str(merge_unitmatch_phase_settings["rel_output_root"]),
-		merge_unitmatch_delete_outputs_on_force_restart=bool(
-			merge_unitmatch_phase_settings["delete_outputs_on_force_restart"]
-		),
-		merge_unitmatch_force_restart=bool(merge_unitmatch_phase_settings["force_restart"]),
-		merge_unitmatch_force_replot=bool(merge_unitmatch_phase_settings["force_replot"]),
-		merge_unitmatch_use_canonical_workspace=bool(
-			merge_unitmatch_phase_settings["use_canonical_workspace"]
-		),
-		merge_unitmatch_canonical_workspace_relpath=str(
-			merge_unitmatch_phase_settings["canonical_workspace_relpath"]
-		),
-		merge_unitmatch_canonical_workspace_refresh_on_run=bool(
-			merge_unitmatch_phase_settings["canonical_workspace_refresh_on_run"]
-		),
-		merge_unitmatch_canonical_workspace_rebuild_analyzer=bool(
-			merge_unitmatch_phase_settings["canonical_workspace_rebuild_analyzer"]
-		),
-		merge_unitmatch_publish_canonical_to_stage_outputs_on_success=bool(
-			merge_unitmatch_phase_settings["publish_canonical_to_stage_outputs_on_success"]
-		),
-		merge_unitmatch_publish_canonical_to_stage_outputs_on_failure=bool(
-			merge_unitmatch_phase_settings["publish_canonical_to_stage_outputs_on_failure"]
-		),
-		merge_unitmatch_assert_uses_canonical_workspace=bool(
-			merge_unitmatch_phase_settings["assert_uses_canonical_workspace"]
-		),
-		merge_unitmatch_debug_mode_enabled=bool(merge_unitmatch_phase_settings["debug_mode_enabled"]),
-		merge_unitmatch_debug_limit_datasets=merge_unitmatch_phase_settings["debug_limit_datasets"],
-		merge_unitmatch_debug_limit_wells=merge_unitmatch_phase_settings["debug_limit_wells"],
-		merge_unitmatch_debug_limit_wells_per_dataset=merge_unitmatch_phase_settings[
 			"debug_limit_wells_per_dataset"
 		],
 		merge_phase_runtime_overrides=(

@@ -91,6 +91,69 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-10 - pending - claude: spikesort-merge-cleanup, drop merge_si_auto and merge_unitmatch phases (slice 1)
+
+Status: pending
+
+BASELINE (spikesort-merge-cleanup branch, off claude-migration `2b7090d`, before any slice-1 work):
+- spikesort suite: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/` → 200 passed / 0 failed.
+- pipeline-level (excluding test_progress.py, the pre-existing TabError): 457 passed (per plan §0).
+
+Summary:
+- Slice 1 of `debug/spikesort_merge_cleanup_plan.md`. Removes `merge_si_auto` and `merge_unitmatch` phases from the codebase ahead of the slice 2 orchestrator collapse.
+- Deleted orchestrator modules `merge_si_auto.py` and `merge_unitmatch.py`; dropped their imports/exports from `orchestrators/__init__.py`, the `stages/spikesort/__init__.py` re-exports, the `stages/spikesort/cli.py` thin wrappers, and the pipeline `cli.py` import block, alias map (short + full forms incl. `spikesort.merge.automerge`, `spikesort.merge.auto_merge`, `spikesort.merge.unitmatch`, `spikesort.merge_units.auto_merge`, `spikesort.merge_units.unitmatch`), and `_STAGE_HANDLERS` dispatch entries.
+- `pipeline/runner.py`: dropped `run_spikesort_merge_si_auto` / `run_spikesort_merge_unitmatch` imports, the resource-class map entries, the `_SPIKESORT_DIRECT_PHASE_LABELS` entries, the `merge_sequence` token branches that mapped to `merge_si_auto` / `merge_unitmatch`, the `available_phases` builder blocks, and the `_run_spikesort_merge_si_auto_target` / `_run_spikesort_merge_unitmatch_target` wrappers.
+- `stages/spikesort/config.py`: dropped `merge_si_auto` and `merge_unitmatch` from `DEFAULT_SPIKESORT_PHASE_SEQUENCE`; removed the `merge_si_auto`, `merge_auto`, `merge_auto_merge`, `auto_merge`, `si_auto`, `merge_unitmatch`, `unitmatch` aliases from `_SPIKESORT_PHASE_ALIASES`; deleted ~50 `merge_si_auto_*` / `merge_unitmatch_*` flat fields from `SpikesortStageConfig`; removed the corresponding YAML→config parser sections (`merge_si_auto_phase_cfg`, `merge_unitmatch_phase_cfg`, resource-class extraction, dry_run + standalone phase settings parsing, the two `.update(merge_*_phase_cfg)` calls feeding `unitmatch_cfg` / `auto_merge_cfg`, and the `merge_phase_runtime_overrides` entries) and constructor keyword args.
+- `debug/debug.runtime.yml`: deleted the `phases.merge_si_auto` block (lines 819-969) and the `phases.merge_unitmatch` block (lines 971-1124); refreshed the `concat_analyzer` comment to drop the slice-3-5 forward reference.
+- Updated stale references in `runner.py:1451` docstring, `core/concat_analyzer.py:4` module docstring, and `tests/_mutation_safety.py:42` docstring to drop the deleted phases.
+- Tests touched per plan §4 slice 1 list: deleted `test_run_auto_merge_method_*` (5 tests in `test_runner.py`) plus the now-stale `test_parse_spikesort_stage_config_unitmatch_enabled_false_disables_merge_units` and `test_parse_spikesort_stage_config_reads_auto_merge_knobs` in `test_spikesort_config.py`; trimmed defaults assertions and the phase-sequence parse test that referenced the dropped fields/phases. Pipeline-level: deleted 6 `merge_si_auto`/`merge_unitmatch` parser/dispatch tests in `test_cli_stage_sequence.py`; switched `test_resources.py` phase-resource-class assertion to `merge_SLAy`; replaced the `merge_unitmatch` placeholder in `test_spikesort_target_status.py` with `summarize_sort` (already disabled, same skipped-phase semantic).
+- `_run_auto_merge_method` (and the leftover `getattr(stage_config, "merge_si_auto_dry_run", True)` inside it) is intentionally retained — slice 2 deletes the orchestrator dispatch and that helper together.
+
+Why:
+- Plan §0 mandates removing `merge_si_auto` and `merge_unitmatch` so the slice-2 SLAy-only orchestrator collapse can happen without touching method-dispatch code paths that are about to be deleted.
+
+Guardrails Consulted:
+- `debug/spikesort_merge_cleanup_plan.md` (plan-of-record).
+- `debug/first_version_pipeline_guardrails.md` (delete-don't-shim policy).
+- `debug/stage_and_phase_behavior_guardrails.md` (CLI dispatch + phase sequencing rules).
+- `debug/cli_debug_flags_agent_guardrails.md` (no new flags this slice).
+- `debug/optimization_simplificaiton_guardrails.md` (no scope creep).
+
+Acceptance Criteria (plan §4 slice 1):
+- `git grep -nE "\bmerge_si_auto\b|\bmerge_unitmatch\b" src/axon_recon/` → 0 hits (verified — the only remaining match is the substring `merge_si_auto_dry_run` inside `_run_auto_merge_method`, which the `\b` word-boundary anchor does not match; slice 2 deletes that too).
+- `git grep -nE "\bmerge_si_auto\b|\bmerge_unitmatch\b" debug/*.yml` → 0 hits.
+- `axon-recon stages spikesort.merge_si_auto --config debug/debug.runtime.yml` and `... spikesort.merge_unitmatch ...` both fail with "Unsupported stage token" listing the surviving phases (S4 ✓).
+- `debug/debug.runtime.yml` parses cleanly under `yaml.safe_load`; surviving spikesort phases: `bootstrap_concat_binary, sort, summarize_sort, snapshot_sorter_output, concat_analyzer, bombcell_label, merge_SLAy, cleanup_concat_binary` (S5 ✓).
+
+Validation:
+- Focused tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/` → 193 passed / 0 failed (200 baseline minus 5 deleted `test_run_auto_merge_method_*` and 2 deleted `test_parse_spikesort_stage_config_*` = 193).
+- Pipeline tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ --ignore=src/axon_recon/pipeline/tests/test_progress.py` → 451 passed / 0 failed (457 baseline minus 6 deleted `test_cli_stage_sequence.py` tests = 451).
+- CLI smoke: `axon-recon stages spikesort.merge_si_auto` and `... spikesort.merge_unitmatch` reject with the supported-stage list (no longer including either name).
+- YAML smoke: `yaml.safe_load(open("debug/debug.runtime.yml"))` succeeds; spikesort.phases keys verified.
+- Real-data smoke (S1–S6): BLOCKED-SMOKE — no post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` fixture available in this environment; correctness rides on the unit tests above.
+
+CLI / Debug Flag Impact:
+- Removed `spikesort.merge_si_auto` and `spikesort.merge_unitmatch` substages and all their aliases (`spikesort.merge.automerge`, `spikesort.merge.auto_merge`, `spikesort.merge.unitmatch`, `spikesort.merge_units.auto_merge`, `spikesort.merge_units.unitmatch`, plus the bare `merge_si_auto` / `merge_unitmatch` shorthands). Any user script invoking these will get an "Unsupported stage token" error pointing at the surviving stages.
+
+Logging / Parallelism Impact:
+- Resource-class table for `_spikesort_phase_resource_classes_from_labels` and the merge-method label loop in `_spikesort_allocation_phase_labels` no longer emit entries for the two removed phases.
+
+Storage / Cache Impact:
+- No production data touched. The `cache/merge_workspace` YAML blocks remain under `merge_SLAy` (slice 3 deletes them).
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- N/A; phases removed entirely.
+
+Residual Risk And Follow-Ups:
+- `_run_auto_merge_method` and `_run_slay_analyzer_recompute` (and their `_load_or_recompute_spikesort_analyzer` chain) survive into slice 2 by design (plan §1.1). No call site in the runner reaches them since the merge_si_auto / merge_unitmatch phases are gone, but `_run_merge_methods_for_target` still references them through the methods loop and is the slice-2 deletion target.
+- `auto_merge_*`, `unitmatch_*`, `cache_sorting_outputs_before_merge_*`, `pre_merge_workspace_*`, `working_cache_*` flat fields and their YAML readers remain — those are slice 3 / slice 5 scope.
+
+Rollback Notes:
+- Revert this single commit to restore the two phases. The YAML blocks were contiguous and atomically removed; restoring them is the inverse of the diff.
+
 claude-migration baseline: 437 passed / 0 failed / 0 skipped (test_progress.py excluded - pre-existing TabError), 2026-05-08
 a18c9d2 | slice 1 [sonnet] | add nested_shape to phase resource classes
 f32a2a8 | slice 2 [opus] | split build_templates into extract_partial_templates and build_templates

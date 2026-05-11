@@ -644,8 +644,6 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
             summarize_sort_enabled=False,
             bombcell_label_enabled=True,
             merge_slay_enabled=True,
-            merge_si_auto_enabled=False,
-            merge_unitmatch_enabled=False,
             cleanup_concat_binary_enabled=True,
         )
 
@@ -803,8 +801,6 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
             summarize_sort_enabled=False,
             bombcell_label_enabled=False,
             merge_slay_enabled=False,
-            merge_si_auto_enabled=False,
-            merge_unitmatch_enabled=False,
             cleanup_concat_binary_enabled=False,
         )
 
@@ -869,10 +865,8 @@ def test_enabled_spikesort_runtime_phase_plan_uses_configured_sequence_and_skips
         summarize_sort_enabled=False,
         bombcell_label_enabled=True,
         merge_slay_enabled=True,
-        merge_si_auto_enabled=False,
-        merge_unitmatch_enabled=False,
         cleanup_concat_binary_enabled=True,
-        phase_sequence=("bombcell_label", "merge_unitmatch", "sort", "cleanup", "merge_slay", "bootstrap"),
+        phase_sequence=("bombcell_label", "summarize_sort", "sort", "cleanup", "merge_slay", "bootstrap"),
     )
 
     phase_plan = pipeline_runner._enabled_spikesort_runtime_phase_plan(stage_config)

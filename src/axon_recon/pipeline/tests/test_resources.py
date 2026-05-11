@@ -269,16 +269,14 @@ def test_spikesort_runtime_phase_plan_preserves_phase_resource_class():
 	from axon_recon.pipeline.runner import _enabled_spikesort_runtime_phase_plan
 
 	stage_config = SimpleNamespace(
-		phase_sequence=("sort", "merge_si_auto", "cleanup_concat_binary"),
+		phase_sequence=("sort", "merge_SLAy", "cleanup_concat_binary"),
 		bootstrap_concat_binary_enabled=False,
 		sort_enabled=True,
 		sort_resource_class="kilosort4",
 		summarize_sort_enabled=False,
 		bombcell_label_enabled=False,
-		merge_slay_enabled=False,
-		merge_si_auto_enabled=True,
-		merge_si_auto_resource_class="spikeinterface_analyzer",
-		merge_unitmatch_enabled=False,
+		merge_slay_enabled=True,
+		merge_slay_resource_class="spikeinterface_analyzer",
 		cleanup_concat_binary_enabled=True,
 		cleanup_concat_binary_resource_class="disk_cleanup",
 	)
@@ -287,7 +285,7 @@ def test_spikesort_runtime_phase_plan_preserves_phase_resource_class():
 
 	assert [(phase.phase_label, phase.resource_class) for phase in phase_plan] == [
 		("sort", "kilosort4"),
-		("merge_si_auto", "spikeinterface_analyzer"),
+		("merge_SLAy", "spikeinterface_analyzer"),
 		("cleanup_concat_binary", "disk_cleanup"),
 	]
 

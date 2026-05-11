@@ -1,9 +1,7 @@
 """Build (or reuse) the canonical concat-level SortingAnalyzer.
 
-This is the slice-2 implementation. Slice 3 wires bombcell_label onto it,
-slice 4 wires merge_SLAy, slice 5 wires merge_si_auto / merge_unitmatch.
-Today this lives alongside the existing per-phase analyzer-build helpers
-in `runner.py`; those are removed in slices 3-5.
+bombcell_label and merge_SLAy load this canonical analyzer instead of
+building their own.
 """
 
 from __future__ import annotations

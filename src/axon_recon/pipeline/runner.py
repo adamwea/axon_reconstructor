@@ -124,9 +124,7 @@ from .stages.spikesort.models.results import (
 	SpikesortMergeResult,
 	SpikesortResult,
 )
-from .stages.spikesort.orchestrators.merge_si_auto import run_spikesort_merge_si_auto
 from .stages.spikesort.orchestrators.merge_slay import run_spikesort_merge_slay
-from .stages.spikesort.orchestrators.merge_unitmatch import run_spikesort_merge_unitmatch
 
 LOGGER = logging.getLogger("axon_recon.pipeline.runner")
 _WARNED_IGNORED_PHASE_DEBUG_LIMITS: set[tuple[str, str]] = set()
@@ -450,8 +448,6 @@ def _spikesort_phase_resource_classes_from_labels(
 		"concat_analyzer": "concat_analyzer_resource_class",
 		"bombcell_label": "bombcell_label_resource_class",
 		"merge_slay": "merge_slay_resource_class",
-		"merge_si_auto": "merge_si_auto_resource_class",
-		"merge_unitmatch": "merge_unitmatch_resource_class",
 		"cleanup_concat_binary": "cleanup_concat_binary_resource_class",
 	}
 	resource_classes: list[str] = []
@@ -1811,8 +1807,6 @@ _SPIKESORT_DIRECT_PHASE_LABELS: dict[str, str] = {
 	"spikesort.bombcell_label": "bombcell_label",
 	"spikesort.merge": "merge",
 	"spikesort.merge_SLAy": "merge_slay",
-	"spikesort.merge_si_auto": "merge_si_auto",
-	"spikesort.merge_unitmatch": "merge_unitmatch",
 }
 
 
@@ -1826,14 +1820,10 @@ def _spikesort_allocation_phase_labels(stage_config: Any, stage_name: str) -> tu
 	if phase_label != "merge":
 		return (phase_label,)
 	labels: list[str] = []
-	for token in tuple(getattr(stage_config, "merge_sequence", ()) or ("SLAy", "si_auto", "unitmatch")):
+	for token in tuple(getattr(stage_config, "merge_sequence", ()) or ("SLAy",)):
 		normalized = str(token).strip().lower().replace("-", "_")
 		if normalized in {"slay", "merge_slay"}:
 			labels.append("merge_slay")
-		elif normalized in {"si_auto", "auto", "auto_merge", "automerge", "merge_si_auto"}:
-			labels.append("merge_si_auto")
-		elif normalized in {"unitmatch", "unit_match", "merge_unitmatch"}:
-			labels.append("merge_unitmatch")
 	return _unique_resource_classes(tuple(labels))
 
 
@@ -3030,32 +3020,6 @@ def _enabled_spikesort_runtime_phase_plan(
 				resource_class=getattr(stage_config, "merge_slay_resource_class", None),
 			)
 		)
-	if bool(getattr(stage_config, "merge_si_auto_enabled", False)):
-		available_phases["merge_si_auto"] = (
-			_SpikesortRuntimePhase(
-				name="spikesort.merge_si_auto",
-				phase_label="merge_si_auto",
-				debug_enabled_attr="merge_si_auto_debug_mode_enabled",
-				debug_limit_datasets_attr="merge_si_auto_debug_limit_datasets",
-				debug_limit_wells_attr="merge_si_auto_debug_limit_wells",
-				target_runner=_run_spikesort_merge_si_auto_target,
-				debug_limit_wells_per_dataset_attr="merge_si_auto_debug_limit_wells_per_dataset",
-				resource_class=getattr(stage_config, "merge_si_auto_resource_class", None),
-			)
-		)
-	if bool(getattr(stage_config, "merge_unitmatch_enabled", False)):
-		available_phases["merge_unitmatch"] = (
-			_SpikesortRuntimePhase(
-				name="spikesort.merge_unitmatch",
-				phase_label="merge_unitmatch",
-				debug_enabled_attr="merge_unitmatch_debug_mode_enabled",
-				debug_limit_datasets_attr="merge_unitmatch_debug_limit_datasets",
-				debug_limit_wells_attr="merge_unitmatch_debug_limit_wells",
-				target_runner=_run_spikesort_merge_unitmatch_target,
-				debug_limit_wells_per_dataset_attr="merge_unitmatch_debug_limit_wells_per_dataset",
-				resource_class=getattr(stage_config, "merge_unitmatch_resource_class", None),
-			)
-		)
 	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)):
 		available_phases["cleanup_concat_binary"] = (
 			_SpikesortRuntimePhase(
@@ -3179,30 +3143,6 @@ def _run_spikesort_merge_slay_target(*, target: Any, stage_config: Any, unit_wor
 		stage_config=stage_config,
 		force_restart=bool(getattr(stage_config, "merge_slay_force_restart", False)),
 		force_replot=bool(getattr(stage_config, "merge_slay_force_replot", False)),
-	)
-
-
-def _run_spikesort_merge_si_auto_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortMergeResult:
-	return run_spikesort_merge_si_auto(
-		h5_path=target.h5_path,
-		stream_id=target.stream_id,
-		mea_output_root=target.mea_output_root,
-		output_rel_root=_spikesort_output_rel_root(stage_config),
-		stage_config=stage_config,
-		force_restart=bool(getattr(stage_config, "merge_si_auto_force_restart", False)),
-		force_replot=bool(getattr(stage_config, "merge_si_auto_force_replot", False)),
-	)
-
-
-def _run_spikesort_merge_unitmatch_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortMergeResult:
-	return run_spikesort_merge_unitmatch(
-		h5_path=target.h5_path,
-		stream_id=target.stream_id,
-		mea_output_root=target.mea_output_root,
-		output_rel_root=_spikesort_output_rel_root(stage_config),
-		stage_config=stage_config,
-		force_restart=bool(getattr(stage_config, "merge_unitmatch_force_restart", False)),
-		force_replot=bool(getattr(stage_config, "merge_unitmatch_force_replot", False)),
 	)
 
 

@@ -105,13 +105,7 @@ from .stages.spikesort.cli import (
 )
 from .stages.spikesort.cli import _run_from_args as _run_spikesort_from_args
 from .stages.spikesort.cli import _run_merge_from_args as _run_spikesort_merge_from_args
-from .stages.spikesort.cli import (
-	_run_merge_si_auto_from_args as _run_spikesort_merge_si_auto_from_args,
-)
 from .stages.spikesort.cli import _run_merge_slay_from_args as _run_spikesort_merge_slay_from_args
-from .stages.spikesort.cli import (
-	_run_merge_unitmatch_from_args as _run_spikesort_merge_unitmatch_from_args,
-)
 from .stages.spikesort.cli import (
 	_run_concat_analyzer_from_args as _run_spikesort_concat_analyzer_from_args,
 )
@@ -176,8 +170,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"spikesort.bombcell": "spikesort.bombcell_label",
 	"merge": "spikesort.merge",
 	"merge_SLAy": "spikesort.merge_SLAy",
-	"merge_si_auto": "spikesort.merge_si_auto",
-	"merge_unitmatch": "spikesort.merge_unitmatch",
 	"spikesort.summary": "spikesort.summarize_sort",
 	"spikesort.snapshot": "spikesort.snapshot_sorter_output",
 	"spikesort.restore": "spikesort.restore_sorter_output",
@@ -187,14 +179,7 @@ _STAGE_ALIASES: dict[str, str] = {
 	"spikesort.merge.slay": "spikesort.merge_SLAy",
 	"spikesort.merge_SLAy": "spikesort.merge_SLAy",
 	"spikesort.merge_slay": "spikesort.merge_SLAy",
-	"spikesort.merge.automerge": "spikesort.merge_si_auto",
-	"spikesort.merge.auto_merge": "spikesort.merge_si_auto",
-	"spikesort.merge_si_auto": "spikesort.merge_si_auto",
-	"spikesort.merge.unitmatch": "spikesort.merge_unitmatch",
-	"spikesort.merge_unitmatch": "spikesort.merge_unitmatch",
 	"spikesort.merge_units.slay": "spikesort.merge_SLAy",
-	"spikesort.merge_units.auto_merge": "spikesort.merge_si_auto",
-	"spikesort.merge_units.unitmatch": "spikesort.merge_unitmatch",
 	"spike": "spikesort",
 	"spikesorting": "spikesort",
 	"recon": "reconstruct",
@@ -290,8 +275,6 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"spikesort.concat_analyzer": _run_spikesort_concat_analyzer_from_args,
 	"spikesort.merge": _run_spikesort_merge_from_args,
 	"spikesort.merge_SLAy": _run_spikesort_merge_slay_from_args,
-	"spikesort.merge_si_auto": _run_spikesort_merge_si_auto_from_args,
-	"spikesort.merge_unitmatch": _run_spikesort_merge_unitmatch_from_args,
 	"reconstruct": _run_reconstruct_from_args,
 	"reconstruct.resolve_sources": _run_reconstruct_resolve_sources_from_args,
 	"reconstruct.analyzers": _run_reconstruct_analyzers_from_args,

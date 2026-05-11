@@ -1447,9 +1447,9 @@ def _load_concat_analyzer_for_phase(
 ) -> tuple[Any, Path]:
 	"""Load the canonical concat-level SortingAnalyzer.
 
-	Built once by `spikesort.concat_analyzer` (slice 2). Phases that consume
-	it (bombcell_label, merge_SLAy, merge_si_auto, merge_unitmatch — slices
-	3-5) must call this loader and refuse to run if it is missing.
+	Built once by `spikesort.concat_analyzer`. Phases that consume it
+	(bombcell_label, merge_SLAy) must call this loader and refuse to run
+	if it is missing.
 	"""
 	analyzer_relpath = str(getattr(stage_config, "concat_analyzer_relpath", None) or "concat_analyzer")
 	analyzer_dir = _resolve_under_spikesort_output_root(
