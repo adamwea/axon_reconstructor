@@ -1464,33 +1464,18 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
         return SimpleNamespace(
             debug_limit_wells=None,
             output_rel_root="spikesort_outputs",
-            merge_sequence=("SLAy", "auto_merge"),
+            merge_sequence=("SLAy",),
             merge_units_enabled=True,
             merge_rel_output_root="merge_output",
             merge_delete_outputs_on_force_restart=False,
             merge_force_restart=False,
             merge_force_replot=False,
-            cache_sorting_outputs_before_merge=True,
-            cache_sorting_outputs_before_merge_use_canonical_workspace=False,
-            cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
-            cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=False,
-            cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=False,
-            cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=True,
-            cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure=True,
-            cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace=False,
             slay_enabled=False,
             merge_slay_enabled=True,
             merge_slay_rel_output_root="merge_SLAy",
             merge_slay_delete_outputs_on_force_restart=True,
             merge_slay_force_restart=False,
             merge_slay_force_replot=False,
-            merge_slay_use_canonical_workspace=True,
-            merge_slay_canonical_workspace_relpath="cache/slay_workspace",
-            merge_slay_canonical_workspace_refresh_on_run=True,
-            merge_slay_canonical_workspace_rebuild_analyzer=False,
-            merge_slay_publish_canonical_to_stage_outputs_on_success=True,
-            merge_slay_publish_canonical_to_stage_outputs_on_failure=False,
-            merge_slay_assert_uses_canonical_workspace=True,
             merge_phase_runtime_overrides={
                 "merge_slay": {
                     "merge_analyzer_n_jobs": 7,
@@ -1530,14 +1515,6 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
     assert mapped_stage_config.merge_units_enabled is True
     assert mapped_stage_config.merge_rel_output_root == "merge_SLAy"
     assert mapped_stage_config.merge_delete_outputs_on_force_restart is True
-    assert mapped_stage_config.cache_sorting_outputs_before_merge is False
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_use_canonical_workspace is True
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_canonical_workspace_relpath == "cache/slay_workspace"
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run is True
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is False
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is True
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is False
-    assert mapped_stage_config.cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace is True
     assert mapped_stage_config.slay_enabled is True
     assert mapped_stage_config.merge_analyzer_n_jobs == 7
     assert mapped_stage_config.merge_reports_enabled is False
@@ -1588,33 +1565,18 @@ def test_run_spikesort_merge_slay_from_runtime_ignores_phase_debug_limits(
         return SimpleNamespace(
             debug_limit_wells=None,
             output_rel_root="spikesort_outputs",
-            merge_sequence=("SLAy", "auto_merge"),
+            merge_sequence=("SLAy",),
             merge_units_enabled=True,
             merge_rel_output_root="merge_output",
             merge_delete_outputs_on_force_restart=False,
             merge_force_restart=False,
             merge_force_replot=False,
-            cache_sorting_outputs_before_merge=True,
-            cache_sorting_outputs_before_merge_use_canonical_workspace=False,
-            cache_sorting_outputs_before_merge_canonical_workspace_relpath="cache/merge_workspace",
-            cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=False,
-            cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=False,
-            cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=True,
-            cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure=True,
-            cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace=False,
             slay_enabled=False,
             merge_slay_enabled=True,
             merge_slay_rel_output_root="merge_SLAy",
             merge_slay_delete_outputs_on_force_restart=True,
             merge_slay_force_restart=False,
             merge_slay_force_replot=False,
-            merge_slay_use_canonical_workspace=True,
-            merge_slay_canonical_workspace_relpath="cache/slay_workspace",
-            merge_slay_canonical_workspace_refresh_on_run=True,
-            merge_slay_canonical_workspace_rebuild_analyzer=False,
-            merge_slay_publish_canonical_to_stage_outputs_on_success=True,
-            merge_slay_publish_canonical_to_stage_outputs_on_failure=False,
-            merge_slay_assert_uses_canonical_workspace=True,
             merge_slay_debug_mode_enabled=True,
             merge_slay_debug_limit_datasets=1,
             merge_slay_debug_limit_wells=1,

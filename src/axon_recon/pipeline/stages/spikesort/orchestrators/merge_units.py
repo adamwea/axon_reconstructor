@@ -32,7 +32,6 @@ def _with_standalone_merge_phase_stage_config(
 	phase_prefix: str,
 	merge_sequence: tuple[str, ...] | list[str],
 	method_enabled_field: str | None = None,
-	assert_field: str | None = None,
 ) -> Any:
 	phase_enabled = bool(getattr(stage_config, f"{phase_prefix}_enabled", False))
 	replace_kwargs: dict[str, Any] = {
@@ -44,25 +43,6 @@ def _with_standalone_merge_phase_stage_config(
 		),
 		"merge_force_restart": bool(getattr(stage_config, f"{phase_prefix}_force_restart")),
 		"merge_force_replot": bool(getattr(stage_config, f"{phase_prefix}_force_replot")),
-		"cache_sorting_outputs_before_merge": False,
-		"cache_sorting_outputs_before_merge_use_canonical_workspace": bool(
-			getattr(stage_config, f"{phase_prefix}_use_canonical_workspace")
-		),
-		"cache_sorting_outputs_before_merge_canonical_workspace_relpath": str(
-			getattr(stage_config, f"{phase_prefix}_canonical_workspace_relpath")
-		),
-		"cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run": bool(
-			getattr(stage_config, f"{phase_prefix}_canonical_workspace_refresh_on_run")
-		),
-		"cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer": bool(
-			getattr(stage_config, f"{phase_prefix}_canonical_workspace_rebuild_analyzer")
-		),
-		"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success": bool(
-			getattr(stage_config, f"{phase_prefix}_publish_canonical_to_stage_outputs_on_success")
-		),
-		"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure": bool(
-			getattr(stage_config, f"{phase_prefix}_publish_canonical_to_stage_outputs_on_failure")
-		),
 	}
 	phase_runtime_overrides = getattr(stage_config, "merge_phase_runtime_overrides", None)
 	if isinstance(phase_runtime_overrides, dict):
@@ -71,10 +51,6 @@ def _with_standalone_merge_phase_stage_config(
 			replace_kwargs.update(dict(phase_override_payload))
 	if method_enabled_field is not None:
 		replace_kwargs[method_enabled_field] = bool(phase_enabled)
-	if assert_field is not None:
-		replace_kwargs[assert_field] = bool(
-			getattr(stage_config, f"{phase_prefix}_assert_uses_canonical_workspace")
-		)
 	return _with_stage_config_overrides(stage_config, **replace_kwargs)
 
 
@@ -181,18 +157,3 @@ def _run_merge_slay_from_args(args: argparse.Namespace) -> int:
 	)
 
 
-def _run_merge_auto_merge_from_args(args: argparse.Namespace) -> int:
-	target_datasets_override = _target_datasets_override_from_args(args)
-	return _print_spikesort_merge_aggregate(
-		run_spikesort_merge_units_from_runtime(
-			config_path=str(args.config),
-			limit_segments_override=getattr(args, "limit_segments", None),
-			limit_datasets_override=getattr(args, "limit_datasets", None),
-			target_datasets_override=target_datasets_override,
-			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
-			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
-			merge_sequence_override=("auto_merge",),
-			stage_name="spikesort.merge.auto_merge",
-		)
-	)

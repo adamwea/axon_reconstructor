@@ -1910,8 +1910,6 @@ def _normalize_merge_method_token(raw: Any) -> str:
 	text = str(raw or "").strip().lower()
 	if text in {"slay", "s_l_a_y"}:
 		return "slay"
-	if text in {"auto_merge", "automerge", "auto-merge"}:
-		return "auto_merge"
 	if text in {"unitmatch", "unit_match", "unit-match"}:
 		return "unitmatch"
 	return text
@@ -4559,56 +4557,6 @@ def _extract_slay_applied_merge_operations(*, report: dict[str, Any]) -> list[di
 	return out
 
 
-def _extract_auto_merge_applied_merge_operations(*, report: dict[str, Any]) -> list[dict[str, Any]]:
-	summary_path_raw = report.get("summary_json", None)
-	if summary_path_raw is None:
-		outputs = report.get("outputs", {})
-		if isinstance(outputs, dict):
-			summary_path_raw = outputs.get("auto_merge.summary_json", None)
-	if summary_path_raw is None:
-		return []
-	summary_payload = _read_json_dict(Path(str(summary_path_raw)))
-	if not isinstance(summary_payload, dict):
-		return []
-	iterations_raw = summary_payload.get("iterations", [])
-	if not isinstance(iterations_raw, list):
-		return []
-
-	out: list[dict[str, Any]] = []
-	for iteration_payload in iterations_raw:
-		if not isinstance(iteration_payload, dict):
-			continue
-		if not bool(iteration_payload.get("applied", False)):
-			continue
-		iteration_idx = int(iteration_payload.get("iteration", 0) or 0)
-		threshold = iteration_payload.get("template_diff_thresh", None)
-
-		groups: list[list[str]] = []
-		applied_groups_path = iteration_payload.get("applied_groups_json", None)
-		if applied_groups_path is not None:
-			applied_payload = _read_json_dict(Path(str(applied_groups_path)))
-			if isinstance(applied_payload, dict):
-				groups = _extract_group_lists(applied_payload.get("applied_groups", []))
-		if not groups:
-			groups_json_path = iteration_payload.get("groups_json", None)
-			if groups_json_path is not None:
-				groups_payload = _read_json_dict(Path(str(groups_json_path)))
-				if isinstance(groups_payload, dict):
-					groups = _extract_group_lists(groups_payload.get("merge_groups", []))
-
-		for group_idx, members in enumerate(groups, start=1):
-			out.append(
-				{
-					"method": "auto_merge",
-					"iteration": int(iteration_idx),
-					"template_diff_thresh": threshold,
-					"group_id": f"auto_merge_iter_{int(iteration_idx):03d}_group_{group_idx:03d}",
-					"pre_unit_ids": list(members),
-				}
-			)
-	return out
-
-
 def _extract_applied_merge_operations(*, method_reports: list[dict[str, Any]], stage_config: Any) -> list[dict[str, Any]]:
 	operations: list[dict[str, Any]] = []
 	for report in method_reports:
@@ -4620,10 +4568,6 @@ def _extract_applied_merge_operations(*, method_reports: list[dict[str, Any]], s
 		if method == "slay":
 			if bool(getattr(stage_config, "slay_auto_accept_merges", False)) and bool(report.get("applied_merges", False)):
 				operations.extend(_extract_slay_applied_merge_operations(report=report))
-			continue
-		if method == "auto_merge":
-			if bool(getattr(stage_config, "auto_merge_auto_accept_merges", False)):
-				operations.extend(_extract_auto_merge_applied_merge_operations(report=report))
 			continue
 	return operations
 
@@ -5205,12 +5149,7 @@ def _build_merge_metadata_summary(
 		and bool(getattr(stage_config, "slay_auto_accept_merges", False))
 		and ("slay" in requested_methods)
 	)
-	auto_merge_auto_accept_enabled = bool(
-		bool(getattr(stage_config, "auto_merge_enabled", False))
-		and bool(getattr(stage_config, "auto_merge_auto_accept_merges", False))
-		and ("auto_merge" in requested_methods)
-	)
-	auto_accept_enabled_any = bool(slay_auto_accept_enabled or auto_merge_auto_accept_enabled)
+	auto_accept_enabled_any = bool(slay_auto_accept_enabled)
 
 	sorter_delta_raw = _compute_snapshot_unit_delta(
 		before_payload=dict(pre_snapshot.get("sorter", {})),
@@ -5303,7 +5242,6 @@ def _build_merge_metadata_summary(
 		"requested_sequence": [str(token) for token in requested_sequence_raw],
 		"auto_accept": {
 			"slay_enabled": bool(slay_auto_accept_enabled),
-			"auto_merge_enabled": bool(auto_merge_auto_accept_enabled),
 			"any_enabled": bool(auto_accept_enabled_any),
 		},
 		"before": pre_snapshot,
@@ -9469,13 +9407,6 @@ def run_spikesort_merge_stage(
 	if isinstance(slay_ok, dict):
 		payload["n_merge_groups"] = int(slay_ok.get("n_merge_groups", 0) or 0)
 		payload["n_candidate_pairs"] = int(slay_ok.get("n_candidate_pairs", 0) or 0)
-
-	auto_merge_ok = next((report for report in method_reports if report.get("name") == "auto_merge" and report.get("status") == "ok"), None)
-	if isinstance(auto_merge_ok, dict):
-		payload["auto_merge_n_candidate_groups_total"] = int(auto_merge_ok.get("n_candidate_groups_total", 0) or 0)
-		payload["auto_merge_n_candidate_pairs_total"] = int(auto_merge_ok.get("n_candidate_pairs_total", 0) or 0)
-		payload["auto_merge_n_applied_groups_total"] = int(auto_merge_ok.get("n_applied_groups_total", 0) or 0)
-		payload["auto_merge_n_iterations"] = int(auto_merge_ok.get("n_iterations", 0) or 0)
 
 	combined_outputs["summary_json"] = str(summary_json)
 	_write_json(summary_json, payload)

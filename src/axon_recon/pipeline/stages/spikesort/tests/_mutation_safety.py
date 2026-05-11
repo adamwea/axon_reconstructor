@@ -1,10 +1,9 @@
 """Helpers for mutation-safety regression tests (slice 7).
 
 After slices 3-5, every label/merge phase honors a `dry_run` knob that
-keeps the canonical sorter_output (or canonical analyzer dir, for
-auto_merge) byte-identical. The helpers here let regression tests
-hash a directory tree before and after a phase invocation and assert
-no unexpected mutation.
+keeps the canonical sorter_output byte-identical. The helpers here
+let regression tests hash a directory tree before and after a phase
+invocation and assert no unexpected mutation.
 """
 
 from __future__ import annotations

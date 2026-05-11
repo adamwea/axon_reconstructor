@@ -91,6 +91,81 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-10 - pending - claude: spikesort-merge-cleanup, final config and YAML sweep (slice 5)
+
+Status: pending
+
+Pre-slice baseline (after slice 4): 158 spikesort tests / 451 pipeline tests.
+
+Summary:
+- Slice 5 of `debug/spikesort_merge_cleanup_plan.md`. Final config / YAML / orchestrator sweep so the plan §6 cleanup-grep checks all return 0 hits.
+- `orchestrators/merge_slay.py`: dropped the `assert_field="cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace"` argument from both `_with_standalone_merge_phase_stage_config` calls. The runner no longer reads any cache_sorting_outputs_before_merge_* attribute.
+- `orchestrators/merge_units.py`: removed the entire `cache_sorting_outputs_before_merge*` override block (~9 fields) and the `assert_field` parameter from `_with_standalone_merge_phase_stage_config`; deleted `_run_merge_auto_merge_from_args` (no callers — auto_merge phase CLI is gone since slice 1).
+- `runner.py`:
+  - `_normalize_merge_method_token`: dropped the `auto_merge`/`automerge`/`auto-merge` branch.
+  - `_extract_applied_merge_operations`: removed the auto_merge branch (and the `_extract_auto_merge_applied_merge_operations` helper).
+  - `_build_merge_metadata_summary`: dropped the `auto_merge_auto_accept_enabled` derivation; `auto_accept_enabled_any` is now just `slay_auto_accept_enabled`. Dropped the `auto_merge_enabled` key in the auto_accept payload.
+  - Deleted the `auto_merge_ok = next(...)` block (no consumers after auto_merge dispatch went away in slice 2).
+- `config.py`:
+  - Deleted dataclass fields: 7 `auto_merge_*` fields, 7 `merge_slay_*_canonical_workspace_*` + `merge_slay_assert_uses_canonical_workspace` fields (dead since slice 3), `slay_recompute_analyzer` (dead since slice 4), `merge_analyzer_regenerate_on_replot` + `merge_analyzer_check_if_regen_is_needed` (dead since slice 4).
+  - Deleted the corresponding parser blocks (auto_merge_cfg setup at ~862-887, the auto_merge_* parser block at ~1569-1631, the slay/merge_analyzer parser blocks, and the merge_slay_* canonical_workspace parser at ~3515-3531).
+  - Simplified `_parse_standalone_merge_phase_settings` to drop the canonical-workspace knobs.
+  - `merge_sequence` default switched from `("SLAy", "auto_merge", "unitmatch")` to `("SLAy",)` at line 2433.
+  - Stripped the constructor kwargs that pass these fields.
+- Tests:
+  - `test_spikesort_config.py`: updated 3 `merge_sequence` default assertions to `("SLAy",)`; removed default-field assertions for the deleted fields; removed `auto_merge`/canonical_workspace YAML stanzas in test inputs (re-routed legacy `auto_merge` blob to `am_kwargs` where applicable); deleted the dead `test_parse_spikesort_stage_config_reads_legacy_merge_analyzer_regenereate_on_replot_key`.
+  - `test_runner.py`: changed `"method": "auto_merge"` strings in applied_operations test data to `"method": "slay"`; updated `merge_sequence=("SLAy", "auto_merge")` to `("SLAy",)`; removed the `cache_sorting_outputs_before_merge=False` SimpleNamespace kwarg.
+  - `_mutation_safety.py`: updated docstring (mention only post-slice-3-5 dry_run safety).
+  - `test_spikesort_target_status.py`: stripped removed-field kwargs and assertions; updated `merge_sequence` to `("SLAy",)`.
+
+Why:
+- Plan §6 demands every cleanup-grep return 0 hits, including the bare `\bauto_merge\b` token. With auto_merge dispatch deleted in slice 2, every consumer of `auto_merge` in metadata helpers, parser fallbacks, and CLI orchestrators is dead — slice 5 strips them.
+- Plan §4 slice 5 explicitly lists `auto_merge_*` flat fields for deletion.
+
+Guardrails Consulted:
+- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 5 + §6 cleanup checklist + §0 non-goal).
+- `debug/first_version_pipeline_guardrails.md` (no shims, delete dead code).
+- `debug/stage_and_phase_behavior_guardrails.md` (preserve metadata/reports machinery shape).
+
+Acceptance Criteria (plan §6 + §4 slice 5):
+- §6.1: `\bmerge_si_auto\b|\bmerge_unitmatch\b` in src → 0 ✓
+- §6.2: same in yml → 0 ✓
+- §6.3: `_run_auto_merge_method|_run_merge_methods_for_target` → 0 ✓
+- §6.4: cache helpers → 0 ✓
+- §6.5: legacy analyzer family → 0 ✓
+- §6.6: `working_cache:|pre_merge_cache:|merge_workspace:` in yml → 0 ✓
+- §6.7: `cache_sorting_outputs_before_merge|pre_merge_workspace|cache_sorter_output_before_analyzer_gen|publish_cached_sorter_output|cleanup_cached_sorter_output` → 0 ✓
+- §6.8: `create_sorting_analyzer\|SortingAnalyzer.create` count in runner.py → 1 (concat_analyzer integration call site) ✓
+- §4-slice-5: `\bmerge_si_auto\b|\bmerge_unitmatch\b|\bauto_merge\b` → 0 ✓
+
+Validation:
+- Focused tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/` → 157 passed (158 prior baseline minus 1 dead-test deletion).
+- Pipeline tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ --ignore=src/axon_recon/pipeline/tests/test_progress.py` → 451 passed (unchanged).
+- S5 YAML sanity: `yaml.safe_load` parses cleanly; spikesort phases unchanged.
+
+CLI / Debug Flag Impact:
+- Removed `_run_merge_auto_merge_from_args` (auto_merge CLI helper) — no callers, no user-visible change.
+
+Logging / Parallelism Impact:
+- `auto_merge_ok` log/branch removed; `auto_merge_enabled` key in `auto_accept` summary payload removed; metadata helpers no longer enumerate `auto_merge` method names.
+
+Storage / Cache Impact:
+- None — all changes are config/orchestrator plumbing.
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- None.
+
+Residual Risk And Follow-Ups:
+- `am_kwargs` dataclass field retained as a passthrough for legacy unitmatch SpikeInterface knobs consumed by legacy_runner.py and `_cleanup_spikesort_outputs_for_force_restart`. Plan didn't request its removal.
+- `_normalize_merge_method_token` still recognizes `unitmatch` (plan §4 slice 5 acceptance only forbids `auto_merge`); harmless given no orchestrator consumes it.
+- `automerge` (no underscore, used in SLAy artifact directory naming) is intentionally kept — `\bauto_merge\b` doesn't match it.
+
+Rollback Notes:
+- Revert this single commit to restore the dead config fields, parser blocks, and metadata-helper auto_merge branches.
+
 ## 2026-05-10 - pending - claude: spikesort-merge-cleanup, replot uses concat_analyzer, legacy analyzer family deleted (slice 4)
 
 Status: pending

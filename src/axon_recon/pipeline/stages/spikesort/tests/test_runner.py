@@ -2600,13 +2600,13 @@ def test_build_unit_diff_map_and_flat_map_supports_chained_merges() -> None:
                 "pre_unit_ids": ["10", "11"],
             },
             {
-                "method": "auto_merge",
+                "method": "slay",
                 "group_id": "g2",
                 "pre_unit_ids": ["12", "20"],
                 "iteration": 1,
             },
             {
-                "method": "auto_merge",
+                "method": "slay",
                 "group_id": "g3",
                 "pre_unit_ids": ["21", "13"],
                 "iteration": 2,
@@ -2621,7 +2621,7 @@ def test_build_unit_diff_map_and_flat_map_supports_chained_merges() -> None:
                 "resolution": "post_unit_hint",
             },
             {
-                "method": "auto_merge",
+                "method": "slay",
                 "group_id": "g2",
                 "pre_unit_ids": ["12", "20"],
                 "iteration": 1,
@@ -2629,7 +2629,7 @@ def test_build_unit_diff_map_and_flat_map_supports_chained_merges() -> None:
                 "resolution": "post_unit_hint",
             },
             {
-                "method": "auto_merge",
+                "method": "slay",
                 "group_id": "g3",
                 "pre_unit_ids": ["21", "13"],
                 "iteration": 2,
@@ -4794,7 +4794,7 @@ def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_
     monkeypatch.setattr(spikesort_runner, "_write_merge_unit_location_reports", _fake_write_reports)
 
     stage_cfg = SimpleNamespace(
-        merge_sequence=("SLAy", "auto_merge"),
+        merge_sequence=("SLAy",),
         merge_units_enabled=True,
         slay_relpath="SLAy_outputs",
         merge_metadata_enabled=True,
@@ -5231,7 +5231,6 @@ def test_run_spikesort_merge_stage_does_not_invoke_bombcell_when_enabled(tmp_pat
         merge_sequence=("SLAy",),
         slay_enabled=False,
         merge_reports_enabled=False,
-        cache_sorting_outputs_before_merge=False,
         bombcell_label_enabled=True,
         bombcell_label_fail_on_error=True,
     )

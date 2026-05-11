@@ -20,7 +20,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
 
     assert parsed.output_rel_root == "spikesort_outputs"
     assert parsed.preprocess_concat_recording_relpath is None
-    assert parsed.merge_sequence == ("SLAy", "auto_merge", "unitmatch")
+    assert parsed.merge_sequence == ("SLAy",)
     assert parsed.phase_sequence == DEFAULT_SPIKESORT_PHASE_SEQUENCE
     assert parsed.logging_enabled is True
     assert parsed.logging_verbose is False
@@ -129,25 +129,13 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.slay_auto_accept_merges is False
     assert parsed.slay_copy_automerge_artifacts is True
     assert parsed.slay_delete_outputs_on_force_restart is True
-    assert parsed.slay_recompute_analyzer is False
     assert parsed.slay_model_cache_relpath == "cache/slay_model/ae.pt"
     assert parsed.slay_model_cache_use_cached_model is True
     assert parsed.slay_model_cache_write_model is True
     assert parsed.slay_force_restart_retrain_model is False
     assert parsed.slay_params is None
-    assert parsed.auto_merge_enabled is False
-    assert parsed.auto_merge_relpath == "automerge_outputs"
-    assert parsed.auto_merge_delete_outputs_on_force_restart is True
-    assert parsed.auto_merge_candidate_pairs_reldir == "recommended_merge_candidates"
-    assert parsed.auto_merge_merged_units_reldir == "merged_units"
-    assert parsed.auto_merge_auto_accept_merges is False
-    assert parsed.auto_merge_template_diff_thresholds == (0.25,)
     assert parsed.merge_slay_enabled is False
     assert parsed.merge_slay_rel_output_root == "merge_SLAy"
-    assert parsed.merge_slay_use_canonical_workspace is True
-    assert parsed.merge_slay_canonical_workspace_relpath == "cache/merge_workspace"
-    assert parsed.merge_slay_canonical_workspace_rebuild_analyzer is False
-    assert parsed.merge_slay_publish_canonical_to_stage_outputs_on_success is True
     assert parsed.merge_slay_debug_mode_enabled is False
     assert parsed.merge_slay_debug_limit_datasets is None
     assert parsed.merge_slay_debug_limit_wells is None
@@ -158,8 +146,6 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_force_restart is False
     assert parsed.merge_force_replot is False
     assert parsed.merge_cleanup_generated_analyzers_on_success is True
-    assert parsed.merge_analyzer_regenerate_on_replot is True
-    assert parsed.merge_analyzer_check_if_regen_is_needed is True
     assert parsed.merge_analyzer_compute_sparsity is True
     assert parsed.merge_template_random_spikes_method == "default"
     assert parsed.merge_template_random_spikes_percentage is None
@@ -750,18 +736,10 @@ def test_parse_spikesort_stage_config_parses_sectioned_stage_layout() -> None:
                     },
                     "phases": {
                         "merge_units": {
-                            "sequence": ["SLAy", "auto_merge", "unitmatch"],
-                            "auto_merge": {
+                            "sequence": ["SLAy"],
+                            "am_kwargs": {
                                 "enabled": True,
                                 "template_diff_thresh": "0.05,0.15,0.25",
-                                "relpath": "automerge_outputs",
-                                "delete_outputs_on_force_restart": False,
-                                "candidate_pairs_reldir": "recommended_merge_candidates",
-                                "merged_units_reldir": "merged_units",
-                                "auto_accept_merges": True,
-                            },
-                            "SLAy": {
-                                "recompute_analyzer": True,
                             },
                         }
                     },
@@ -805,15 +783,7 @@ def test_parse_spikesort_stage_config_parses_sectioned_stage_layout() -> None:
     assert parsed.force_rerun_analyzer is True
     assert isinstance(parsed.option_kwargs, dict)
     assert parsed.option_kwargs.get("force_rerun_analyzer") is True
-    assert parsed.merge_sequence == ("SLAy", "auto_merge", "unitmatch")
-    assert parsed.slay_recompute_analyzer is True
-    assert parsed.auto_merge_enabled is True
-    assert parsed.auto_merge_relpath == "automerge_outputs"
-    assert parsed.auto_merge_delete_outputs_on_force_restart is False
-    assert parsed.auto_merge_candidate_pairs_reldir == "recommended_merge_candidates"
-    assert parsed.auto_merge_merged_units_reldir == "merged_units"
-    assert parsed.auto_merge_auto_accept_merges is True
-    assert parsed.auto_merge_template_diff_thresholds == (0.05, 0.15, 0.25)
+    assert parsed.merge_sequence == ("SLAy",)
 
 
 def test_parse_spikesort_stage_config_promotes_percentage_sampling_to_effective_method(caplog) -> None:
@@ -979,7 +949,7 @@ def test_parse_spikesort_stage_config_phase_blocks_take_precedence() -> None:
                         },
                         "merge_units": {
                             "rerun_analyzer": True,
-                            "auto_merge": {
+                            "am_kwargs": {
                                 "enabled": True,
                                 "template_diff_thresh": "0.11,0.22",
                             },
@@ -1090,8 +1060,6 @@ def test_parse_spikesort_stage_config_reads_merge_analyzer_policy_knobs() -> Non
 
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
-    assert parsed.merge_analyzer_regenerate_on_replot is False
-    assert parsed.merge_analyzer_check_if_regen_is_needed is False
     assert parsed.merge_analyzer_compute_sparsity is False
     assert parsed.merge_template_random_spikes_method == "all"
     assert parsed.merge_template_random_spikes_max_spikes_per_unit == 321
@@ -1148,8 +1116,6 @@ def test_parse_spikesort_stage_config_reads_grouped_merge_analyzer_policy_knobs(
 
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
-    assert parsed.merge_analyzer_regenerate_on_replot is False
-    assert parsed.merge_analyzer_check_if_regen_is_needed is False
     assert parsed.merge_analyzer_compute_sparsity is False
     assert parsed.merge_template_random_spikes_method == "all"
     assert parsed.merge_template_random_spikes_max_spikes_per_unit == 321
@@ -1196,28 +1162,6 @@ def test_parse_spikesort_stage_config_compute_sparsity_false_disables_sparsity_m
     assert parsed.merge_analyzer_sparsity_num_channels == 11
 
 
-def test_parse_spikesort_stage_config_reads_legacy_merge_analyzer_regenereate_on_replot_key() -> None:
-    cfg = RuntimeConfig(
-        {
-            "stages": {
-                "spikesort": {
-                    "phases": {
-                        "merge_units": {
-                            "analyzer": {
-                                "regenereate_on_replot": False,
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    )
-
-    parsed = parse_spikesort_stage_config(runtime_config=cfg)
-
-    assert parsed.merge_analyzer_regenerate_on_replot is False
-
-
 def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
     cfg = RuntimeConfig(
         {
@@ -1240,7 +1184,6 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
                             "auto_accept_merges": False,
                             "copy_automerge_artifacts": False,
                             "delete_outputs_on_force_restart": False,
-                            "recompute_analyzer": True,
                             "model_cache": {
                                 "enabled": True,
                                 "relpath": "cache/slay_model/custom_ae.pt",
@@ -1274,7 +1217,6 @@ def test_parse_spikesort_stage_config_reads_slay_merge_knobs() -> None:
     assert parsed.slay_auto_accept_merges is False
     assert parsed.slay_copy_automerge_artifacts is False
     assert parsed.slay_delete_outputs_on_force_restart is False
-    assert parsed.slay_recompute_analyzer is True
     assert parsed.slay_model_cache_relpath == "cache/slay_model/custom_ae.pt"
     assert parsed.slay_model_cache_use_cached_model is False
     assert parsed.slay_model_cache_write_model is True
@@ -1295,7 +1237,6 @@ def test_parse_spikesort_stage_config_reads_nested_merge_slay_block() -> None:
                             "slay": {
                                 "relpath": "SLAy_nested",
                                 "output_json_relpath": "nested/run-output.json",
-                                "recompute_analyzer": False,
                                 "params": {"final_thresh": 0.42},
                             },
                         }
@@ -1310,7 +1251,6 @@ def test_parse_spikesort_stage_config_reads_nested_merge_slay_block() -> None:
     assert parsed.slay_enabled is True
     assert parsed.slay_relpath == "SLAy_nested"
     assert parsed.slay_output_json_relpath == "nested/run-output.json"
-    assert parsed.slay_recompute_analyzer is False
     assert isinstance(parsed.slay_params, dict)
     assert parsed.slay_params.get("final_thresh") == 0.42
 
@@ -1424,7 +1364,7 @@ def test_parse_spikesort_stage_config_reads_phase_local_merge_common_overrides()
             "stages": {
                 "spikesort": {
                     "phases": {
-                        "merge_sequence": ["SLAy", "auto_merge"],
+                        "merge_sequence": ["SLAy"],
                         "merge_SLAy": {
                             "enabled": True,
                             "rel_output_root": "merge_output/custom_slay",
@@ -1453,7 +1393,7 @@ def test_parse_spikesort_stage_config_reads_phase_local_merge_common_overrides()
 
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
-    assert parsed.merge_sequence == ("SLAy", "auto_merge")
+    assert parsed.merge_sequence == ("SLAy",)
     assert isinstance(parsed.merge_phase_runtime_overrides, dict)
     slay_overrides = parsed.merge_phase_runtime_overrides.get("merge_slay")
     assert isinstance(slay_overrides, dict)
@@ -1483,14 +1423,6 @@ def test_parse_spikesort_stage_config_reads_merge_slay_phase_knobs() -> None:
                                 "limit_datasets": 1,
                                 "limit_wells": 1,
                             },
-                            "use_cache_as_canonical_workspace": {
-                                "enabled": True,
-                                "relpath": "cache/slay_workspace",
-                                "refresh_on_run": False,
-                                "publish_to_canonical_on_success": True,
-                                "publish_to_canonical_on_failure": False,
-                                "assert_selected_sorter_output": False,
-                            },
                         }
                     }
                 }
@@ -1505,13 +1437,6 @@ def test_parse_spikesort_stage_config_reads_merge_slay_phase_knobs() -> None:
     assert parsed.merge_slay_delete_outputs_on_force_restart is True
     assert parsed.merge_slay_force_restart is True
     assert parsed.merge_slay_force_replot is False
-    assert parsed.merge_slay_use_canonical_workspace is True
-    assert parsed.merge_slay_canonical_workspace_relpath == "cache/slay_workspace"
-    assert parsed.merge_slay_canonical_workspace_refresh_on_run is False
-    assert parsed.merge_slay_canonical_workspace_rebuild_analyzer is False
-    assert parsed.merge_slay_publish_canonical_to_stage_outputs_on_success is True
-    assert parsed.merge_slay_publish_canonical_to_stage_outputs_on_failure is False
-    assert parsed.merge_slay_assert_uses_canonical_workspace is False
     assert parsed.merge_slay_debug_mode_enabled is True
     assert parsed.merge_slay_debug_limit_datasets == 1
     assert parsed.merge_slay_debug_limit_wells == 1
