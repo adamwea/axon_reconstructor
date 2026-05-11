@@ -822,7 +822,7 @@ stages:
       # be removed without touching the filesystem.
       cleanup_analyzers:
         enabled: true
-        dry_run: true
+        dry_run: false
         resource_class: disk_cleanup
         relpath: concat_analyzer
         summary_json_relpath: concat_analyzer_cleanup_summary.json
