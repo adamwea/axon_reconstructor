@@ -2103,6 +2103,53 @@ def _read_kilosort_cluster_labels_tsv(*, path: Path, default_label_column: str) 
 	return out, label_column
 
 
+_DEFAULT_UNIT_LOCATION_QUALITY_FILTER: tuple[str, ...] = ("good", "non_soma_good")
+
+
+def _resolve_unit_location_quality_filter(stage_config: Any) -> list[str]:
+	"""Quality-label allowlist for the merge unit_locations scatter plots.
+
+	Pulled from SLAy's ``good_lbls`` (so the plotted units match what SLAy
+	actually considered for merging), falling back to ``("good",
+	"non_soma_good")`` when SLAy params aren't set. Returns an empty list
+	to mean "no filter".
+	"""
+	slay_params = getattr(stage_config, "slay_params", None)
+	if isinstance(slay_params, dict):
+		raw = slay_params.get("good_lbls", None)
+		if isinstance(raw, (list, tuple)):
+			cleaned = [str(item).strip() for item in raw if str(item).strip()]
+			if cleaned:
+				return cleaned
+	return list(_DEFAULT_UNIT_LOCATION_QUALITY_FILTER)
+
+
+def _find_kilosort_quality_label_tsv(sorter_dir: Path) -> Path | None:
+	"""Locate the cluster-label TSV inside a Kilosort sorter_output dir.
+
+	Walks the candidate layout used elsewhere in this stage (the configured
+	dir, then a nested ``sorter_output/`` child) and returns the first
+	existing ``cluster_group.tsv`` or ``cluster_KSLabel.tsv``.
+	"""
+	if not sorter_dir:
+		return None
+	candidates: list[Path] = [Path(sorter_dir)]
+	nested = Path(sorter_dir) / "sorter_output"
+	if nested != Path(sorter_dir):
+		candidates.append(nested)
+	for base in candidates:
+		try:
+			if not base.exists():
+				continue
+		except Exception:
+			continue
+		for name in ("cluster_group.tsv", "cluster_KSLabel.tsv"):
+			candidate = (base / name).resolve()
+			if candidate.exists():
+				return candidate
+	return None
+
+
 def _spike_count_for_unit(*, sorting: Any, unit_id: Any) -> int:
 	get_num_segments = getattr(sorting, "get_num_segments", None)
 	try:
@@ -6775,6 +6822,82 @@ def _write_merge_unit_location_reports(
 
 	before_points = _extract_unit_locations_for_plot(before_snapshot)
 	after_points = _extract_unit_locations_for_plot(after_snapshot)
+
+	# Mirror SLAy's quality-label gate so the scatter plots only show the
+	# units that were eligible to merge (typically good + non_soma_good).
+	# Merge-result post IDs (newly minted by SLAy) are always kept since they
+	# are by construction unions of allowed pre-units.
+	quality_filter_labels = _resolve_unit_location_quality_filter(stage_config)
+	unit_location_filter_info: dict[str, Any] = {
+		"applied": False,
+		"labels": list(quality_filter_labels) if quality_filter_labels else [],
+		"label_source_path": None,
+		"label_count_total": None,
+		"label_count_allowed": None,
+		"before_points_before_filter": int(len(before_points)),
+		"after_points_before_filter": int(len(after_points)),
+	}
+	if quality_filter_labels:
+		pre_sorter_dir_raw = (
+			(before_snapshot.get("sorter", {}) or {}).get("source_dir")
+			if isinstance(before_snapshot, dict)
+			else None
+		)
+		labels_by_uid: dict[str, str] = {}
+		label_source_path: Path | None = None
+		if pre_sorter_dir_raw:
+			label_source_path = _find_kilosort_quality_label_tsv(Path(str(pre_sorter_dir_raw)))
+		if label_source_path is not None and label_source_path.exists():
+			labels_by_uid, _ = _read_kilosort_cluster_labels_tsv(
+				path=label_source_path,
+				default_label_column="KSLabel",
+			)
+		allowed_label_set = {str(lbl).strip() for lbl in quality_filter_labels if str(lbl).strip()}
+		allowed_pre_uids = {
+			uid for uid, lbl in labels_by_uid.items() if str(lbl).strip() in allowed_label_set
+		}
+		# Real merge results: post IDs from mappings whose pre set is not
+		# just the post id itself (singletons are pass-through).
+		merge_result_post_ids: set[str] = set()
+		for mapping_raw in list(applied_unit_mappings or []):
+			mapping = mapping_raw if isinstance(mapping_raw, dict) else {}
+			pre_ids = _normalize_unit_id_list(mapping.get("pre_unit_ids", []))
+			post_raw = mapping.get("post_unit_id", None)
+			if post_raw is None or not str(post_raw).strip():
+				continue
+			post_id = _normalize_cluster_id(post_raw)
+			if not post_id:
+				continue
+			if len(pre_ids) <= 1 and pre_ids and pre_ids[0] == post_id:
+				continue
+			merge_result_post_ids.add(post_id)
+		# Apply filter only if we actually loaded labels, otherwise leave
+		# the snapshot untouched so we never silently zero-out the plot.
+		if labels_by_uid:
+			before_points = {
+				uid: xy for uid, xy in before_points.items() if uid in allowed_pre_uids
+			}
+			after_points = {
+				uid: xy
+				for uid, xy in after_points.items()
+				if (uid in allowed_pre_uids) or (uid in merge_result_post_ids)
+			}
+			unit_location_filter_info["applied"] = True
+			unit_location_filter_info["label_source_path"] = str(label_source_path)
+			unit_location_filter_info["label_count_total"] = int(len(labels_by_uid))
+			unit_location_filter_info["label_count_allowed"] = int(len(allowed_pre_uids))
+		else:
+			unit_location_filter_info["label_source_path"] = (
+				str(label_source_path) if label_source_path is not None else None
+			)
+			unit_location_filter_info["label_load_error"] = (
+				"cluster_group_or_kslabel_tsv_not_found"
+				if label_source_path is None
+				else "cluster_labels_empty"
+			)
+	unit_location_filter_info["before_points_after_filter"] = int(len(before_points))
+	unit_location_filter_info["after_points_after_filter"] = int(len(after_points))
+
 	point_size = float(getattr(stage_config, "merge_reports_2panel_point_size", 9.0) or 9.0)
 	if not math.isfinite(point_size) or point_size <= 0.0:
 		point_size = 9.0
@@ -7437,6 +7560,7 @@ def _write_merge_unit_location_reports(
 		"highlight_pre_legend_sorted_by_groups": bool(highlight_sort_pre_legend_by_groups),
 		"zoom_to_affected_units": bool(zoom_to_affected_units),
 		"zoom_to_affected_units_applied": bool(zoom_to_affected_applied),
+		"unit_location_quality_filter": dict(unit_location_filter_info),
 		"outputs": outputs,
 	}
 
@@ -8630,6 +8754,9 @@ def run_spikesort_merge_stage(
 				"after_highlighted_inferred_units_count": int(
 					merge_reports_payload.get("after_highlighted_inferred_units_count", 0) or 0
 				),
+				"unit_location_quality_filter": dict(
+					merge_reports_payload.get("unit_location_quality_filter", {}) or {}
+				),
 			}
 		if merge_reports_error is not None:
 			payload["merge_reports_error"] = str(merge_reports_error)
@@ -9598,6 +9725,9 @@ def run_spikesort_merge_stage(
 			"after_highlighted_units_count": int(merge_reports_payload.get("after_highlighted_units_count", 0) or 0),
 			"after_highlighted_inferred_units_count": int(
 				merge_reports_payload.get("after_highlighted_inferred_units_count", 0) or 0
+			),
+			"unit_location_quality_filter": dict(
+				merge_reports_payload.get("unit_location_quality_filter", {}) or {}
 			),
 		}
 	if merge_reports_error is not None:
