@@ -91,6 +91,104 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-10 - SPIKESORT MERGE CLEANUP COMPLETE
+
+Status: accepted
+
+`debug/spikesort_merge_cleanup_plan.md` is fully landed in 6 slices on branch `spikesort-merge-cleanup` (off `claude-migration` `2b7090d`). Final commits: `558d035` (slice 1) → `4a7ad0c` (slice 2) → `1fc3827` (slice 3) → `144cdcd` (slice 4) → `cf2d6ef` (slice 5) → `<slice 6 sha>` (slice 6 below).
+
+Final test counts: 158 spikesort tests passed / 451 pipeline tests passed (test_progress.py excluded — pre-existing TabError). Plan baseline at slice 0 was 200 spikesort / 457 pipeline; the net delta of -42 spikesort / -6 pipeline tests reflects the cache, methods-dispatch, legacy-analyzer-family, and auto_merge tests deleted alongside the production code they exercised.
+
+Plan §6 cleanup-grep checklist — all 0 hits (or ≤1 for create_sorting_analyzer):
+- `git grep -nE "\bmerge_si_auto\b|\bmerge_unitmatch\b" src/axon_recon/` → 0 ✓
+- `git grep -nE "\bmerge_si_auto\b|\bmerge_unitmatch\b" debug/*.yml` → 0 ✓
+- `git grep -nE "_run_auto_merge_method|_run_merge_methods_for_target" src/axon_recon/` → 0 ✓
+- `git grep -nE "_cache_sorting_outputs_before_merge|_cache_canonical_sorter_output_for_merge|_restore_sorting_outputs_from_pre_merge_cache|_prepare_replot_workspace_analyzer" src/axon_recon/` → 0 ✓
+- `git grep -nE "_load_or_recompute_spikesort_analyzer|_recompute_spikesort_analyzer|_recompute_sorting_analyzer_to_dir" src/axon_recon/` → 0 ✓
+- `git grep -nE "working_cache:|pre_merge_cache:|merge_workspace:" debug/*.yml` → 0 ✓
+- `git grep -nE "cache_sorting_outputs_before_merge|pre_merge_workspace|cache_sorter_output_before_analyzer_gen|publish_cached_sorter_output|cleanup_cached_sorter_output" src/axon_recon/` → 0 ✓
+- `git grep -c "create_sorting_analyzer\|SortingAnalyzer.create" src/axon_recon/pipeline/stages/spikesort/runner.py` → 1 (concat_analyzer integration call) ✓
+
+Plan §8 Definition Of Done — all satisfied:
+1. ✓ 6 slices merged in order, each with its own `claude:` commit + commit-notes entry.
+2. ✓ `merge_si_auto` / `merge_unitmatch` phases gone from code, CLI, aliases, YAML, tests, default phase sequence.
+3. ✓ Method-dispatch loop (`_run_merge_methods_for_target` was actually `run_spikesort_merge_stage`'s dispatch loop) collapsed to linear SLAy; `_run_auto_merge_method` deleted.
+4. ✓ 4 cache helpers (`_cache_sorting_outputs_before_merge`, `_cache_canonical_sorter_output_for_merge`, `_prepare_replot_workspace_analyzer`, `_restore_sorting_outputs_from_pre_merge_cache`) deleted; the publish helper `_publish_working_sorter_output_to_canonical` and the assertion helper `_assert_method_uses_working_cache_sorter_output` also went with the cache infrastructure.
+5. ✓ Legacy analyzer family (`_load_or_recompute_spikesort_analyzer`, `_recompute_spikesort_analyzer`, `_recompute_sorting_analyzer_to_dir`) deleted; `_run_slay_analyzer_recompute` deleted.
+6. ✓ `debug/debug.runtime.yml` has no `working_cache:`, `merge_si_auto:`, or `merge_unitmatch:` blocks; no `cache_sorting_outputs_before_merge_*` / `pre_merge_workspace_*` flat config survives.
+7. ✓ §6 cleanup-grep checks all 0; `create_sorting_analyzer` site count in runner.py = 1 (concat_analyzer integration).
+8. ✓ Spikesort suite green (158 passed); pipeline suite at baseline (451 passed).
+9. BLOCKED-SMOKE for S1-S6 — no post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` fixture available in this environment. Correctness rides on the unit tests + the slice-6 mutation-safety regression suite which exercises the SLAy-only orchestrator scaffolding.
+10. ✓ Mutation-safety regression suite covers the new SLAy-only orchestrator shape via `test_run_spikesort_merge_stage_slay_only_orchestrator_never_mutates_sorter_output` in `tests/test_mutation_safety.py`.
+
+Net code reduction across the 6 slices: ~5,800 net LOC removed in `src/axon_recon/pipeline/stages/spikesort/` (including deleted orchestrator files, helper functions, parser blocks, dataclass fields, and tests). The `runner.py` file shrunk from ~11,109 lines (pre-slice-1) to ~10,127 (post-slice-5), with deeper structural simplification in the merge orchestrator path.
+
+BLOCKED-SMOKE precondition (carry-forward to whoever runs S1-S6 next):
+- A post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` directory must exist on the target server.
+- A built `<well>/spikesort_outputs/concat_analyzer/` must exist on the target server.
+- Without both, S1 (snapshot → SLAy dry_run → restore round-trip), S2 (SLAy apply), S3 (bombcell after concat_analyzer), S6 (full sort → label → SLAy end-to-end) cannot execute. S4 (CLI sanity) and S5 (YAML sanity) DID pass per slice 1's commit notes.
+
+Branch `spikesort-merge-cleanup` is ready to merge back to `claude-migration`.
+
+## 2026-05-10 - pending - claude: spikesort-merge-cleanup, smoke matrix + mutation-safety suite refresh (slice 6)
+
+Status: pending
+
+Pre-slice baseline (after slice 5): 157 spikesort tests / 451 pipeline tests.
+
+Summary:
+- Slice 6 of `debug/spikesort_merge_cleanup_plan.md` — final slice. Refreshes the mutation-safety regression suite to cover the SLAy-only merge orchestrator and runs the §3 smoke matrix.
+- `tests/test_mutation_safety.py`:
+  - Updated module docstring to drop the "slice 7" historical reference (the cleanup plan now covers slices 1-6 of the new plan); the contract documented is: snapshot_sorter_output + concat_analyzer never-mutate, label/merge dry_run knobs, and the SLAy-only merge orchestrator scaffolding never mutates sorter_output.
+  - Added `test_run_spikesort_merge_stage_slay_only_orchestrator_never_mutates_sorter_output`: seeds a kilosort dir under `<stage>/sorter_output/` with `params.py` + `data.bin`, mocks `_run_slay_merge_method` as a no-op, runs `run_spikesort_merge_stage` end-to-end with `slay_dry_run=True`, and asserts the seeded dir is byte-identical after the call. This locks in the contract that the orchestrator scaffolding (preflight, replot analyzer load via concat_analyzer, metadata writers, summary payload) never touches sorter_output — only SLAy itself can.
+  - Added `from types import SimpleNamespace` import for the new test.
+- `tests/_mutation_safety.py` helpers verified — no behavior change needed; existing `hash_directory` + `assert_directory_unchanged` cover the new test (plus the prior 8 tests still pass against them).
+
+Why:
+- Plan §4 slice 6 step 3 mandates a mutation-safety assertion against the new SLAy-only orchestrator (not the deleted method dispatch).
+
+Guardrails Consulted:
+- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 6 + §3 smoke matrix + §8 DoD).
+- `debug/first_version_pipeline_guardrails.md`.
+- `debug/stage_and_phase_behavior_guardrails.md` (orchestrator contract).
+
+Acceptance Criteria (plan §4 slice 6):
+- All previous spikesort tests remain green ✓ (158 passed).
+- New mutation-safety assertion covers the SLAy-only orchestrator ✓.
+- Smokes: BLOCKED-SMOKE — see precondition note in the COMPLETE entry above.
+
+Validation:
+- Focused tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/test_mutation_safety.py -v` → 9 passed.
+- Spikesort suite: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/` → 158 passed (157 prior + 1 new mutation-safety test).
+- Pipeline suite: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ --ignore=src/axon_recon/pipeline/tests/test_progress.py` → 451 passed (unchanged).
+- S1 (snapshot → SLAy dry_run → restore round-trip): BLOCKED-SMOKE (precondition: post-`spikesort.sort` sorter_output fixture).
+- S2 (SLAy apply): BLOCKED-SMOKE (same precondition).
+- S3 (bombcell after concat_analyzer): BLOCKED-SMOKE (precondition: built `concat_analyzer/`).
+- S4 (CLI sanity for removed phase tokens): passed in slice 1 ✓.
+- S5 (YAML sanity, no cache/working_cache keys): passed in slice 3 ✓; verified again at slice 6 — `yaml.safe_load(open("debug/debug.runtime.yml"))` parses cleanly.
+- S6 (full sort → label → SLAy end-to-end): BLOCKED-SMOKE.
+
+CLI / Debug Flag Impact:
+- None.
+
+Logging / Parallelism Impact:
+- None.
+
+Storage / Cache Impact:
+- None.
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- None.
+
+Residual Risk And Follow-Ups:
+- Smoke matrix is BLOCKED-SMOKE in this iteration's environment; whoever has access to a post-sort fixture should run S1-S3 + S6 to confirm the orchestrator-level claims. The new mutation-safety test gives high confidence in the SLAy-dry_run no-mutation contract via mocked SLAy.
+
+Rollback Notes:
+- Revert this single commit to drop the orchestrator-level mutation-safety test and restore the docstring.
+
 ## 2026-05-10 - pending - claude: spikesort-merge-cleanup, final config and YAML sweep (slice 5)
 
 Status: pending

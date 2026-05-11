@@ -1,9 +1,11 @@
-"""Mutation-safety regression suite (slice 7).
+"""Mutation-safety regression suite.
 
-Locks in the contract that the new label/merge dry_run knobs and the
-cheap "never-mutate" phases (snapshot_sorter_output, concat_analyzer)
-keep canonical state byte-identical. A future regression that flips a
-dry_run gate or skips a fingerprint check will fail here.
+Locks in the contract that the cheap "never-mutate" phases
+(snapshot_sorter_output, concat_analyzer), the label/merge dry_run knobs,
+and the SLAy-only merge orchestrator scaffolding keep the canonical
+sorter_output byte-identical. A future regression that flips a dry_run
+gate, skips a fingerprint check, or reintroduces non-SLAy mutation in
+the orchestrator will fail here.
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -210,3 +213,82 @@ def test_concat_analyzer_skip_path_never_mutates_sorter_output(tmp_path: Path) -
 	)
 	assert result["rebuilt"] is False  # sanity: we exercised the skip path
 	assert_directory_unchanged(sorter, baseline)
+
+
+def test_run_spikesort_merge_stage_slay_only_orchestrator_never_mutates_sorter_output(
+	tmp_path: Path,
+	monkeypatch,
+) -> None:
+	"""Slice 6: the SLAy-only merge orchestrator scaffolding (post-cleanup
+	plan) must not mutate canonical sorter_output. SLAy itself is mocked
+	as a no-op; this asserts the surrounding orchestrator (pre/post-merge
+	analyzer load via concat_analyzer, metadata writers, summary payload)
+	never touches sorter_output.
+	"""
+	from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+	from axon_recon.pipeline.stages.spikesort.runner import run_spikesort_merge_stage
+
+	h5_path = tmp_path / "raw_data" / "input.raw.h5"
+	h5_path.parent.mkdir(parents=True, exist_ok=True)
+	h5_path.write_bytes(b"")
+
+	well_out_dir = tmp_path / "well001"
+	stage_output_root = well_out_dir / "spikesort_outputs"
+	# Orchestrator preflight expects ks_dir at <stage_output>/sorter_output
+	# with params.py + data.bin. Seed both so the orchestrator can resolve dat_path.
+	ks_dir = stage_output_root / "sorter_output"
+	ks_dir.mkdir(parents=True, exist_ok=True)
+	(ks_dir / "params.py").write_text(
+		"dat_path = 'data.bin'\n"
+		"n_channels_dat = 4\n"
+		"dtype = 'int16'\n"
+		"sample_rate = 30000\n",
+		encoding="utf-8",
+	)
+	(ks_dir / "data.bin").write_bytes(b"\0" * 16)
+	# Add some extra files so the mutation-safety baseline covers more than just params.
+	(ks_dir / "spike_times.npy").write_bytes(b"\x01" * 32)
+	(ks_dir / "cluster_KSLabel.tsv").write_text(
+		"cluster_id\tKSLabel\n0\tgood\n1\tmua\n", encoding="utf-8"
+	)
+	baseline = hash_directory(ks_dir)
+
+	def _fake_slay(*, well_out_dir, stage_output_root_dir, output_rel_root, stage_config, force_restart, **kwargs):
+		out_dir = Path(stage_output_root_dir) / "SLAy_outputs"
+		out_dir.mkdir(parents=True, exist_ok=True)
+		summary_json = out_dir / "slay_method_summary.json"
+		summary_json.write_text("{}", encoding="utf-8")
+		return {
+			"name": "slay",
+			"status": "ok",
+			"reason": None,
+			"out_dir": str(out_dir),
+			"summary_json": str(summary_json),
+			"outputs": {"slay.summary_json": str(summary_json)},
+			"ks_dir": str(out_dir / "sorter_output"),
+			"applied_merges": False,
+			"n_merge_groups": 0,
+			"n_candidate_pairs": 0,
+		}
+
+	monkeypatch.setattr(spikesort_runner, "_run_slay_merge_method", _fake_slay)
+	monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+	stage_cfg = SimpleNamespace(
+		merge_units_enabled=True,
+		slay_enabled=True,
+		slay_dry_run=True,
+		slay_relpath="SLAy_outputs",
+		merge_sequence=("SLAy",),
+	)
+
+	run_spikesort_merge_stage(
+		h5_path=h5_path,
+		stream_id="well001",
+		mea_output_root=tmp_path,
+		output_rel_root="spikesort_outputs",
+		stage_config=stage_cfg,
+		force_restart=False,
+	)
+
+	assert_directory_unchanged(ks_dir, baseline)
