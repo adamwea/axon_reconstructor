@@ -305,6 +305,110 @@ def test_build_scatter_missing_columns_returns_empty_figure() -> None:
 	assert fig is not None
 
 
+def test_build_box_plot_show_points_uses_all_points_mode() -> None:
+	"""Overlaying points adds extra scatter traces alongside the box trace."""
+	df = _two_group_units_df()
+	fig_off = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="genotype",
+		show_significance=False,
+		show_points=False,
+	)
+	fig_on = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="genotype",
+		show_significance=False,
+		show_points=True,
+	)
+	# Box traces stash the `boxpoints` attribute; "all" when overlay is on,
+	# "outliers" (or unset → defaults to "outliers") when off.
+	on_modes = {getattr(t, "boxpoints", None) for t in fig_on.data}
+	off_modes = {getattr(t, "boxpoints", None) for t in fig_off.data}
+	assert "all" in on_modes
+	assert "all" not in off_modes
+
+
+def test_build_scatter_jitter_perturbs_numeric_axes() -> None:
+	"""With jitter on, numeric x/y values differ from the raw df values."""
+	df = _two_group_units_df()
+	fig_off = _build_scatter_no_jitter(df)
+	fig_on = _build_scatter_with_jitter(df)
+	# `customdata` isn't set; compare raw trace x/y instead.
+	# At least one numeric axis must differ between the two figures.
+	off_x = [list(t.x) for t in fig_off.data if t.x is not None]
+	on_x = [list(t.x) for t in fig_on.data if t.x is not None]
+	# Same number of points, but values shifted.
+	assert off_x and on_x
+	assert any(off != on for off, on in zip(off_x, on_x))
+
+
+def _build_scatter_no_jitter(df):
+	from ..app import build_scatter
+
+	return build_scatter(
+		df,
+		x_col="branch_count",
+		y_col="total_branch_length_um",
+		color_col="genotype",
+		jitter=False,
+	)
+
+
+def _build_scatter_with_jitter(df):
+	from ..app import build_scatter
+
+	return build_scatter(
+		df,
+		x_col="branch_count",
+		y_col="total_branch_length_um",
+		color_col="genotype",
+		jitter=True,
+	)
+
+
+def test_build_scatter_jitter_leaves_categorical_axes_untouched() -> None:
+	"""Jitter only perturbs numeric columns; string-category x stays as labels."""
+	from ..app import build_scatter
+
+	df = _two_group_units_df()
+	fig = build_scatter(
+		df,
+		x_col="genotype",  # string-categorical x
+		y_col="branch_count",
+		jitter=True,
+	)
+	# Plotly keeps the category labels intact on the x-axis trace.
+	for trace in fig.data:
+		if trace.x is None:
+			continue
+		assert set(trace.x).issubset({"WT", "KO"})
+
+
+def test_categorical_columns_includes_recon_status_and_string_cols() -> None:
+	"""The previous filter excluded numeric-sounding columns; now everything
+	shows up so users can pick any column for color/group/facet dropdowns."""
+	from ..app import _categorical_columns, _numeric_columns
+
+	df = _two_group_units_df()
+	# String-categorical columns appear first.
+	cats = _categorical_columns(df)
+	assert "recon_status" in cats
+	assert "bombcell_label" in cats
+	assert "genotype" in cats
+	# Numeric columns also surface (at the end of the list, but available).
+	assert "branch_count" in cats
+	# Numeric helper surfaces every numeric column.
+	nums = _numeric_columns(df)
+	assert "branch_count" in nums
+	assert "total_branch_length_um" in nums
+	# Names that used to be filtered out (substring "count" / "length" /
+	# "amplitude" / "density") must still be selectable.
+	for col in ("branch_count", "total_branch_length_um", "template_density"):
+		assert col in nums
+
+
 def test_image_exports_produce_non_zero_content_for_each_format() -> None:
 	"""Direct kaleido export shapes used by the download endpoints."""
 	from ..app import _IMAGE_MIME_BY_FORMAT, build_scatter

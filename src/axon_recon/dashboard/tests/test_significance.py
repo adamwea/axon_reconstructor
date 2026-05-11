@@ -201,3 +201,39 @@ def test_significance_brackets_empty_pvalues_passthrough() -> None:
 	fig = px.box(pd.DataFrame({"x": [], "y": []}), x="x", y="y")
 	out = significance_brackets(fig, {})
 	assert out is fig  # no shapes added
+
+
+def test_significance_brackets_position_annotation_at_categorical_midpoint() -> None:
+	"""Asterisks should land between the two boxes, not docked to one end."""
+	import plotly.express as px
+
+	df = _two_group_df(mean_a=0.0, mean_b=5.0, sd=0.3)
+	raw = compute_pairwise_pvalues(df, group_col="group", value_col="value", test="mann_whitney")
+	corrected = apply_correction(raw, method="none")
+	fig = px.box(df, x="group", y="value")
+	significance_brackets(fig, corrected)
+
+	# Plotly assigns categorical positions 0 and 1; bracket should span them
+	# and the asterisk annotation should land at 0.5 (the midpoint).
+	shape = fig.layout.shapes[0]
+	annotation = fig.layout.annotations[0]
+	assert {float(shape.x0), float(shape.x1)} == {0.0, 1.0}
+	assert float(annotation.x) == 0.5
+	assert annotation.text == "***"
+
+
+def test_significance_brackets_multiple_pairs_stack_at_midpoints() -> None:
+	import plotly.express as px
+
+	df = _three_group_df(means=(0.0, 3.0, 6.0), sd=0.3)
+	raw = compute_pairwise_pvalues(df, group_col="group", value_col="value", test="mann_whitney")
+	corrected = apply_correction(raw, method="none")
+	fig = px.box(df, x="group", y="value")
+	significance_brackets(fig, corrected)
+
+	# 3 group pairs (A,B), (A,C), (B,C) — all strongly significant.
+	annotation_xs = [float(a.x) for a in fig.layout.annotations]
+	# Midpoints between integer category positions: 0.5, 1.0, 1.5.
+	for ann_x in annotation_xs:
+		# Every label must sit on a half-integer between adjacent boxes.
+		assert ann_x in {0.5, 1.0, 1.5}, f"unexpected midpoint x={ann_x}"

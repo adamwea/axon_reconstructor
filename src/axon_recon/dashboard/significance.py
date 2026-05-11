@@ -203,6 +203,10 @@ def significance_brackets(
 	`y_top` and `step` default to figure-derived values when None. Pairs with
 	non-significant p-values are skipped when `hide_ns` is True (default) so
 	the plot doesn't get cluttered with `n.s.` labels.
+
+	Categorical x-axes (the common case for box plots) are mapped to integer
+	index positions so both the bracket line and the asterisk label land on
+	the geometric midpoint between two groups.
 	"""
 	if fig is None or not corrected_pvalues:
 		return fig
@@ -228,7 +232,7 @@ def significance_brackets(
 		except KeyError:
 			continue
 		bracket_y = float(y_top) + index * float(step)
-		# Bracket shape: ⎻ ⎻ ⎻ with little drops at the ends.
+		# Bracket shape across the two group positions.
 		fig.add_shape(
 			type="line",
 			xref="x",
@@ -239,9 +243,14 @@ def significance_brackets(
 			y1=bracket_y,
 			line={"width": 1, "color": "#333"},
 		)
-		# Label placed mid-bracket.
+		# Label placed at the bracket's midpoint.
+		if isinstance(x_a, (int, float)) and isinstance(x_b, (int, float)):
+			label_x = (float(x_a) + float(x_b)) / 2.0
+		else:
+			# Fallback for unmapped categories — better than nothing.
+			label_x = x_a
 		fig.add_annotation(
-			x=(x_a + x_b) / 2 if isinstance(x_a, (int, float)) and isinstance(x_b, (int, float)) else x_a,
+			x=label_x,
 			y=bracket_y,
 			text=stars,
 			showarrow=False,
@@ -272,22 +281,31 @@ def _figure_y_max(fig: Any) -> float | None:
 	return max(values)
 
 
-def _figure_x_positions(fig: Any) -> dict[Any, Any]:
-	"""Map category labels to their plotted x-axis positions.
+def _figure_x_positions(fig: Any) -> dict[Any, float]:
+	"""Map category labels to integer index positions on the plot's x axis.
 
-	For categorical axes (Plotly box plots over string groups), the labels
-	themselves are the x-positions, so the dict is identity. For numeric
-	axes, callers can substitute their own positions.
+	Plotly places each unique category at consecutive integer positions
+	starting at 0 along a categorical x axis. We accumulate categories in
+	their plot order (first appearance across the figure's traces) so the
+	index matches what's rendered — that's what `add_shape` and
+	`add_annotation` expect when you want to position by category midpoint.
 	"""
 	categories: list[Any] = []
 	for trace in getattr(fig, "data", []) or []:
 		x = getattr(trace, "x", None)
 		if x is None:
+			# Plotly box traces with a `name` but no per-point x array use the trace
+			# name as the category label.
+			name = getattr(trace, "name", None)
+			if name is not None and name not in categories:
+				categories.append(name)
 			continue
 		try:
 			for value in x:
+				if value is None:
+					continue
 				if value not in categories:
 					categories.append(value)
 		except TypeError:
 			continue
-	return {value: value for value in categories}
+	return {value: float(idx) for idx, value in enumerate(categories)}

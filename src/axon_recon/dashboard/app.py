@@ -51,12 +51,14 @@ ID_BOX_COLOR = "box-color"
 ID_BOX_TEST = "box-test"
 ID_BOX_CORRECTION = "box-correction"
 ID_BOX_SHOW_SIGNIFICANCE = "box-show-significance"
+ID_BOX_SHOW_POINTS = "box-show-points"
 ID_BOX_PLOT = "box-plot-graph"
 ID_SCATTER_X = "scatter-x"
 ID_SCATTER_Y = "scatter-y"
 ID_SCATTER_COLOR = "scatter-color"
 ID_SCATTER_FACET_COL = "scatter-facet-col"
 ID_SCATTER_FACET_ROW = "scatter-facet-row"
+ID_SCATTER_JITTER = "scatter-jitter"
 ID_SCATTER_PLOT = "scatter-plot-graph"
 
 # Download component ids — each plot has its own group + a shared CSV / spec.
@@ -107,25 +109,50 @@ def _unique_sorted(series: pd.Series) -> list[Any]:
 		return sorted(values, key=str)
 
 
-def _numeric_columns(df: pd.DataFrame) -> list[str]:
+def _all_columns(df: pd.DataFrame) -> list[str]:
+	"""Return every column on `df`, preserving on-disk order."""
 	if df is None or df.empty:
 		return [_HISTOGRAM_NUMERIC_DEFAULT]
-	cols = [str(c) for c in df.select_dtypes(include="number").columns.tolist()]
-	return cols or [_HISTOGRAM_NUMERIC_DEFAULT]
+	return [str(c) for c in df.columns.tolist()]
+
+
+def _numeric_columns(df: pd.DataFrame) -> list[str]:
+	"""Return numeric columns first, then everything else.
+
+	Plotly's `px.histogram` / `px.box` / `px.scatter` all accept categorical
+	inputs (just rendered differently), so dropdowns expose every column.
+	Numeric ones are surfaced first so the default selection still lands on
+	a sensible axis.
+	"""
+	if df is None or df.empty:
+		return [_HISTOGRAM_NUMERIC_DEFAULT]
+	numeric = [str(c) for c in df.select_dtypes(include="number").columns.tolist()]
+	numeric_set = set(numeric)
+	other = [str(c) for c in df.columns.tolist() if str(c) not in numeric_set]
+	return numeric + other if numeric or other else [_HISTOGRAM_NUMERIC_DEFAULT]
 
 
 def _categorical_columns(df: pd.DataFrame) -> list[str]:
+	"""Return non-numeric columns first, then numerics.
+
+	The dashboard's dropdowns for color / group / facet accept any column
+	(plotly maps numerics to a continuous color scale or bins for facets);
+	non-numeric columns are surfaced first so the default lands on something
+	categorical when one exists.
+	"""
 	if df is None or df.empty:
 		return []
-	exclude_substr = ("location", "amplitude", "ptp", "delay", "density", "count", "length")
-	cols: list[str] = []
-	for col in df.columns:
-		if df[col].dtype.kind in ("O", "b"):
-			# Skip identity-like or list-y obvious blobs.
-			lower = str(col).lower()
-			if not any(token in lower for token in exclude_substr):
-				cols.append(str(col))
-	return cols
+	non_numeric = [
+		str(col)
+		for col in df.columns
+		if df[col].dtype.kind not in ("i", "u", "f")
+	]
+	numeric = [
+		str(col)
+		for col in df.columns
+		if df[col].dtype.kind in ("i", "u", "f")
+	]
+	return non_numeric + numeric
 
 
 def _multiselect_options(series: pd.Series) -> list[dict[str, Any]]:
@@ -392,6 +419,11 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 							options=[{"label": "Show significance brackets", "value": "on"}],
 							value=["on"],
 						),
+						dcc.Checklist(
+							id=ID_BOX_SHOW_POINTS,
+							options=[{"label": "Overlay individual points (jittered)", "value": "on"}],
+							value=[],
+						),
 					],
 					style={"display": "flex", "flexDirection": "column", "gap": "0.5rem", "marginTop": "0.5rem"},
 				),
@@ -450,6 +482,12 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 						),
 					],
 					style={"display": "flex", "gap": "1rem", "flexWrap": "wrap"},
+				),
+				dcc.Checklist(
+					id=ID_SCATTER_JITTER,
+					options=[{"label": "Jitter points (adds small Gaussian noise to numeric axes)", "value": "on"}],
+					value=[],
+					style={"marginTop": "0.5rem"},
 				),
 				dcc.Graph(id=ID_SCATTER_PLOT),
 				_download_button_row(
@@ -624,6 +662,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_BOX_TEST, "value"),
 		Input(ID_BOX_CORRECTION, "value"),
 		Input(ID_BOX_SHOW_SIGNIFICANCE, "value"),
+		Input(ID_BOX_SHOW_POINTS, "value"),
 	)
 	def _update_box(
 		require_recon_ok,
@@ -645,6 +684,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		box_test,
 		box_correction,
 		show_significance,
+		show_points,
 	):
 		spec = _build_filter_spec_from_state(
 			require_recon_ok=require_recon_ok,
@@ -670,6 +710,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			test=box_test,
 			correction=box_correction,
 			show_significance=bool(show_significance and "on" in show_significance),
+			show_points=bool(show_points and "on" in show_points),
 		)
 
 	@app.callback(
@@ -692,6 +733,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_SCATTER_COLOR, "value"),
 		Input(ID_SCATTER_FACET_COL, "value"),
 		Input(ID_SCATTER_FACET_ROW, "value"),
+		Input(ID_SCATTER_JITTER, "value"),
 	)
 	def _update_scatter(
 		require_recon_ok,
@@ -712,6 +754,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		scatter_color,
 		scatter_facet_col,
 		scatter_facet_row,
+		scatter_jitter,
 	):
 		spec = _build_filter_spec_from_state(
 			require_recon_ok=require_recon_ok,
@@ -736,6 +779,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			color_col=scatter_color,
 			facet_col=scatter_facet_col,
 			facet_row=scatter_facet_row,
+			jitter=bool(scatter_jitter and "on" in scatter_jitter),
 		)
 
 	_register_image_download(
@@ -770,7 +814,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 	)
 
 	def _build_box_from_state(filtered, *args):
-		value_col, group_col, color_col, test, correction, show_sig = args
+		value_col, group_col, color_col, test, correction, show_sig, show_pts = args
 		return build_box_plot(
 			filtered,
 			value_col=value_col,
@@ -779,6 +823,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			test=test,
 			correction=correction,
 			show_significance=bool(show_sig and "on" in show_sig),
+			show_points=bool(show_pts and "on" in show_pts),
 		)
 
 	for fmt, btn_id, target_id in (
@@ -792,13 +837,21 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			target_id=target_id,
 			format=fmt,
 			filename_stem="box_plot",
-			fig_inputs=(ID_BOX_VALUE_COL, ID_BOX_GROUP_COL, ID_BOX_COLOR, ID_BOX_TEST, ID_BOX_CORRECTION, ID_BOX_SHOW_SIGNIFICANCE),
+			fig_inputs=(
+				ID_BOX_VALUE_COL,
+				ID_BOX_GROUP_COL,
+				ID_BOX_COLOR,
+				ID_BOX_TEST,
+				ID_BOX_CORRECTION,
+				ID_BOX_SHOW_SIGNIFICANCE,
+				ID_BOX_SHOW_POINTS,
+			),
 			fig_builder=_build_box_from_state,
 			units_df=units_df,
 		)
 
 	def _build_scatter_from_state(filtered, *args):
-		x_col, y_col, color_col, facet_col, facet_row = args
+		x_col, y_col, color_col, facet_col, facet_row, jitter = args
 		return build_scatter(
 			filtered,
 			x_col=x_col,
@@ -806,6 +859,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			color_col=color_col,
 			facet_col=facet_col,
 			facet_row=facet_row,
+			jitter=bool(jitter and "on" in jitter),
 		)
 
 	for fmt, btn_id, target_id in (
@@ -819,7 +873,14 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			target_id=target_id,
 			format=fmt,
 			filename_stem="scatter",
-			fig_inputs=(ID_SCATTER_X, ID_SCATTER_Y, ID_SCATTER_COLOR, ID_SCATTER_FACET_COL, ID_SCATTER_FACET_ROW),
+			fig_inputs=(
+				ID_SCATTER_X,
+				ID_SCATTER_Y,
+				ID_SCATTER_COLOR,
+				ID_SCATTER_FACET_COL,
+				ID_SCATTER_FACET_ROW,
+				ID_SCATTER_JITTER,
+			),
 			fig_builder=_build_scatter_from_state,
 			units_df=units_df,
 		)
@@ -902,11 +963,13 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		State(ID_BOX_TEST, "value"),
 		State(ID_BOX_CORRECTION, "value"),
 		State(ID_BOX_SHOW_SIGNIFICANCE, "value"),
+		State(ID_BOX_SHOW_POINTS, "value"),
 		State(ID_SCATTER_X, "value"),
 		State(ID_SCATTER_Y, "value"),
 		State(ID_SCATTER_COLOR, "value"),
 		State(ID_SCATTER_FACET_COL, "value"),
 		State(ID_SCATTER_FACET_ROW, "value"),
+		State(ID_SCATTER_JITTER, "value"),
 		State(ID_MAIN_TABS, "value"),
 		prevent_initial_call=True,
 	)
@@ -933,11 +996,13 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		box_test,
 		box_correction,
 		show_significance,
+		show_points,
 		scatter_x,
 		scatter_y,
 		scatter_color,
 		scatter_facet_col,
 		scatter_facet_row,
+		scatter_jitter,
 		active_tab,
 	):
 		if not n_clicks:
@@ -967,6 +1032,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 				"test": box_test,
 				"correction": box_correction,
 				"show_significance": bool(show_significance and "on" in show_significance),
+				"show_points": bool(show_points and "on" in show_points),
 			},
 			"scatter": {
 				"x": scatter_x,
@@ -974,6 +1040,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 				"color": scatter_color,
 				"facet_col": scatter_facet_col,
 				"facet_row": scatter_facet_row,
+				"jitter": bool(scatter_jitter and "on" in scatter_jitter),
 			},
 		}
 		text = filter_helpers.filter_spec_to_json(filter_spec, plot_spec=plot_spec)
@@ -1075,11 +1142,14 @@ def build_box_plot(
 	test: Any = _BOX_TEST_DEFAULT,
 	correction: Any = _BOX_CORRECTION_DEFAULT,
 	show_significance: bool = True,
+	show_points: bool = False,
 ) -> Any:
 	"""Build a Plotly box-plot figure with optional significance brackets.
 
 	Empty / missing-column inputs return an empty Plotly figure (rather than
 	raising) so the Dash callback can render something on every fired update.
+	When `show_points` is True, every observation is overlaid on the box as
+	a jittered point (Plotly's `points="all"` mode).
 	"""
 	if df is None or df.empty or not value_col or not group_col:
 		return px.box(pd.DataFrame({"_": []}), y="_")
@@ -1090,7 +1160,8 @@ def build_box_plot(
 	color = None
 	if color_col and color_col != _BOX_COLOR_NONE and str(color_col) in df.columns:
 		color = str(color_col)
-	fig = px.box(df, x=group, y=value, color=color, points="outliers")
+	points_mode = "all" if show_points else "outliers"
+	fig = px.box(df, x=group, y=value, color=color, points=points_mode)
 	if not show_significance:
 		return fig
 	test_key = str(test or _BOX_TEST_DEFAULT).strip().lower()
@@ -1128,8 +1199,15 @@ def build_scatter(
 	color_col: Any = _SCATTER_COLOR_NONE,
 	facet_col: Any = _FACET_NONE,
 	facet_row: Any = _FACET_NONE,
+	jitter: bool = False,
 ) -> Any:
-	"""Plotly scatter figure with optional color + facet support.
+	"""Plotly scatter figure with optional color + facet + jitter support.
+
+	When `jitter` is True, numeric x and/or y columns get small Gaussian
+	noise added (stdev scaled to 1% of the per-column range, min 1e-6).
+	Categorical axes are left untouched — plotly already stacks string
+	categories on integer positions and we don't want to silently change
+	their dtype.
 
 	Empty / missing-column inputs return an empty Plotly figure rather than
 	raising, so the Dash callback can render something on every update.
@@ -1149,4 +1227,32 @@ def build_scatter(
 	fr = None
 	if facet_row and facet_row != _FACET_NONE and str(facet_row) in df.columns:
 		fr = str(facet_row)
-	return px.scatter(df, x=x, y=y, color=color, facet_col=fc, facet_row=fr, opacity=0.7)
+	plot_df = _apply_scatter_jitter(df, x_col=x, y_col=y) if jitter else df
+	return px.scatter(plot_df, x=x, y=y, color=color, facet_col=fc, facet_row=fr, opacity=0.7)
+
+
+def _apply_scatter_jitter(df: pd.DataFrame, *, x_col: str, y_col: str) -> pd.DataFrame:
+	"""Return a copy of `df` with small Gaussian noise added to numeric x/y.
+
+	Visualization-only — does not mutate `df`. Non-numeric columns are
+	passed through unchanged (plotly handles categorical stacking on its
+	own). The noise stdev scales with the column's observed range so the
+	jitter remains visible at any data magnitude.
+	"""
+	import numpy as np
+
+	out = df.copy()
+	rng = np.random.default_rng(0)
+	for col in (x_col, y_col):
+		if col not in out.columns:
+			continue
+		if out[col].dtype.kind not in ("i", "u", "f"):
+			continue
+		values = pd.to_numeric(out[col], errors="coerce")
+		finite = values.dropna()
+		if finite.empty:
+			continue
+		span = float(finite.max() - finite.min())
+		scale = max(span * 0.01, 1e-6)
+		out[col] = values + rng.normal(0.0, scale, size=len(values))
+	return out
