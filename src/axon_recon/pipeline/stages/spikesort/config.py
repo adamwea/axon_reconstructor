@@ -603,21 +603,6 @@ class SpikesortStageConfig:
 	merge_analyzer_waveforms_ms_before: float | None
 	merge_analyzer_waveforms_ms_after: float | None
 	merge_analyzer_waveforms_dtype: str | None
-	cache_sorting_outputs_before_merge: bool
-	cache_sorting_outputs_before_merge_relpath: str
-	cache_sorting_outputs_before_merge_cleanup_on_success: bool
-	cache_sorting_outputs_before_merge_use_cache_on_force_restart: bool
-	cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart: bool
-	cache_sorting_outputs_before_merge_refresh_on_run: bool
-	cache_sorting_outputs_before_merge_strict_restore_on_force_restart: bool
-	cache_sorting_outputs_before_merge_use_canonical_workspace: bool
-	cache_sorting_outputs_before_merge_canonical_workspace_relpath: str
-	cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run: bool
-	cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer: bool
-	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success: bool
-	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure: bool
-	cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace: bool
-	cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace: bool
 	merge_reports_enabled: bool
 	merge_reports_unit_diff_json_enabled: bool
 	merge_reports_unit_diff_json_relpath: str
@@ -709,12 +694,6 @@ _MERGE_PHASE_RUNTIME_OVERRIDE_EXPLICIT_FIELDS = (
 	"merge_force_restart",
 	"merge_force_replot",
 	"merge_cleanup_generated_analyzers_on_success",
-	"cache_sorting_outputs_before_merge_use_canonical_workspace",
-	"cache_sorting_outputs_before_merge_canonical_workspace_relpath",
-	"cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run",
-	"cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer",
-	"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success",
-	"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure",
 )
 _MERGE_PHASE_RUNTIME_OVERRIDE_PREFIXES = (
 	"merge_analyzer_",
@@ -883,14 +862,6 @@ def parse_spikesort_stage_config(
 	stage_auto_merge_cfg = _as_section(stage_cfg.get("auto_merge", {}))
 	execution_auto_merge_cfg = _as_section(execution_cfg.get("auto_merge", {}))
 	legacy_merge_phase_auto_merge_cfg = _as_section(merge_units_phase_cfg.get("auto_merge", {}))
-	cache_sorting_outputs_cfg_raw = merge_units_phase_cfg.get("cache_sorting_outputs_before_merge", None)
-	cache_sorting_outputs_cfg = _as_section(cache_sorting_outputs_cfg_raw)
-	working_cache_cfg_raw = merge_units_phase_cfg.get("working_cache", None)
-	canonical_workspace_cfg_raw = _coalesce(
-		working_cache_cfg_raw,
-		merge_units_phase_cfg.get("use_cache_as_canonical_workspace", None),
-	)
-	canonical_workspace_cfg = _as_section(canonical_workspace_cfg_raw)
 	merge_reports_cfg = _as_section(merge_units_phase_cfg.get("reports", {}))
 	merge_reports_unit_diff_json_cfg = _as_section(merge_reports_cfg.get("unit_diff_json", {}))
 	merge_reports_unit_diff_map_cfg = _as_section(merge_reports_cfg.get("unit_diff_map", {}))
@@ -1720,204 +1691,6 @@ def parse_spikesort_stage_config(
 		),
 		True,
 	)
-	cache_sorting_outputs_before_merge = _as_bool(
-		_coalesce(
-			cache_sorting_outputs_cfg.get("enabled", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_enabled", None),
-			(
-				cache_sorting_outputs_cfg_raw
-				if not isinstance(cache_sorting_outputs_cfg_raw, dict)
-				else None
-			),
-			execution_cfg.get("cache_sorting_outputs_before_merge", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge", None),
-			False,
-		),
-		False,
-	)
-	cache_sorting_outputs_before_merge_relpath = _normalize_optional_relpath(
-		_coalesce(
-			cache_sorting_outputs_cfg.get("relpath", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_relpath", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_relpath", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_relpath", None),
-			"pre_merge_cache",
-		)
-	) or "pre_merge_cache"
-	cache_sorting_outputs_before_merge_cleanup_on_success = _as_bool(
-		_coalesce(
-			cache_sorting_outputs_cfg.get("cleanup_on_success", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_cleanup_on_success", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_cleanup_on_success", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_cleanup_on_success", None),
-			False,
-		),
-		False,
-	)
-	cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart = _as_bool(
-		_coalesce(
-			cache_sorting_outputs_cfg.get("replace_sorting_with_cache_before_force_restart", None),
-			cache_sorting_outputs_cfg.get("use_cache_on_force_restart", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_use_cache_on_force_restart", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_use_cache_on_force_restart", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_use_cache_on_force_restart", None),
-			False,
-		),
-		False,
-	)
-	cache_sorting_outputs_before_merge_use_cache_on_force_restart = bool(
-		cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart
-	)
-	cache_sorting_outputs_before_merge_refresh_on_run = _as_bool(
-		_coalesce(
-			cache_sorting_outputs_cfg.get("refresh_on_run", None),
-			cache_sorting_outputs_cfg.get("refresh_cache_on_run", None),
-			cache_sorting_outputs_cfg.get("overwrite_existing_cache", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_refresh_on_run", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_refresh_on_run", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_refresh_on_run", None),
-			False,
-		),
-		False,
-	)
-	cache_sorting_outputs_before_merge_strict_restore_on_force_restart = _as_bool(
-		_coalesce(
-			cache_sorting_outputs_cfg.get("strict_restore_on_force_restart", None),
-			cache_sorting_outputs_cfg.get("require_cache_on_force_restart", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_strict_restore_on_force_restart", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_strict_restore_on_force_restart", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_strict_restore_on_force_restart", None),
-			True,
-		),
-		True,
-	)
-	cache_sorting_outputs_before_merge_use_canonical_workspace = _as_bool(
-		_coalesce(
-			canonical_workspace_cfg.get("enabled", None),
-			(
-				canonical_workspace_cfg_raw
-				if not isinstance(canonical_workspace_cfg_raw, dict)
-				else None
-			),
-			cache_sorting_outputs_cfg.get("use_as_canonical_workspace", None),
-			cache_sorting_outputs_cfg.get("use_working_cache", None),
-			cache_sorting_outputs_cfg.get("run_merge_in_cached_workspace", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_use_canonical_workspace", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_use_canonical_workspace", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_use_canonical_workspace", None),
-			False,
-		),
-		False,
-	)
-	cache_sorting_outputs_before_merge_canonical_workspace_relpath = _normalize_optional_relpath(
-		_coalesce(
-			canonical_workspace_cfg.get("working_cache_relpath", None),
-			canonical_workspace_cfg.get("canonical_workspace_relpath", None),
-			canonical_workspace_cfg.get("workspace_relpath", None),
-			canonical_workspace_cfg.get("relpath", None),
-			cache_sorting_outputs_cfg.get("working_cache_relpath", None),
-			cache_sorting_outputs_cfg.get("canonical_workspace_relpath", None),
-			cache_sorting_outputs_cfg.get("workspace_relpath", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath", None),
-			"cache/merge_workspace",
-		)
-	) or "cache/merge_workspace"
-	cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run = _as_bool(
-		_coalesce(
-			canonical_workspace_cfg.get("working_cache_refresh_on_run", None),
-			canonical_workspace_cfg.get("canonical_workspace_refresh_on_run", None),
-			canonical_workspace_cfg.get("refresh_on_run", None),
-			cache_sorting_outputs_cfg.get("working_cache_refresh_on_run", None),
-			cache_sorting_outputs_cfg.get("canonical_workspace_refresh_on_run", None),
-			cache_sorting_outputs_cfg.get("canonical_workspace_always_refresh_on_run", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run", None),
-			True,
-		),
-		True,
-	)
-	cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer = _as_bool(
-		_coalesce(
-			canonical_workspace_cfg.get("working_cache_rebuild_analyzer", None),
-			canonical_workspace_cfg.get("canonical_workspace_rebuild_analyzer", None),
-			canonical_workspace_cfg.get("rebuild_analyzer", None),
-			cache_sorting_outputs_cfg.get("working_cache_rebuild_analyzer", None),
-			cache_sorting_outputs_cfg.get("canonical_workspace_rebuild_analyzer", None),
-			cache_sorting_outputs_cfg.get("canonical_workspace_recompute_analyzer", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", None),
-			False,
-		),
-		False,
-	)
-	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success = _as_bool(
-		_coalesce(
-			canonical_workspace_cfg.get("publish_to_canonical_on_success", None),
-			canonical_workspace_cfg.get("publish_working_cache_to_canonical_on_success", None),
-			canonical_workspace_cfg.get("publish_sorter_output_to_canonical_on_success", None),
-			canonical_workspace_cfg.get("publish_to_stage_outputs_on_success", None),
-			cache_sorting_outputs_cfg.get("publish_to_canonical_on_success", None),
-			cache_sorting_outputs_cfg.get("publish_working_cache_to_canonical_on_success", None),
-			cache_sorting_outputs_cfg.get("publish_to_stage_outputs_on_success", None),
-			cache_sorting_outputs_cfg.get("publish_canonical_to_stage_outputs_on_success", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success", None),
-			False,
-		),
-		False,
-	)
-	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure = _as_bool(
-		_coalesce(
-			canonical_workspace_cfg.get("publish_to_canonical_on_failure", None),
-			canonical_workspace_cfg.get("publish_working_cache_to_canonical_on_failure", None),
-			canonical_workspace_cfg.get("publish_sorter_output_to_canonical_on_failure", None),
-			canonical_workspace_cfg.get("publish_to_stage_outputs_on_failure", None),
-			cache_sorting_outputs_cfg.get("publish_to_canonical_on_failure", None),
-			cache_sorting_outputs_cfg.get("publish_working_cache_to_canonical_on_failure", None),
-			cache_sorting_outputs_cfg.get("publish_to_stage_outputs_on_failure", None),
-			cache_sorting_outputs_cfg.get("publish_canonical_to_stage_outputs_on_failure", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure", None),
-			False,
-		),
-		False,
-	)
-	cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace = _as_bool(
-		_coalesce(
-			canonical_workspace_cfg.get("assert_selected_sorter_output", None),
-			canonical_workspace_cfg.get("assert_slay_uses_working_cache", None),
-			canonical_workspace_cfg.get("assert_slay_uses_canonical_workspace", None),
-			canonical_workspace_cfg.get("assert_slay_uses_workspace", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace", None),
-			True,
-		),
-		True,
-	)
-	cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace = _as_bool(
-		_coalesce(
-			canonical_workspace_cfg.get("assert_selected_sorter_output", None),
-			canonical_workspace_cfg.get("assert_auto_merge_uses_working_cache", None),
-			canonical_workspace_cfg.get("assert_auto_merge_uses_canonical_workspace", None),
-			canonical_workspace_cfg.get("assert_auto_merge_uses_workspace", None),
-			merge_units_phase_cfg.get("cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace", None),
-			execution_cfg.get("cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace", None),
-			stage_cfg.get("cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace", None),
-			True,
-		),
-		True,
-	)
-
 	def _parse_standalone_merge_phase_settings(
 		phase_cfg: dict[str, Any],
 		*,
@@ -1936,7 +1709,6 @@ def parse_spikesort_stage_config(
 	) -> dict[str, Any]:
 		phase_canonical_workspace_cfg = _as_section(
 			_coalesce(
-				phase_cfg.get("working_cache", None),
 				phase_cfg.get("use_cache_as_canonical_workspace", None),
 				{},
 			)
@@ -1990,7 +1762,6 @@ def parse_spikesort_stage_config(
 			),
 			"canonical_workspace_relpath": _normalize_optional_relpath(
 				_coalesce(
-					phase_canonical_workspace_cfg.get("working_cache_relpath", None),
 					phase_canonical_workspace_cfg.get("canonical_workspace_relpath", None),
 					phase_canonical_workspace_cfg.get("workspace_relpath", None),
 					phase_canonical_workspace_cfg.get("relpath", None),
@@ -2000,7 +1771,6 @@ def parse_spikesort_stage_config(
 			or default_canonical_workspace_relpath,
 			"canonical_workspace_refresh_on_run": _as_bool(
 				_coalesce(
-					phase_canonical_workspace_cfg.get("working_cache_refresh_on_run", None),
 					phase_canonical_workspace_cfg.get("canonical_workspace_refresh_on_run", None),
 					phase_canonical_workspace_cfg.get("refresh_on_run", None),
 					default_canonical_workspace_refresh_on_run,
@@ -2009,7 +1779,6 @@ def parse_spikesort_stage_config(
 			),
 			"canonical_workspace_rebuild_analyzer": _as_bool(
 				_coalesce(
-					phase_canonical_workspace_cfg.get("working_cache_rebuild_analyzer", None),
 					phase_canonical_workspace_cfg.get("canonical_workspace_rebuild_analyzer", None),
 					phase_canonical_workspace_cfg.get("rebuild_analyzer", None),
 					default_canonical_workspace_rebuild_analyzer,
@@ -2019,7 +1788,6 @@ def parse_spikesort_stage_config(
 			"publish_canonical_to_stage_outputs_on_success": _as_bool(
 				_coalesce(
 					phase_canonical_workspace_cfg.get("publish_to_canonical_on_success", None),
-					phase_canonical_workspace_cfg.get("publish_working_cache_to_canonical_on_success", None),
 					phase_canonical_workspace_cfg.get("publish_sorter_output_to_canonical_on_success", None),
 					phase_canonical_workspace_cfg.get("publish_to_stage_outputs_on_success", None),
 					default_publish_on_success,
@@ -2029,7 +1797,6 @@ def parse_spikesort_stage_config(
 			"publish_canonical_to_stage_outputs_on_failure": _as_bool(
 				_coalesce(
 					phase_canonical_workspace_cfg.get("publish_to_canonical_on_failure", None),
-					phase_canonical_workspace_cfg.get("publish_working_cache_to_canonical_on_failure", None),
 					phase_canonical_workspace_cfg.get("publish_sorter_output_to_canonical_on_failure", None),
 					phase_canonical_workspace_cfg.get("publish_to_stage_outputs_on_failure", None),
 					default_publish_on_failure,
@@ -2039,7 +1806,6 @@ def parse_spikesort_stage_config(
 			"assert_uses_canonical_workspace": _as_bool(
 				_coalesce(
 					phase_canonical_workspace_cfg.get("assert_selected_sorter_output", None),
-					phase_canonical_workspace_cfg.get("assert_uses_working_cache", None),
 					phase_canonical_workspace_cfg.get("assert_uses_canonical_workspace", None),
 					default_assert_uses_canonical_workspace,
 				),
@@ -3865,45 +3631,6 @@ def parse_spikesort_stage_config(
 			str(merge_analyzer_waveforms_dtype)
 			if merge_analyzer_waveforms_dtype is not None
 			else None
-		),
-		cache_sorting_outputs_before_merge=bool(cache_sorting_outputs_before_merge),
-		cache_sorting_outputs_before_merge_relpath=str(cache_sorting_outputs_before_merge_relpath),
-		cache_sorting_outputs_before_merge_cleanup_on_success=bool(cache_sorting_outputs_before_merge_cleanup_on_success),
-		cache_sorting_outputs_before_merge_use_cache_on_force_restart=bool(
-			cache_sorting_outputs_before_merge_use_cache_on_force_restart
-		),
-		cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart=bool(
-			cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart
-		),
-		cache_sorting_outputs_before_merge_refresh_on_run=bool(
-			cache_sorting_outputs_before_merge_refresh_on_run
-		),
-		cache_sorting_outputs_before_merge_strict_restore_on_force_restart=bool(
-			cache_sorting_outputs_before_merge_strict_restore_on_force_restart
-		),
-		cache_sorting_outputs_before_merge_use_canonical_workspace=bool(
-			cache_sorting_outputs_before_merge_use_canonical_workspace
-		),
-		cache_sorting_outputs_before_merge_canonical_workspace_relpath=str(
-			cache_sorting_outputs_before_merge_canonical_workspace_relpath
-		),
-		cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run=bool(
-			cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run
-		),
-		cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer=bool(
-			cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer
-		),
-		cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success=bool(
-			cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success
-		),
-		cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure=bool(
-			cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure
-		),
-		cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace=bool(
-			cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
-		),
-		cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace=bool(
-			cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace
 		),
 		merge_reports_enabled=bool(merge_reports_enabled),
 		merge_reports_unit_diff_json_enabled=bool(merge_reports_unit_diff_json_enabled),

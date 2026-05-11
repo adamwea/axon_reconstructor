@@ -180,21 +180,6 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_analyzer_waveforms_ms_before == 1.0
     assert parsed.merge_analyzer_waveforms_ms_after == 2.0
     assert parsed.merge_analyzer_waveforms_dtype is None
-    assert parsed.cache_sorting_outputs_before_merge is False
-    assert parsed.cache_sorting_outputs_before_merge_relpath == "pre_merge_cache"
-    assert parsed.cache_sorting_outputs_before_merge_cleanup_on_success is False
-    assert parsed.cache_sorting_outputs_before_merge_use_cache_on_force_restart is False
-    assert parsed.cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart is False
-    assert parsed.cache_sorting_outputs_before_merge_refresh_on_run is False
-    assert parsed.cache_sorting_outputs_before_merge_strict_restore_on_force_restart is True
-    assert parsed.cache_sorting_outputs_before_merge_use_canonical_workspace is False
-    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_relpath == "cache/merge_workspace"
-    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run is True
-    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is False
-    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is False
-    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is False
-    assert parsed.cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace is True
-    assert parsed.cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace is True
     assert parsed.merge_reports_enabled is False
     assert parsed.merge_reports_unit_diff_json_enabled is False
     assert parsed.merge_reports_unit_diff_json_relpath == "unit_diffs_after_merge.json"
@@ -1459,13 +1444,6 @@ def test_parse_spikesort_stage_config_reads_phase_local_merge_common_overrides()
                                     "enabled": False,
                                 },
                             },
-                            "working_cache": {
-                                "enabled": True,
-                                "relpath": "cache/slay_workspace",
-                                "refresh_on_run": False,
-                                "publish_to_canonical_on_success": True,
-                                "publish_to_canonical_on_failure": False,
-                            },
                         },
                     }
                 }
@@ -1486,11 +1464,6 @@ def test_parse_spikesort_stage_config_reads_phase_local_merge_common_overrides()
     assert slay_overrides.get("post_merge_metadata_json_relpath") == "reports/slay_post.json"
     assert slay_overrides.get("merge_reports_enabled") is False
     assert slay_overrides.get("merge_reports_unit_diff_json_enabled") is False
-    assert slay_overrides.get("cache_sorting_outputs_before_merge_use_canonical_workspace") is True
-    assert (
-        slay_overrides.get("cache_sorting_outputs_before_merge_canonical_workspace_relpath")
-        == "cache/slay_workspace"
-    )
 
 
 def test_parse_spikesort_stage_config_reads_merge_slay_phase_knobs() -> None:
@@ -1510,7 +1483,7 @@ def test_parse_spikesort_stage_config_reads_merge_slay_phase_knobs() -> None:
                                 "limit_datasets": 1,
                                 "limit_wells": 1,
                             },
-                            "working_cache": {
+                            "use_cache_as_canonical_workspace": {
                                 "enabled": True,
                                 "relpath": "cache/slay_workspace",
                                 "refresh_on_run": False,
@@ -1574,7 +1547,7 @@ def test_parse_spikesort_stage_config_reads_merge_metadata_knobs() -> None:
     assert parsed.merge_metadata_log_summary_details is True
 
 
-def test_parse_spikesort_stage_config_reads_merge_phase_master_enable_and_cache_knobs() -> None:
+def test_parse_spikesort_stage_config_reads_merge_phase_master_enable() -> None:
     cfg = RuntimeConfig(
         {
             "stages": {
@@ -1584,12 +1557,6 @@ def test_parse_spikesort_stage_config_reads_merge_phase_master_enable_and_cache_
                             "enabled": False,
                             "rel_output_root": "merge_outputs",
                             "delete_outputs_on_force_restart": True,
-                            "cache_sorting_outputs_before_merge": {
-                                "enabled": True,
-                                "relpath": "cache/pre_merge_cache",
-                                "cleanup_on_success": True,
-                                "use_cache_on_force_restart": True,
-                            },
                         }
                     }
                 }
@@ -1604,49 +1571,6 @@ def test_parse_spikesort_stage_config_reads_merge_phase_master_enable_and_cache_
     assert parsed.merge_delete_outputs_on_force_restart is True
     assert parsed.merge_force_restart is False
     assert parsed.merge_force_replot is False
-    assert parsed.cache_sorting_outputs_before_merge is True
-    assert parsed.cache_sorting_outputs_before_merge_relpath == "cache/pre_merge_cache"
-    assert parsed.cache_sorting_outputs_before_merge_cleanup_on_success is True
-    assert parsed.cache_sorting_outputs_before_merge_use_cache_on_force_restart is True
-    assert parsed.cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart is True
-    assert parsed.cache_sorting_outputs_before_merge_use_canonical_workspace is False
-    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is False
-    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is False
-
-
-def test_parse_spikesort_stage_config_reads_working_cache_knobs() -> None:
-    cfg = RuntimeConfig(
-        {
-            "stages": {
-                "spikesort": {
-                    "phases": {
-                        "merge_units": {
-                            "working_cache": {
-                                "enabled": True,
-                                "relpath": "cache/merge_workspace",
-                                "refresh_on_run": False,
-                                "publish_to_canonical_on_success": True,
-                                "publish_to_canonical_on_failure": True,
-                                "assert_selected_sorter_output": False,
-                            },
-                        }
-                    }
-                }
-            }
-        }
-    )
-
-    parsed = parse_spikesort_stage_config(runtime_config=cfg)
-
-    assert parsed.cache_sorting_outputs_before_merge is False
-    assert parsed.cache_sorting_outputs_before_merge_use_canonical_workspace is True
-    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_relpath == "cache/merge_workspace"
-    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run is False
-    assert parsed.cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer is False
-    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success is True
-    assert parsed.cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure is True
-    assert parsed.cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace is False
-    assert parsed.cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace is False
 
 
 def test_parse_spikesort_stage_config_merge_force_knobs_inherit_global_toggles() -> None:
@@ -1946,55 +1870,6 @@ def test_parse_spikesort_stage_config_reads_merge_reports_unit_diff_map_knobs() 
         parsed.merge_reports_post_merge_unit_locations_relpath
         == "merge_outputs/reports/post_merge_unit_locations.json"
     )
-
-
-def test_parse_spikesort_stage_config_supports_legacy_boolean_cache_flag() -> None:
-    cfg = RuntimeConfig(
-        {
-            "stages": {
-                "spikesort": {
-                    "phases": {
-                        "merge_units": {
-                            "cache_sorting_outputs_before_merge": True,
-                        }
-                    }
-                }
-            }
-        }
-    )
-
-    parsed = parse_spikesort_stage_config(runtime_config=cfg)
-
-    assert parsed.cache_sorting_outputs_before_merge is True
-    assert parsed.cache_sorting_outputs_before_merge_relpath == "pre_merge_cache"
-    assert parsed.cache_sorting_outputs_before_merge_cleanup_on_success is False
-    assert parsed.cache_sorting_outputs_before_merge_use_cache_on_force_restart is False
-    assert parsed.cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart is False
-
-
-def test_parse_spikesort_stage_config_reads_replace_sorting_cache_alias() -> None:
-    cfg = RuntimeConfig(
-        {
-            "stages": {
-                "spikesort": {
-                    "phases": {
-                        "merge_units": {
-                            "cache_sorting_outputs_before_merge": {
-                                "enabled": True,
-                                "replace_sorting_with_cache_before_force_restart": True,
-                            },
-                        }
-                    }
-                }
-            }
-        }
-    )
-
-    parsed = parse_spikesort_stage_config(runtime_config=cfg)
-
-    assert parsed.cache_sorting_outputs_before_merge is True
-    assert parsed.cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart is True
-    assert parsed.cache_sorting_outputs_before_merge_use_cache_on_force_restart is True
 
 
 def test_parse_spikesort_stage_config_reads_legacy_pre_post_blocks_independently() -> None:

@@ -642,16 +642,6 @@ stages:
         # want SLAy to apply merges (with auto_accept_merges=true).
         dry_run: true
 
-        # Work on a sorter-output copy so the stage's canonical sorter output is only
-        # replaced after SLAy completes successfully. Analyzer outputs are not copied.
-        working_cache:
-          enabled: true
-          relpath: cache/merge_workspace
-          refresh_on_run: true
-          assert_selected_sorter_output: true
-          publish_to_canonical_on_success: false
-          publish_to_canonical_on_failure: false
-
         cleanup_generated_analyzers_on_success: true
 
         analyzer:

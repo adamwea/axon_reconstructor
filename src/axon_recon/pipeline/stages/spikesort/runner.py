@@ -185,129 +185,6 @@ def _copy_path_to_destination(*, src: Path, dst: Path) -> None:
 		shutil.copy2(src, dst)
 
 
-def _cache_sorting_outputs_before_merge(*, stage_output_root_dir: Path, cache_root_dir: Path) -> dict[str, Any]:
-	cache_root_dir = cache_root_dir.resolve()
-	if cache_root_dir.exists():
-		shutil.rmtree(cache_root_dir, ignore_errors=True)
-	cache_root_dir.mkdir(parents=True, exist_ok=True)
-
-	copied_paths: list[str] = []
-	missing_sources: list[str] = []
-	for rel_name in ("sorter_output", "analyzer_output"):
-		src = (stage_output_root_dir / rel_name).resolve()
-		dst = (cache_root_dir / rel_name).resolve()
-		if not src.exists():
-			missing_sources.append(str(src))
-			continue
-		if src.is_dir():
-			shutil.copytree(src, dst)
-		else:
-			dst.parent.mkdir(parents=True, exist_ok=True)
-			shutil.copy2(src, dst)
-		copied_paths.append(str(dst))
-
-	summary_json = cache_root_dir / "pre_merge_cache_summary.json"
-	_write_json(
-		summary_json,
-		{
-			"status": "ok",
-			"stage_output_root_dir": str(stage_output_root_dir),
-			"cache_root_dir": str(cache_root_dir),
-			"copied_paths": copied_paths,
-			"missing_sources": missing_sources,
-		},
-	)
-	return {
-		"cache_root_dir": cache_root_dir,
-		"summary_json": summary_json,
-		"copied_paths": copied_paths,
-		"missing_sources": missing_sources,
-	}
-
-
-def _restore_sorting_outputs_from_pre_merge_cache(*, stage_output_root_dir: Path, cache_root_dir: Path) -> dict[str, Any]:
-	cache_root_dir = cache_root_dir.resolve()
-	restored_paths: list[str] = []
-	missing_cache_sources: list[str] = []
-	for rel_name in ("sorter_output", "analyzer_output"):
-		src = (cache_root_dir / rel_name).resolve()
-		dst = (stage_output_root_dir / rel_name).resolve()
-		if not src.exists():
-			missing_cache_sources.append(str(src))
-			continue
-		if dst.exists():
-			if dst.is_dir():
-				shutil.rmtree(dst, ignore_errors=True)
-			else:
-				dst.unlink(missing_ok=True)
-		if src.is_dir():
-			shutil.copytree(src, dst)
-		else:
-			dst.parent.mkdir(parents=True, exist_ok=True)
-			shutil.copy2(src, dst)
-		restored_paths.append(str(dst))
-
-	return {
-		"cache_root_dir": cache_root_dir,
-		"restored_paths": restored_paths,
-		"missing_cache_sources": missing_cache_sources,
-	}
-
-
-def _cache_canonical_sorter_output_for_merge(*, stage_output_root_dir: Path, cache_root_dir: Path) -> dict[str, Any]:
-	cache_root_dir = cache_root_dir.resolve()
-	if cache_root_dir.exists():
-		shutil.rmtree(cache_root_dir, ignore_errors=True)
-	cache_root_dir.mkdir(parents=True, exist_ok=True)
-
-	src = (stage_output_root_dir / "sorter_output").resolve()
-	dst = (cache_root_dir / "sorter_output").resolve()
-	copied_paths: list[str] = []
-	missing_sources: list[str] = []
-	if src.exists():
-		_copy_path_to_destination(src=src, dst=dst)
-		copied_paths.append(str(dst))
-	else:
-		missing_sources.append(str(src))
-
-	summary_json = cache_root_dir / "working_cache_summary.json"
-	_write_json(
-		summary_json,
-		{
-			"status": "ok",
-			"stage_output_root_dir": str(stage_output_root_dir),
-			"canonical_sorter_output_dir": str(src),
-			"working_cache_root_dir": str(cache_root_dir),
-			"working_sorter_output_dir": str(dst),
-			"copied_paths": copied_paths,
-			"missing_sources": missing_sources,
-		},
-	)
-	return {
-		"cache_root_dir": cache_root_dir,
-		"summary_json": summary_json,
-		"copied_paths": copied_paths,
-		"missing_sources": missing_sources,
-	}
-
-
-def _publish_working_sorter_output_to_canonical(*, stage_output_root_dir: Path, cache_root_dir: Path) -> dict[str, Any]:
-	cache_root_dir = cache_root_dir.resolve()
-	src = (cache_root_dir / "sorter_output").resolve()
-	dst = (stage_output_root_dir / "sorter_output").resolve()
-	restored_paths: list[str] = []
-	missing_cache_sources: list[str] = []
-	if src.exists():
-		_copy_path_to_destination(src=src, dst=dst)
-		restored_paths.append(str(dst))
-	else:
-		missing_cache_sources.append(str(src))
-	return {
-		"cache_root_dir": cache_root_dir,
-		"restored_paths": restored_paths,
-		"missing_cache_sources": missing_cache_sources,
-	}
-
 
 def _cleanup_spikesort_outputs_for_force_restart(*, stage_output_root_dir: Path, um_kwargs: dict[str, Any] | None) -> list[str]:
 	cleanup_names: set[str] = {
@@ -3141,29 +3018,6 @@ def run_spikesort_bombcell_label_stage(
 	)
 
 
-def _assert_method_uses_working_cache_sorter_output(
-	*,
-	method_name: str,
-	sorter_output_dir: Path | None,
-	working_cache_root_dir: Path,
-	knob_name: str,
-) -> None:
-	if sorter_output_dir is None:
-		raise RuntimeError(
-			f"{method_name} expected sorter_output_dir in working cache '{working_cache_root_dir.resolve()}', "
-			"but no sorter_output_dir was resolved. "
-			f"Disable this assertion with stages.spikesort.phases.merge_units.working_cache.{knob_name}=false."
-		)
-	resolved_sorter_dir = Path(sorter_output_dir).resolve()
-	resolved_working_cache_root = working_cache_root_dir.resolve()
-	try:
-		resolved_sorter_dir.relative_to(resolved_working_cache_root)
-	except ValueError as exc:
-		raise RuntimeError(
-			f"{method_name} expected working cache sorter output under '{resolved_working_cache_root}', "
-			f"got '{resolved_sorter_dir}'. "
-			f"Disable this assertion with stages.spikesort.phases.merge_units.working_cache.{knob_name}=false."
-		) from exc
 
 
 def _import_spikeinterface_full_module() -> Any:
@@ -8313,7 +8167,6 @@ def run_spikesort_merge_stage(
 	merge_delete_outputs_on_force_restart = bool(
 		getattr(stage_config, "merge_delete_outputs_on_force_restart", False)
 	)
-	cache_sorting_outputs_before_merge = bool(getattr(stage_config, "cache_sorting_outputs_before_merge", False))
 	merge_reports_enabled = bool(getattr(stage_config, "merge_reports_enabled", False))
 	merge_reports_unit_diff_json_enabled = bool(
 		getattr(stage_config, "merge_reports_unit_diff_json_enabled", False)
@@ -8422,92 +8275,6 @@ def run_spikesort_merge_stage(
 			or merge_reports_post_merge_unit_locations_enabled
 		)
 	)
-	cache_sorting_outputs_before_merge_relpath = (
-		str(getattr(stage_config, "cache_sorting_outputs_before_merge_relpath", "pre_merge_cache") or "pre_merge_cache")
-		.strip()
-		.lstrip("/")
-		or "pre_merge_cache"
-	)
-	cache_sorting_outputs_before_merge_cleanup_on_success = bool(
-		getattr(stage_config, "cache_sorting_outputs_before_merge_cleanup_on_success", False)
-	)
-	cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart = bool(
-		getattr(
-			stage_config,
-			"cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart",
-			getattr(stage_config, "cache_sorting_outputs_before_merge_use_cache_on_force_restart", False),
-		)
-	)
-	cache_sorting_outputs_before_merge_use_cache_on_force_restart = bool(
-		cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart
-	)
-	cache_sorting_outputs_before_merge_refresh_on_run = bool(
-		getattr(stage_config, "cache_sorting_outputs_before_merge_refresh_on_run", False)
-	)
-	cache_sorting_outputs_before_merge_strict_restore_on_force_restart = bool(
-		getattr(stage_config, "cache_sorting_outputs_before_merge_strict_restore_on_force_restart", True)
-	)
-	cache_sorting_outputs_before_merge_use_canonical_workspace = bool(
-		getattr(stage_config, "cache_sorting_outputs_before_merge_use_canonical_workspace", False)
-	)
-	cache_sorting_outputs_before_merge_canonical_workspace_relpath = (
-		str(
-			getattr(
-				stage_config,
-				"cache_sorting_outputs_before_merge_canonical_workspace_relpath",
-				"cache/merge_workspace",
-			)
-			or "cache/merge_workspace"
-		)
-		.strip()
-		.lstrip("/")
-		or "cache/merge_workspace"
-	)
-	cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run = bool(
-		getattr(stage_config, "cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run", True)
-	)
-	cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer = bool(
-		getattr(stage_config, "cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer", False)
-	)
-	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success = bool(
-		getattr(
-			stage_config,
-			"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success",
-			False,
-		)
-	)
-	cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure = bool(
-		getattr(
-			stage_config,
-			"cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure",
-			False,
-		)
-	)
-	cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace = bool(
-		getattr(
-			stage_config,
-			"cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace",
-			True,
-		)
-	)
-	cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace = bool(
-		getattr(
-			stage_config,
-			"cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace",
-			True,
-		)
-	)
-
-	cache_root_dir = _resolve_under_spikesort_output_root(
-		well_out_dir=well_out_dir,
-		output_rel_root=merge_output_rel_root,
-		relpath=str(cache_sorting_outputs_before_merge_relpath),
-	)
-	canonical_workspace_root_dir = _resolve_under_spikesort_output_root(
-		well_out_dir=well_out_dir,
-		output_rel_root=merge_output_rel_root,
-		relpath=str(cache_sorting_outputs_before_merge_canonical_workspace_relpath),
-	)
 	slay_model_cache_path = _resolve_slay_model_cache_path(
 		well_out_dir=well_out_dir,
 		output_rel_root=output_rel_root,
@@ -8566,12 +8333,12 @@ def run_spikesort_merge_stage(
 		.lstrip("/")
 		or "post_merge_metadata_summary.json"
 	)
-	pre_merge_workspace_requires_unit_locations = bool(
+	replot_workspace_requires_unit_locations = bool(
 		((merge_metadata_enabled and merge_metadata_write_json) and merge_metadata_include_unit_locations)
 		or ((pre_merge_metadata_enabled and pre_merge_metadata_write_json) and pre_merge_metadata_include_unit_locations)
 		or bool(merge_reports_require_unit_locations)
 	)
-	pre_merge_workspace_requires_templates = bool(merge_reports_template_heatmaps_enabled)
+	replot_workspace_requires_templates = bool(merge_reports_template_heatmaps_enabled)
 	if not merge_units_enabled:
 		primary_out_dir = merge_phase_out_dir
 		primary_out_dir.mkdir(parents=True, exist_ok=True)
@@ -8608,7 +8375,6 @@ def run_spikesort_merge_stage(
 				"write_cluster_group": bool(getattr(stage_config, "bombcell_label_write_cluster_group", True)),
 				"fail_on_error": bool(getattr(stage_config, "bombcell_label_fail_on_error", False)),
 			},
-			"cache_sorting_outputs_before_merge": bool(cache_sorting_outputs_before_merge),
 			"merge_reports_enabled": bool(merge_reports_any_enabled),
 			"slay_model_cache_path": (str(slay_model_cache_path) if slay_model_cache_path is not None else None),
 			"slay_model_cache_use_cached_model": bool(
@@ -8618,33 +8384,6 @@ def run_spikesort_merge_stage(
 				getattr(stage_config, "slay_model_cache_write_model", True)
 			),
 			"slay_force_restart_retrain_model": bool(getattr(stage_config, "slay_force_restart_retrain_model", False)),
-			"cache_sorting_outputs_before_merge_config": {
-				"enabled": bool(cache_sorting_outputs_before_merge),
-				"relpath": str(cache_sorting_outputs_before_merge_relpath),
-				"cleanup_on_success": bool(cache_sorting_outputs_before_merge_cleanup_on_success),
-				"replace_sorting_with_cache_before_force_restart": bool(
-					cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart
-				),
-				"use_cache_on_force_restart": bool(cache_sorting_outputs_before_merge_use_cache_on_force_restart),
-				"refresh_on_run": bool(cache_sorting_outputs_before_merge_refresh_on_run),
-				"strict_restore_on_force_restart": bool(
-					cache_sorting_outputs_before_merge_strict_restore_on_force_restart
-				),
-				"use_canonical_workspace": bool(cache_sorting_outputs_before_merge_use_canonical_workspace),
-				"canonical_workspace_relpath": str(cache_sorting_outputs_before_merge_canonical_workspace_relpath),
-				"canonical_workspace_refresh_on_run": bool(
-					cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run
-				),
-				"canonical_workspace_rebuild_analyzer": bool(
-					cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer
-				),
-				"publish_canonical_to_stage_outputs_on_success": bool(
-					cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success
-				),
-				"publish_canonical_to_stage_outputs_on_failure": bool(
-					cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure
-				),
-			},
 			"merge_metadata_enabled": False,
 			"outputs": outputs,
 		}
@@ -8694,17 +8433,17 @@ def run_spikesort_merge_stage(
 				if key:
 					combined_outputs[key] = val
 
-		pre_merge_workspace_raw = existing_summary.get("pre_merge_workspace", {})
-		pre_merge_workspace_policy = (
-			dict(pre_merge_workspace_raw.get("analyzer_policy", {}))
-			if isinstance(pre_merge_workspace_raw, dict)
-			and isinstance(pre_merge_workspace_raw.get("analyzer_policy", {}), dict)
+		replot_workspace_raw = existing_summary.get("replot_workspace", {})
+		replot_workspace_policy = (
+			dict(replot_workspace_raw.get("analyzer_policy", {}))
+			if isinstance(replot_workspace_raw, dict)
+			and isinstance(replot_workspace_raw.get("analyzer_policy", {}), dict)
 			else None
 		)
-		if pre_merge_workspace_policy is None:
+		if replot_workspace_policy is None:
 			merge_analyzer_policy_raw = existing_summary.get("merge_analyzer_policy", {})
 			if isinstance(merge_analyzer_policy_raw, dict):
-				pre_merge_workspace_policy = dict(merge_analyzer_policy_raw)
+				replot_workspace_policy = dict(merge_analyzer_policy_raw)
 
 		post_merge_workspace_raw = existing_summary.get("post_merge_workspace", {})
 		post_merge_workspace_policy = (
@@ -8713,40 +8452,40 @@ def run_spikesort_merge_stage(
 			and isinstance(post_merge_workspace_raw.get("analyzer_policy", {}), dict)
 			else None
 		)
-		if post_merge_workspace_policy is None and pre_merge_workspace_policy is not None:
-			post_merge_workspace_policy = dict(pre_merge_workspace_policy)
+		if post_merge_workspace_policy is None and replot_workspace_policy is not None:
+			post_merge_workspace_policy = dict(replot_workspace_policy)
 
-		pre_merge_workspace_relpath = str(
-			getattr(stage_config, "pre_merge_workspace_relpath", "cache/merge_workspace")
-			or "cache/merge_workspace"
-		).strip().lstrip("/") or "cache/merge_workspace"
-		pre_merge_workspace_dir = _resolve_under_spikesort_output_root(
+		replot_workspace_relpath = str(
+			getattr(stage_config, "replot_workspace_relpath", "replot_workspace")
+			or "replot_workspace"
+		).strip().lstrip("/") or "replot_workspace"
+		replot_workspace_dir = _resolve_under_spikesort_output_root(
 			well_out_dir=well_out_dir,
 			output_rel_root=merge_output_rel_root,
-			relpath=pre_merge_workspace_relpath,
+			relpath=replot_workspace_relpath,
 		)
-		pre_merge_workspace_analyzer_output_dir = (
-			pre_merge_workspace_dir / "pre_merge_analyzer_output"
+		replot_workspace_analyzer_output_dir = (
+			replot_workspace_dir / "pre_merge_analyzer_output"
 		).resolve()
 		# Replot must rebuild the pre-merge analyzer from the live pre-merge sorter output,
 		# not from a previously-used workspace sorter path (which may already be post-merge).
 		try:
-			pre_merge_workspace_sorter_output_dir = _resolve_sorter_output_dir(
+			replot_workspace_sorter_output_dir = _resolve_sorter_output_dir(
 				well_out_dir=well_out_dir,
 				output_rel_root=output_rel_root,
 				stage_config=stage_config,
 			)
 		except Exception:
-			pre_merge_workspace_sorter_output_dir = (stage_output_root_dir / "sorter_output").resolve()
+			replot_workspace_sorter_output_dir = (stage_output_root_dir / "sorter_output").resolve()
 
-		pre_merge_workspace_analyzer_built = False
-		pre_merge_workspace_analyzer_error: str | None = None
-		pre_merge_workspace_analyzer_policy: dict[str, Any] | None = None
-		pre_merge_workspace_analyzer_regenerated = False
-		pre_merge_workspace_analyzer_regen_reason: str | None = None
-		pre_merge_workspace_analyzer: Any | None = None
-		post_merge_workspace_sorter_output_dir = (pre_merge_workspace_dir / "sorter_output").resolve()
-		post_merge_workspace_analyzer_output_dir = (pre_merge_workspace_dir / "analyzer_output").resolve()
+		replot_workspace_analyzer_built = False
+		replot_workspace_analyzer_error: str | None = None
+		replot_workspace_analyzer_policy: dict[str, Any] | None = None
+		replot_workspace_analyzer_regenerated = False
+		replot_workspace_analyzer_regen_reason: str | None = None
+		replot_workspace_analyzer: Any | None = None
+		post_merge_workspace_sorter_output_dir = (replot_workspace_dir / "sorter_output").resolve()
+		post_merge_workspace_analyzer_output_dir = (replot_workspace_dir / "analyzer_output").resolve()
 		post_merge_workspace_analyzer_built = False
 		post_merge_workspace_analyzer_error: str | None = None
 		post_merge_workspace_analyzer_policy: dict[str, Any] | None = None
@@ -8754,52 +8493,52 @@ def run_spikesort_merge_stage(
 		post_merge_workspace_analyzer_regen_reason: str | None = None
 		post_merge_workspace_analyzer: Any | None = None
 		si_module: Any | None = None
-		if pre_merge_workspace_sorter_output_dir.exists():
+		if replot_workspace_sorter_output_dir.exists():
 			try:
 				_log_phase_step_start(
 					"Merge replot analyzer prepare step start",
 					stream_id=str(stream_id),
-					sorter_output_dir=pre_merge_workspace_sorter_output_dir,
-					analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
+					sorter_output_dir=replot_workspace_sorter_output_dir,
+					analyzer_output_dir=replot_workspace_analyzer_output_dir,
 					regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
 					check_if_regen_is_needed=bool(merge_analyzer_check_if_regen_is_needed),
 				)
 				if si_module is None:
 					si_module = _import_spikeinterface_full_module()
 				(
-					pre_merge_workspace_analyzer,
-					pre_merge_workspace_analyzer_output_dir,
-					pre_merge_workspace_analyzer_policy,
-					pre_merge_workspace_analyzer_regenerated,
-					pre_merge_workspace_analyzer_regen_reason,
+					replot_workspace_analyzer,
+					replot_workspace_analyzer_output_dir,
+					replot_workspace_analyzer_policy,
+					replot_workspace_analyzer_regenerated,
+					replot_workspace_analyzer_regen_reason,
 				) = _prepare_replot_workspace_analyzer(
 					si_module=si_module,
 					well_out_dir=well_out_dir,
-					sorter_output_dir=pre_merge_workspace_sorter_output_dir,
+					sorter_output_dir=replot_workspace_sorter_output_dir,
 					stage_config=stage_config,
-					analyzer_dir=pre_merge_workspace_analyzer_output_dir,
+					analyzer_dir=replot_workspace_analyzer_output_dir,
 					regenerate_on_replot=bool(merge_analyzer_regenerate_on_replot),
 					check_if_regen_is_needed=bool(merge_analyzer_check_if_regen_is_needed),
-					fallback_policy=pre_merge_workspace_policy,
+					fallback_policy=replot_workspace_policy,
 				)
-				if pre_merge_workspace_requires_templates or pre_merge_workspace_requires_unit_locations:
+				if replot_workspace_requires_templates or replot_workspace_requires_unit_locations:
 					_ensure_merge_analyzer_extensions(
-						analyzer=pre_merge_workspace_analyzer,
+						analyzer=replot_workspace_analyzer,
 						stage_config=stage_config,
-						include_unit_locations=pre_merge_workspace_requires_unit_locations,
+						include_unit_locations=replot_workspace_requires_unit_locations,
 					)
-				pre_merge_workspace_analyzer_built = True
+				replot_workspace_analyzer_built = True
 				_log_memory_usage(
 					"Merge replot pre-merge analyzer memory snapshot",
 					stream_id=str(stream_id),
-					sorter_output_dir=pre_merge_workspace_sorter_output_dir,
-					analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
-					regenerated=bool(pre_merge_workspace_analyzer_regenerated),
-					regen_reason=pre_merge_workspace_analyzer_regen_reason,
+					sorter_output_dir=replot_workspace_sorter_output_dir,
+					analyzer_output_dir=replot_workspace_analyzer_output_dir,
+					regenerated=bool(replot_workspace_analyzer_regenerated),
+					regen_reason=replot_workspace_analyzer_regen_reason,
 				)
 			except Exception as exc:
-				pre_merge_workspace_analyzer_error = (
-					f"replot_pre_merge_workspace_analyzer_prepare_failed:{type(exc).__name__}:{exc}"
+				replot_workspace_analyzer_error = (
+					f"replot_replot_workspace_analyzer_prepare_failed:{type(exc).__name__}:{exc}"
 				)
 
 		if (
@@ -8852,13 +8591,13 @@ def run_spikesort_merge_stage(
 					f"replot_post_merge_workspace_analyzer_prepare_failed:{type(exc).__name__}:{exc}"
 				)
 
-		combined_outputs["merge.pre_merge_workspace_dir"] = str(pre_merge_workspace_dir.resolve())
-		combined_outputs["merge.pre_merge_workspace_sorter_output_dir"] = str(
-			pre_merge_workspace_sorter_output_dir.resolve()
+		combined_outputs["merge.replot_workspace_dir"] = str(replot_workspace_dir.resolve())
+		combined_outputs["merge.replot_workspace_sorter_output_dir"] = str(
+			replot_workspace_sorter_output_dir.resolve()
 		)
-		if pre_merge_workspace_analyzer_output_dir.exists():
-			combined_outputs["merge.pre_merge_workspace_analyzer_output_dir"] = str(
-				pre_merge_workspace_analyzer_output_dir.resolve()
+		if replot_workspace_analyzer_output_dir.exists():
+			combined_outputs["merge.replot_workspace_analyzer_output_dir"] = str(
+				replot_workspace_analyzer_output_dir.resolve()
 			)
 
 		combined_outputs["merge.post_merge_workspace_sorter_output_dir"] = str(
@@ -8945,19 +8684,19 @@ def run_spikesort_merge_stage(
 				)
 
 			preferred_pre_analyzer_raw: Any = combined_outputs.get(
-				"merge.pre_merge_workspace_analyzer_output_dir",
+				"merge.replot_workspace_analyzer_output_dir",
 				None,
 			)
 			if merge_reports_error is None:
 				if preferred_pre_analyzer_raw is None:
 					merge_reports_error = (
-						"merge_reports_missing_pre_merge_workspace_analyzer_output_dir_for_replot"
+						"merge_reports_missing_replot_workspace_analyzer_output_dir_for_replot"
 					)
 				else:
 					preferred_pre_analyzer_dir = Path(str(preferred_pre_analyzer_raw)).expanduser().resolve()
 					if not preferred_pre_analyzer_dir.exists():
 						merge_reports_error = (
-							"merge_reports_missing_pre_merge_workspace_analyzer_for_replot"
+							"merge_reports_missing_replot_workspace_analyzer_for_replot"
 						)
 					else:
 						before_analyzer_raw = before_snapshot_for_report.get("analyzer", {})
@@ -9006,13 +8745,13 @@ def run_spikesort_merge_stage(
 					after_snapshot_for_report["analyzer"] = after_analyzer
 
 			if merge_reports_error is None and merge_reports_require_unit_locations:
-				if pre_merge_workspace_analyzer_built and pre_merge_workspace_analyzer is not None:
+				if replot_workspace_analyzer_built and replot_workspace_analyzer is not None:
 					before_snapshot_for_report = _refresh_snapshot_analyzer_payload_from_live_analyzer(
 						snapshot=before_snapshot_for_report,
-						analyzer=pre_merge_workspace_analyzer,
+						analyzer=replot_workspace_analyzer,
 						stage_config=stage_config,
 						include_unit_locations=True,
-						analyzer_source_dir=pre_merge_workspace_analyzer_output_dir,
+						analyzer_source_dir=replot_workspace_analyzer_output_dir,
 					)
 				if post_merge_workspace_analyzer_built and post_merge_workspace_analyzer is not None:
 					after_snapshot_for_report = _refresh_snapshot_analyzer_payload_from_live_analyzer(
@@ -9049,7 +8788,7 @@ def run_spikesort_merge_stage(
 						after_snapshot=after_snapshot_for_report,
 						applied_unit_mappings=applied_unit_mappings_for_report,
 						stage_config=stage_config,
-						before_analyzer=(pre_merge_workspace_analyzer if pre_merge_workspace_analyzer_built else None),
+						before_analyzer=(replot_workspace_analyzer if replot_workspace_analyzer_built else None),
 						after_analyzer=(post_merge_workspace_analyzer if post_merge_workspace_analyzer_built else None),
 					)
 					if str(merge_template_heatmaps_payload.get("status", "")) == "ok":
@@ -9076,9 +8815,9 @@ def run_spikesort_merge_stage(
 			)
 
 		released_pre_extensions: list[str] = []
-		if pre_merge_workspace_analyzer is not None:
-			released_pre_extensions = _release_loaded_analyzer_extensions(analyzer=pre_merge_workspace_analyzer)
-			pre_merge_workspace_analyzer = None
+		if replot_workspace_analyzer is not None:
+			released_pre_extensions = _release_loaded_analyzer_extensions(analyzer=replot_workspace_analyzer)
+			replot_workspace_analyzer = None
 			gc.collect()
 		released_post_extensions: list[str] = []
 		if post_merge_workspace_analyzer is not None:
@@ -9112,29 +8851,28 @@ def run_spikesort_merge_stage(
 			"force_replot": bool(force_replot),
 			"replot_only": True,
 			"merge_units_enabled": bool(merge_units_enabled),
-			"cache_sorting_outputs_before_merge": bool(cache_sorting_outputs_before_merge),
 			"merge_reports_enabled": bool(merge_reports_any_enabled),
 			"requested_sequence": [str(token) for token in requested_sequence_raw],
 			"methods": method_reports,
 			"merge_metadata_enabled": bool(merge_metadata_enabled and merge_metadata_write_json),
 			"outputs": combined_outputs,
 		}
-		payload["pre_merge_workspace"] = {
-			"relpath": str(pre_merge_workspace_relpath),
-			"workspace_dir": str(pre_merge_workspace_dir.resolve()),
-			"sorter_output_dir": str(pre_merge_workspace_sorter_output_dir.resolve()),
-			"analyzer_output_dir": str(pre_merge_workspace_analyzer_output_dir.resolve()),
-			"analyzer_built": bool(pre_merge_workspace_analyzer_built),
-			"analyzer_regenerated": bool(pre_merge_workspace_analyzer_regenerated),
-			"analyzer_regen_reason": pre_merge_workspace_analyzer_regen_reason,
+		payload["replot_workspace"] = {
+			"relpath": str(replot_workspace_relpath),
+			"workspace_dir": str(replot_workspace_dir.resolve()),
+			"sorter_output_dir": str(replot_workspace_sorter_output_dir.resolve()),
+			"analyzer_output_dir": str(replot_workspace_analyzer_output_dir.resolve()),
+			"analyzer_built": bool(replot_workspace_analyzer_built),
+			"analyzer_regenerated": bool(replot_workspace_analyzer_regenerated),
+			"analyzer_regen_reason": replot_workspace_analyzer_regen_reason,
 			"analyzer_policy": (
-				dict(pre_merge_workspace_analyzer_policy)
-				if isinstance(pre_merge_workspace_analyzer_policy, dict)
+				dict(replot_workspace_analyzer_policy)
+				if isinstance(replot_workspace_analyzer_policy, dict)
 				else _requested_merge_analyzer_policy(stage_config)
 			),
 		}
 		payload["post_merge_workspace"] = {
-			"workspace_dir": str(pre_merge_workspace_dir.resolve()),
+			"workspace_dir": str(replot_workspace_dir.resolve()),
 			"sorter_output_dir": str(post_merge_workspace_sorter_output_dir.resolve()),
 			"analyzer_output_dir": str(post_merge_workspace_analyzer_output_dir.resolve()),
 			"analyzer_built": bool(post_merge_workspace_analyzer_built),
@@ -9147,8 +8885,8 @@ def run_spikesort_merge_stage(
 			),
 		}
 		payload["merge_analyzer_policy"] = _requested_merge_analyzer_policy(stage_config)
-		if pre_merge_workspace_analyzer_error is not None:
-			payload["pre_merge_workspace_analyzer_error"] = str(pre_merge_workspace_analyzer_error)
+		if replot_workspace_analyzer_error is not None:
+			payload["replot_workspace_analyzer_error"] = str(replot_workspace_analyzer_error)
 		if post_merge_workspace_analyzer_error is not None:
 			payload["post_merge_workspace_analyzer_error"] = str(post_merge_workspace_analyzer_error)
 		if merge_metadata_json is not None:
@@ -9209,14 +8947,6 @@ def run_spikesort_merge_stage(
 	merge_phase_removed_on_force_restart: list[str] = []
 	if bool(force_restart) and bool(merge_delete_outputs_on_force_restart) and merge_phase_out_dir.exists():
 		preserved_targets: list[Path] = []
-		if cache_sorting_outputs_before_merge and cache_root_dir.exists():
-			preserved_targets.append(cache_root_dir.resolve())
-		if (
-			cache_sorting_outputs_before_merge_use_canonical_workspace
-			and (not cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run)
-			and canonical_workspace_root_dir.exists()
-		):
-			preserved_targets.append(canonical_workspace_root_dir.resolve())
 		if slay_model_cache_path is not None and slay_model_cache_path.exists():
 			preserved_targets.append(slay_model_cache_path.resolve())
 
@@ -9231,164 +8961,10 @@ def run_spikesort_merge_stage(
 			shutil.rmtree(merge_phase_out_dir, ignore_errors=True)
 			merge_phase_removed_on_force_restart.append(str(merge_phase_out_dir.resolve()))
 
-	cache_summary: dict[str, Any] | None = None
-	cache_restore_summary: dict[str, Any] | None = None
-	cache_error: str | None = None
-	cache_restored_from_existing = False
-	cache_preserved_existing = False
-	cache_reseeded_after_restore_miss = False
-	cache_restore_precheck_missing_sources: list[str] = []
-	cache_outputs: dict[str, str] = {}
-	if cache_sorting_outputs_before_merge:
-		_log_phase_step_start(
-			"Merge pre-cache step start",
-			stream_id=str(stream_id),
-			cache_root_dir=cache_root_dir,
-			force_restart=bool(force_restart),
-			use_cache_on_force_restart=bool(
-				cache_sorting_outputs_before_merge_use_cache_on_force_restart
-			),
-		)
-		try:
-			if bool(force_restart) and bool(cache_sorting_outputs_before_merge_use_cache_on_force_restart):
-				expected_cache_sources = [
-					(cache_root_dir / "sorter_output").resolve(),
-					(cache_root_dir / "analyzer_output").resolve(),
-				]
-				cache_restore_precheck_missing_sources = [
-					str(path)
-					for path in expected_cache_sources
-					if not path.exists()
-				]
-				if cache_restore_precheck_missing_sources:
-					if cache_sorting_outputs_before_merge_strict_restore_on_force_restart:
-						raise FileNotFoundError(
-							"Missing required pre-merge cache sources for force-restart: "
-							+ ", ".join(cache_restore_precheck_missing_sources)
-						)
-					cache_reseeded_after_restore_miss = True
-				else:
-					cache_restore_summary = _restore_sorting_outputs_from_pre_merge_cache(
-						stage_output_root_dir=stage_output_root_dir,
-						cache_root_dir=cache_root_dir,
-					)
-					missing_after_restore = list(cache_restore_summary.get("missing_cache_sources", []) or [])
-					if missing_after_restore:
-						if cache_sorting_outputs_before_merge_strict_restore_on_force_restart:
-							raise FileNotFoundError(
-								"Missing required pre-merge cache sources during restore: "
-								+ ", ".join(missing_after_restore)
-							)
-						cache_reseeded_after_restore_miss = True
-					else:
-						cache_restored_from_existing = True
-
-			if not cache_restored_from_existing:
-				should_refresh_cache = bool(
-					(not cache_root_dir.exists())
-					or cache_sorting_outputs_before_merge_refresh_on_run
-					or cache_reseeded_after_restore_miss
-				)
-				if should_refresh_cache:
-					cache_summary = _cache_sorting_outputs_before_merge(
-						stage_output_root_dir=stage_output_root_dir,
-						cache_root_dir=cache_root_dir,
-					)
-				else:
-					cache_preserved_existing = True
-
-			cache_outputs["merge.pre_merge_cache_dir"] = str(cache_root_dir)
-			sorter_cache_dir = (cache_root_dir / "sorter_output").resolve()
-			analyzer_cache_dir = (cache_root_dir / "analyzer_output").resolve()
-			if sorter_cache_dir.exists():
-				cache_outputs["merge.pre_merge_cache_sorter_output_dir"] = str(sorter_cache_dir)
-			if analyzer_cache_dir.exists():
-				cache_outputs["merge.pre_merge_cache_analyzer_output_dir"] = str(analyzer_cache_dir)
-			summary_json_obj = (cache_root_dir / "pre_merge_cache_summary.json").resolve()
-			if summary_json_obj.exists():
-				cache_outputs["merge.pre_merge_cache_summary_json"] = str(summary_json_obj)
-		except Exception as exc:
-			cache_error = f"pre_merge_cache_failed:{type(exc).__name__}:{exc}"
-			if (
-				bool(force_restart)
-				and bool(cache_sorting_outputs_before_merge_use_cache_on_force_restart)
-				and bool(cache_sorting_outputs_before_merge_strict_restore_on_force_restart)
-			):
-				raise RuntimeError(cache_error) from exc
-
-	if slay_model_cache_path is not None:
-		cache_outputs["slay.model_cache_path"] = str(slay_model_cache_path.resolve())
-
-	canonical_workspace_summary: dict[str, Any] | None = None
-	canonical_workspace_error: str | None = None
-	canonical_workspace_prepared = False
-	canonical_workspace_preserved_existing = False
-	canonical_workspace_sorter_output_dir: Path | None = None
-	canonical_workspace_analyzer_output_dir: Path | None = None
-	canonical_workspace_publish_summary: dict[str, Any] | None = None
-	canonical_workspace_publish_error: str | None = None
-	canonical_workspace_published = False
-	active_stage_output_root_dir: Path = stage_output_root_dir
 	active_sorter_output_dir: Path | None = None
 	slay_binary_input_preflight: dict[str, Any] | None = None
 	bombcell_report: dict[str, Any] | None = None
 	bombcell_report_error: str | None = None
-
-	if cache_sorting_outputs_before_merge_use_canonical_workspace:
-		_log_phase_step_start(
-			"Merge working cache prepare step start",
-			stream_id=str(stream_id),
-			workspace_root_dir=canonical_workspace_root_dir,
-			refresh_on_run=bool(
-				cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run
-			),
-		)
-		try:
-			should_refresh_canonical_workspace = bool(
-				(not canonical_workspace_root_dir.exists())
-				or cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run
-			)
-			if should_refresh_canonical_workspace:
-				canonical_workspace_summary = _cache_canonical_sorter_output_for_merge(
-					stage_output_root_dir=stage_output_root_dir,
-					cache_root_dir=canonical_workspace_root_dir,
-				)
-			else:
-				canonical_workspace_preserved_existing = True
-
-			canonical_workspace_sorter_output_dir = (canonical_workspace_root_dir / "sorter_output").resolve()
-			if not canonical_workspace_sorter_output_dir.exists():
-				raise FileNotFoundError(
-					"Merge working cache is missing sorter output: "
-					+ str(canonical_workspace_sorter_output_dir)
-				)
-
-			if slay_requested:
-				slay_binary_input_preflight = _preflight_slay_binary_input(
-					sorter_output_dir=canonical_workspace_sorter_output_dir,
-					well_out_dir=well_out_dir,
-					stage_config=stage_config,
-				)
-				cache_outputs["slay.preflight_data_filepath"] = str(
-					slay_binary_input_preflight.get("data_filepath", "")
-				)
-
-			cache_outputs["merge.working_cache_dir"] = str(canonical_workspace_root_dir.resolve())
-			cache_outputs["merge.working_cache_sorter_output_dir"] = str(
-				canonical_workspace_sorter_output_dir.resolve()
-			)
-			canonical_workspace_summary_json = (canonical_workspace_root_dir / "working_cache_summary.json").resolve()
-			if canonical_workspace_summary_json.exists():
-				cache_outputs["merge.working_cache_summary_json"] = str(canonical_workspace_summary_json)
-
-			canonical_workspace_prepared = True
-			active_stage_output_root_dir = canonical_workspace_root_dir
-			active_sorter_output_dir = canonical_workspace_sorter_output_dir
-		except Exception as exc:
-			canonical_workspace_error = (
-				f"working_cache_prepare_failed:{type(exc).__name__}:{exc}"
-			)
-			raise RuntimeError(canonical_workspace_error) from exc
 
 	resolved_sorter_output_dir: Path | None = active_sorter_output_dir
 	pre_snapshot_sorter_output_dir: Path | None = active_sorter_output_dir
@@ -9405,27 +8981,24 @@ def run_spikesort_merge_stage(
 			well_out_dir=well_out_dir,
 			stage_config=stage_config,
 		)
-		cache_outputs["slay.preflight_data_filepath"] = str(
-			slay_binary_input_preflight.get("data_filepath", "")
-		)
 	workspace_sorter_output_dir = resolved_sorter_output_dir
 
-	pre_merge_workspace_relpath = str(
-		getattr(stage_config, "pre_merge_workspace_relpath", "cache/merge_workspace")
-		or "cache/merge_workspace"
-	).strip().lstrip("/") or "cache/merge_workspace"
-	pre_merge_workspace_dir = _resolve_under_spikesort_output_root(
+	replot_workspace_relpath = str(
+		getattr(stage_config, "replot_workspace_relpath", "replot_workspace")
+		or "replot_workspace"
+	).strip().lstrip("/") or "replot_workspace"
+	replot_workspace_dir = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=merge_output_rel_root,
-		relpath=pre_merge_workspace_relpath,
+		relpath=replot_workspace_relpath,
 	)
-	pre_merge_workspace_analyzer_output_dir = (
-		pre_merge_workspace_dir / "pre_merge_analyzer_output"
+	replot_workspace_analyzer_output_dir = (
+		replot_workspace_dir / "pre_merge_analyzer_output"
 	).resolve()
-	pre_merge_workspace_analyzer_error: str | None = None
-	pre_merge_workspace_analyzer_built = False
-	pre_merge_workspace_analyzer_policy: dict[str, Any] | None = None
-	pre_merge_workspace_analyzer: Any | None = None
+	replot_workspace_analyzer_error: str | None = None
+	replot_workspace_analyzer_built = False
+	replot_workspace_analyzer_policy: dict[str, Any] | None = None
+	replot_workspace_analyzer: Any | None = None
 	pre_snapshot_capture_needed = bool(
 		(merge_metadata_enabled and merge_metadata_write_json)
 		or (pre_merge_metadata_enabled and pre_merge_metadata_write_json)
@@ -9438,7 +9011,7 @@ def run_spikesort_merge_stage(
 	)
 	pre_merge_runtime_analyzer_needed = bool(
 		pre_snapshot_capture_needed
-		and (pre_snapshot_include_unit_locations or pre_merge_workspace_requires_templates)
+		and (pre_snapshot_include_unit_locations or replot_workspace_requires_templates)
 	)
 
 	if pre_merge_runtime_analyzer_needed:
@@ -9446,40 +9019,40 @@ def run_spikesort_merge_stage(
 			"Merge pre-merge analyzer prepare step start",
 			stream_id=str(stream_id),
 			sorter_output_dir=workspace_sorter_output_dir,
-			analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
-			requires_templates=bool(pre_merge_workspace_requires_templates),
-			requires_unit_locations=bool(pre_merge_workspace_requires_unit_locations),
+			analyzer_output_dir=replot_workspace_analyzer_output_dir,
+			requires_templates=bool(replot_workspace_requires_templates),
+			requires_unit_locations=bool(replot_workspace_requires_unit_locations),
 		)
 		try:
 			si_module = _import_spikeinterface_full_module()
-			pre_merge_workspace_analyzer, pre_merge_workspace_analyzer_output_dir = _recompute_sorting_analyzer_to_dir(
+			replot_workspace_analyzer, replot_workspace_analyzer_output_dir = _recompute_sorting_analyzer_to_dir(
 				si_module=si_module,
 				well_out_dir=well_out_dir,
 				sorter_output_dir=workspace_sorter_output_dir,
 				stage_config=stage_config,
-				analyzer_dir=pre_merge_workspace_analyzer_output_dir,
+				analyzer_dir=replot_workspace_analyzer_output_dir,
 			)
 
 			_ensure_merge_analyzer_extensions(
-				analyzer=pre_merge_workspace_analyzer,
+				analyzer=replot_workspace_analyzer,
 				stage_config=stage_config,
-				include_unit_locations=pre_merge_workspace_requires_unit_locations,
-				include_templates=pre_merge_workspace_requires_templates,
+				include_unit_locations=replot_workspace_requires_unit_locations,
+				include_templates=replot_workspace_requires_templates,
 			)
-			pre_merge_workspace_analyzer_policy = _get_merge_analyzer_policy_info(
-				pre_merge_workspace_analyzer
+			replot_workspace_analyzer_policy = _get_merge_analyzer_policy_info(
+				replot_workspace_analyzer
 			)
 
-			pre_merge_workspace_analyzer_built = True
+			replot_workspace_analyzer_built = True
 			_log_memory_usage(
 				"Merge pre-merge analyzer memory snapshot",
 				stream_id=str(stream_id),
 				sorter_output_dir=workspace_sorter_output_dir,
-				analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
+				analyzer_output_dir=replot_workspace_analyzer_output_dir,
 			)
 		except Exception as exc:
-			pre_merge_workspace_analyzer_error = (
-				f"pre_merge_workspace_analyzer_prepare_failed:{type(exc).__name__}:{exc}"
+			replot_workspace_analyzer_error = (
+				f"replot_workspace_analyzer_prepare_failed:{type(exc).__name__}:{exc}"
 			)
 
 	pre_merge_snapshot: dict[str, Any] | None = None
@@ -9498,17 +9071,17 @@ def run_spikesort_merge_stage(
 			"Merge pre-merge snapshot step start",
 			stream_id=str(stream_id),
 			include_unit_locations=bool(pre_snapshot_include_unit_locations),
-			analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
+			analyzer_output_dir=replot_workspace_analyzer_output_dir,
 		)
 		try:
 			if pre_merge_runtime_analyzer_needed and not bool(
-				pre_merge_workspace_analyzer_built
-				and pre_merge_workspace_analyzer_output_dir.exists()
+				replot_workspace_analyzer_built
+				and replot_workspace_analyzer_output_dir.exists()
 			):
-				raise RuntimeError("pre_merge_workspace_analyzer_unavailable")
+				raise RuntimeError("replot_workspace_analyzer_unavailable")
 			pre_snapshot_kwargs: dict[str, Any] = {
 				"well_out_dir": well_out_dir,
-				"stage_output_root_dir": active_stage_output_root_dir,
+				"stage_output_root_dir": stage_output_root_dir,
 				"output_rel_root": output_rel_root,
 				"stage_config": stage_config,
 				"capture_label": "before_merge",
@@ -9518,8 +9091,8 @@ def run_spikesort_merge_stage(
 			if pre_snapshot_sorter_output_dir is not None:
 				pre_snapshot_kwargs["sorter_output_dir"] = pre_snapshot_sorter_output_dir
 			if pre_merge_runtime_analyzer_needed:
-				pre_snapshot_kwargs["analyzer_source_dir"] = pre_merge_workspace_analyzer_output_dir
-				pre_snapshot_kwargs["analyzer_obj"] = pre_merge_workspace_analyzer
+				pre_snapshot_kwargs["analyzer_source_dir"] = replot_workspace_analyzer_output_dir
+				pre_snapshot_kwargs["analyzer_obj"] = replot_workspace_analyzer
 			pre_merge_snapshot_result = _call_capture_merge_state_snapshot_compat(**pre_snapshot_kwargs)
 			if isinstance(pre_merge_snapshot_result, tuple):
 				pre_merge_snapshot = pre_merge_snapshot_result[0]
@@ -9532,30 +9105,35 @@ def run_spikesort_merge_stage(
 			if pre_merge_metadata_enabled and pre_merge_metadata_write_json:
 				pre_merge_metadata_error = err
 
-	if pre_merge_workspace_analyzer is not None:
+	if replot_workspace_analyzer is not None:
 		_log_phase_step_start(
 			"Merge pre-merge analyzer release step start",
 			stream_id=str(stream_id),
-			analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
+			analyzer_output_dir=replot_workspace_analyzer_output_dir,
 		)
-		released_pre_merge_extensions = _release_loaded_analyzer_extensions(analyzer=pre_merge_workspace_analyzer)
-		pre_merge_workspace_analyzer = None
+		released_pre_merge_extensions = _release_loaded_analyzer_extensions(analyzer=replot_workspace_analyzer)
+		replot_workspace_analyzer = None
 		gc.collect()
 		_log_memory_usage(
 			"Merge pre-merge analyzer release memory snapshot",
 			stream_id=str(stream_id),
-			analyzer_output_dir=pre_merge_workspace_analyzer_output_dir,
+			analyzer_output_dir=replot_workspace_analyzer_output_dir,
 			released_extensions=int(len(released_pre_merge_extensions)),
 		)
 
 	method_reports: list[dict[str, Any]] = []
 	combined_outputs: dict[str, str] = {}
-	combined_outputs.update(cache_outputs)
-	combined_outputs["merge.pre_merge_workspace_dir"] = str(pre_merge_workspace_dir.resolve())
-	combined_outputs["merge.pre_merge_workspace_sorter_output_dir"] = str(workspace_sorter_output_dir.resolve())
-	if pre_merge_workspace_analyzer_built and pre_merge_workspace_analyzer_output_dir.exists():
-		combined_outputs["merge.pre_merge_workspace_analyzer_output_dir"] = str(
-			pre_merge_workspace_analyzer_output_dir.resolve()
+	if slay_model_cache_path is not None:
+		combined_outputs["slay.model_cache_path"] = str(slay_model_cache_path.resolve())
+	if slay_binary_input_preflight is not None:
+		combined_outputs["slay.preflight_data_filepath"] = str(
+			slay_binary_input_preflight.get("data_filepath", "")
+		)
+	combined_outputs["merge.replot_workspace_dir"] = str(replot_workspace_dir.resolve())
+	combined_outputs["merge.replot_workspace_sorter_output_dir"] = str(workspace_sorter_output_dir.resolve())
+	if replot_workspace_analyzer_built and replot_workspace_analyzer_output_dir.exists():
+		combined_outputs["merge.replot_workspace_analyzer_output_dir"] = str(
+			replot_workspace_analyzer_output_dir.resolve()
 		)
 	primary_out_dir: Path = merge_phase_out_dir
 	resolved_sorter_output_dir: Path | None = pre_snapshot_sorter_output_dir
@@ -9570,19 +9148,9 @@ def run_spikesort_merge_stage(
 		sequence_index=1,
 		sequence_length=1,
 	)
-	if (
-		cache_sorting_outputs_before_merge_use_canonical_workspace
-		and cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
-	):
-		_assert_method_uses_working_cache_sorter_output(
-			method_name="SLAy",
-			sorter_output_dir=resolved_sorter_output_dir,
-			working_cache_root_dir=canonical_workspace_root_dir,
-			knob_name="assert_selected_sorter_output",
-		)
 	slay_call_kwargs: dict[str, Any] = {
 		"well_out_dir": well_out_dir,
-		"stage_output_root_dir": active_stage_output_root_dir,
+		"stage_output_root_dir": stage_output_root_dir,
 		"output_rel_root": output_rel_root,
 		"stage_config": stage_config,
 		"force_restart": bool(force_restart),
@@ -9594,16 +9162,6 @@ def run_spikesort_merge_stage(
 	combined_outputs.update(dict(report.get("outputs", {})))
 	if report.get("ks_dir"):
 		resolved_sorter_output_dir = Path(str(report.get("ks_dir"))).resolve()
-		if (
-			cache_sorting_outputs_before_merge_use_canonical_workspace
-			and cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
-		):
-			_assert_method_uses_working_cache_sorter_output(
-				method_name="SLAy",
-				sorter_output_dir=resolved_sorter_output_dir,
-				working_cache_root_dir=canonical_workspace_root_dir,
-				knob_name="assert_selected_sorter_output",
-			)
 
 	should_recompute_after_slay = (
 		bool(getattr(stage_config, "slay_recompute_analyzer", False))
@@ -9614,7 +9172,7 @@ def run_spikesort_merge_stage(
 	if should_recompute_after_slay and resolved_sorter_output_dir is not None:
 		recompute_report = _run_slay_analyzer_recompute(
 			well_out_dir=well_out_dir,
-			stage_output_root_dir=active_stage_output_root_dir,
+			stage_output_root_dir=stage_output_root_dir,
 			stage_config=stage_config,
 			sorter_output_dir=resolved_sorter_output_dir,
 		)
@@ -9662,108 +9220,7 @@ def run_spikesort_merge_stage(
 				reason = str(report_reason)
 				break
 
-	canonical_workspace_publish_requested = False
-	canonical_workspace_publish_skip_reason: str | None = None
-	if cache_sorting_outputs_before_merge_use_canonical_workspace and canonical_workspace_prepared:
-		if str(status) == "ok":
-			canonical_workspace_publish_requested = bool(
-				cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success
-			)
-			if not canonical_workspace_publish_requested:
-				canonical_workspace_publish_skip_reason = "publish_working_cache_to_canonical_on_success_disabled"
-		else:
-			canonical_workspace_publish_requested = bool(
-				cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure
-			)
-			if not canonical_workspace_publish_requested:
-				canonical_workspace_publish_skip_reason = "publish_working_cache_to_canonical_on_failure_disabled"
-	elif not cache_sorting_outputs_before_merge_use_canonical_workspace:
-		canonical_workspace_publish_skip_reason = "working_cache_disabled"
-	else:
-		canonical_workspace_publish_skip_reason = "working_cache_not_prepared"
-
-	_log_phase_step_start(
-		"Merge working cache publish decision",
-		stream_id=str(stream_id),
-		merge_status=str(status),
-		requested=bool(canonical_workspace_publish_requested),
-		workspace_root_dir=active_stage_output_root_dir,
-		stage_output_root_dir=stage_output_root_dir,
-		reason=(None if canonical_workspace_publish_requested else canonical_workspace_publish_skip_reason),
-	)
-
-	if canonical_workspace_publish_requested:
-		_log_phase_step_start(
-			"Merge working cache publish step start",
-			stream_id=str(stream_id),
-			workspace_root_dir=active_stage_output_root_dir,
-			stage_output_root_dir=stage_output_root_dir,
-		)
-		try:
-			canonical_workspace_publish_summary = _publish_working_sorter_output_to_canonical(
-				stage_output_root_dir=stage_output_root_dir,
-				cache_root_dir=active_stage_output_root_dir,
-			)
-			canonical_workspace_published = True
-			restored_paths = list(canonical_workspace_publish_summary.get("restored_paths", []) or [])
-			missing_workspace_sources = list(
-				canonical_workspace_publish_summary.get("missing_cache_sources", []) or []
-			)
-			published_sorter_output_dir = (stage_output_root_dir / "sorter_output").resolve()
-			published_analyzer_output_dir = (stage_output_root_dir / "analyzer_output").resolve()
-			if published_sorter_output_dir.exists():
-				combined_outputs["merge.published_sorter_output_dir"] = str(published_sorter_output_dir)
-			removed_published_analyzer_output_dir: str | None = None
-			if published_analyzer_output_dir.exists():
-				shutil.rmtree(published_analyzer_output_dir, ignore_errors=True)
-				removed_published_analyzer_output_dir = str(published_analyzer_output_dir)
-			_log_phase_step_start(
-				"Merge working cache publish complete",
-				stream_id=str(stream_id),
-				workspace_root_dir=active_stage_output_root_dir,
-				stage_output_root_dir=stage_output_root_dir,
-				restored_paths=(";".join(restored_paths) if restored_paths else None),
-				missing_workspace_sources=(
-					";".join(missing_workspace_sources) if missing_workspace_sources else None
-				),
-				published_sorter_output_dir=(
-					published_sorter_output_dir if published_sorter_output_dir.exists() else None
-				),
-				removed_stale_analyzer_output_dir=removed_published_analyzer_output_dir,
-			)
-		except Exception as exc:
-			canonical_workspace_publish_error = (
-				f"working_cache_publish_failed:{type(exc).__name__}:{exc}"
-			)
-			_log_phase_step_start(
-				"Merge working cache publish failed",
-				stream_id=str(stream_id),
-				workspace_root_dir=active_stage_output_root_dir,
-				stage_output_root_dir=stage_output_root_dir,
-				error=canonical_workspace_publish_error,
-			)
-			status = "error"
-			reason = "working_cache_publish_failed"
-
-	cache_cleaned_up = False
-	cache_cleanup_removed: list[str] = []
 	post_merge_report_analyzer: Any | None = None
-	if (
-		bool(cache_sorting_outputs_before_merge)
-		and bool(cache_sorting_outputs_before_merge_cleanup_on_success)
-		and str(status) == "ok"
-		and cache_root_dir.exists()
-	):
-		cache_cleanup_removed.append(str(cache_root_dir))
-		shutil.rmtree(cache_root_dir, ignore_errors=True)
-		cache_cleaned_up = True
-		for key in [
-			"merge.pre_merge_cache_dir",
-			"merge.pre_merge_cache_sorter_output_dir",
-			"merge.pre_merge_cache_analyzer_output_dir",
-			"merge.pre_merge_cache_summary_json",
-		]:
-			combined_outputs.pop(key, None)
 
 	post_snapshot_capture_needed = bool(
 		(merge_metadata_enabled and merge_metadata_write_json)
@@ -9789,7 +9246,7 @@ def run_spikesort_merge_stage(
 		try:
 			post_snapshot_kwargs: dict[str, Any] = {
 				"well_out_dir": well_out_dir,
-				"stage_output_root_dir": active_stage_output_root_dir,
+				"stage_output_root_dir": stage_output_root_dir,
 				"output_rel_root": output_rel_root,
 				"stage_config": stage_config,
 				"capture_label": "after_merge",
@@ -10009,15 +9466,15 @@ def run_spikesort_merge_stage(
 				)
 
 			preferred_pre_analyzer_raw = combined_outputs.get(
-				"merge.pre_merge_workspace_analyzer_output_dir",
+				"merge.replot_workspace_analyzer_output_dir",
 				None,
 			)
 			if preferred_pre_analyzer_raw is None:
-				merge_reports_error = "merge_reports_missing_pre_merge_workspace_analyzer_output_dir"
+				merge_reports_error = "merge_reports_missing_replot_workspace_analyzer_output_dir"
 			else:
 				preferred_pre_analyzer_dir = Path(str(preferred_pre_analyzer_raw)).expanduser().resolve()
 				if not preferred_pre_analyzer_dir.exists():
-					merge_reports_error = "merge_reports_missing_pre_merge_workspace_analyzer"
+					merge_reports_error = "merge_reports_missing_replot_workspace_analyzer"
 				else:
 					before_analyzer_raw = before_snapshot_for_report.get("analyzer", {})
 					before_analyzer = (
@@ -10127,12 +9584,11 @@ def run_spikesort_merge_stage(
 	generated_analyzer_cleanup_removed: list[str] = []
 	if str(status) == "ok" and generated_analyzer_cleanup_enabled:
 		generated_analyzer_candidates: list[Path] = []
-		if pre_merge_workspace_analyzer_built:
-			generated_analyzer_candidates.append(pre_merge_workspace_analyzer_output_dir)
+		if replot_workspace_analyzer_built:
+			generated_analyzer_candidates.append(replot_workspace_analyzer_output_dir)
 		if post_merge_runtime_analyzer_needed:
-			generated_analyzer_candidates.append((active_stage_output_root_dir / "analyzer_output").resolve())
-		if bool(canonical_workspace_published) or not cache_sorting_outputs_before_merge_use_canonical_workspace:
 			generated_analyzer_candidates.append((stage_output_root_dir / "analyzer_output").resolve())
+		generated_analyzer_candidates.append((stage_output_root_dir / "analyzer_output").resolve())
 
 		seen_cleanup_targets: set[Path] = set()
 		for analyzer_dir in generated_analyzer_candidates:
@@ -10158,7 +9614,6 @@ def run_spikesort_merge_stage(
 		"reason": reason,
 		"well_out_dir": str(well_out_dir),
 		"stage_output_root_dir": str(stage_output_root_dir),
-		"active_stage_output_root_dir": str(active_stage_output_root_dir),
 		"merge_out_dir": str(primary_out_dir),
 		"merge_rel_output_root": (str(merge_rel_output_root) if merge_rel_output_root is not None else None),
 		"merge_output_rel_root": str(merge_output_rel_root),
@@ -10168,7 +9623,6 @@ def run_spikesort_merge_stage(
 		"force_replot": bool(force_replot),
 		"replot_only": False,
 		"merge_units_enabled": bool(merge_units_enabled),
-		"cache_sorting_outputs_before_merge": bool(cache_sorting_outputs_before_merge),
 		"merge_reports_enabled": bool(merge_reports_any_enabled),
 		"slay_model_cache_path": (str(slay_model_cache_path) if slay_model_cache_path is not None else None),
 		"slay_model_cache_use_cached_model": bool(
@@ -10178,74 +9632,20 @@ def run_spikesort_merge_stage(
 			getattr(stage_config, "slay_model_cache_write_model", True)
 		),
 		"slay_force_restart_retrain_model": bool(getattr(stage_config, "slay_force_restart_retrain_model", False)),
-		"cache_sorting_outputs_before_merge_config": {
-			"enabled": bool(cache_sorting_outputs_before_merge),
-			"relpath": str(cache_sorting_outputs_before_merge_relpath),
-			"cleanup_on_success": bool(cache_sorting_outputs_before_merge_cleanup_on_success),
-			"cleanup_generated_analyzers_on_success": bool(generated_analyzer_cleanup_enabled),
-			"replace_sorting_with_cache_before_force_restart": bool(
-				cache_sorting_outputs_before_merge_replace_sorting_with_cache_before_force_restart
-			),
-			"use_cache_on_force_restart": bool(cache_sorting_outputs_before_merge_use_cache_on_force_restart),
-			"refresh_on_run": bool(cache_sorting_outputs_before_merge_refresh_on_run),
-			"strict_restore_on_force_restart": bool(
-				cache_sorting_outputs_before_merge_strict_restore_on_force_restart
-			),
-			"use_working_cache": bool(cache_sorting_outputs_before_merge_use_canonical_workspace),
-			"working_cache_relpath": str(cache_sorting_outputs_before_merge_canonical_workspace_relpath),
-			"working_cache_refresh_on_run": bool(
-				cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run
-			),
-			"publish_working_cache_to_canonical_on_success": bool(
-				cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success
-			),
-			"publish_working_cache_to_canonical_on_failure": bool(
-				cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure
-			),
-			"use_canonical_workspace": bool(cache_sorting_outputs_before_merge_use_canonical_workspace),
-			"canonical_workspace_relpath": str(cache_sorting_outputs_before_merge_canonical_workspace_relpath),
-			"canonical_workspace_refresh_on_run": bool(
-				cache_sorting_outputs_before_merge_canonical_workspace_refresh_on_run
-			),
-			"canonical_workspace_rebuild_analyzer": bool(
-				cache_sorting_outputs_before_merge_canonical_workspace_rebuild_analyzer
-			),
-			"publish_canonical_to_stage_outputs_on_success": bool(
-				cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_success
-			),
-			"publish_canonical_to_stage_outputs_on_failure": bool(
-				cache_sorting_outputs_before_merge_publish_canonical_to_stage_outputs_on_failure
-			),
-			"assert_slay_uses_canonical_workspace": bool(
-				cache_sorting_outputs_before_merge_assert_slay_uses_canonical_workspace
-			),
-			"assert_auto_merge_uses_canonical_workspace": bool(
-				cache_sorting_outputs_before_merge_assert_auto_merge_uses_canonical_workspace
-			),
-			"restored_from_existing_cache": bool(cache_restored_from_existing),
-			"preserved_existing_cache": bool(cache_preserved_existing),
-			"reseeded_after_restore_miss": bool(cache_reseeded_after_restore_miss),
-			"restore_precheck_missing_sources": list(cache_restore_precheck_missing_sources),
-			"cleaned_up": bool(cache_cleaned_up),
-			"canonical_workspace_prepared": bool(canonical_workspace_prepared),
-			"canonical_workspace_preserved_existing": bool(canonical_workspace_preserved_existing),
-			"canonical_workspace_published": bool(canonical_workspace_published),
-			"canonical_workspace_publish_requested": bool(canonical_workspace_publish_requested),
-		},
-		"pre_merge_workspace": {
-			"relpath": str(pre_merge_workspace_relpath),
-			"workspace_dir": str(pre_merge_workspace_dir.resolve()),
+		"replot_workspace": {
+			"relpath": str(replot_workspace_relpath),
+			"workspace_dir": str(replot_workspace_dir.resolve()),
 			"sorter_output_dir": str(workspace_sorter_output_dir.resolve()),
 			"analyzer_output_dir": (
-				str(pre_merge_workspace_analyzer_output_dir.resolve())
-				if pre_merge_workspace_analyzer_built
+				str(replot_workspace_analyzer_output_dir.resolve())
+				if replot_workspace_analyzer_built
 				else None
 			),
-			"analyzer_built": bool(pre_merge_workspace_analyzer_built),
+			"analyzer_built": bool(replot_workspace_analyzer_built),
 			"analyzer_needed": bool(pre_merge_runtime_analyzer_needed),
 			"analyzer_policy": (
-				dict(pre_merge_workspace_analyzer_policy)
-				if isinstance(pre_merge_workspace_analyzer_policy, dict)
+				dict(replot_workspace_analyzer_policy)
+				if isinstance(replot_workspace_analyzer_policy, dict)
 				else _requested_merge_analyzer_policy(stage_config)
 			),
 		},
@@ -10300,66 +9700,13 @@ def run_spikesort_merge_stage(
 		"merge_metadata_enabled": bool(merge_metadata_enabled and merge_metadata_write_json),
 		"outputs": combined_outputs,
 	}
-	if isinstance(cache_summary, dict):
-		payload["pre_merge_cache"] = {
-			"summary_json": str(cache_summary.get("summary_json", "")),
-			"copied_paths": list(cache_summary.get("copied_paths", []) or []),
-			"missing_sources": list(cache_summary.get("missing_sources", []) or []),
-		}
-	if isinstance(canonical_workspace_summary, dict):
-		payload["working_cache"] = {
-			"summary_json": str(canonical_workspace_summary.get("summary_json", "")),
-			"copied_paths": list(canonical_workspace_summary.get("copied_paths", []) or []),
-			"missing_sources": list(canonical_workspace_summary.get("missing_sources", []) or []),
-			"preserved_existing": bool(canonical_workspace_preserved_existing),
-			"workspace_root_dir": str(canonical_workspace_root_dir),
-			"sorter_output_dir": (
-				str(canonical_workspace_sorter_output_dir)
-				if canonical_workspace_sorter_output_dir is not None
-				else None
-			),
-		}
-	elif cache_sorting_outputs_before_merge_use_canonical_workspace:
-		payload["working_cache"] = {
-			"preserved_existing": bool(canonical_workspace_preserved_existing),
-			"workspace_root_dir": str(canonical_workspace_root_dir),
-			"sorter_output_dir": (
-				str(canonical_workspace_sorter_output_dir)
-				if canonical_workspace_sorter_output_dir is not None
-				else None
-			),
-		}
-	if isinstance(cache_restore_summary, dict):
-		payload["pre_merge_cache_restore"] = {
-			"restored_paths": list(cache_restore_summary.get("restored_paths", []) or []),
-			"missing_cache_sources": list(cache_restore_summary.get("missing_cache_sources", []) or []),
-		}
-	if isinstance(canonical_workspace_publish_summary, dict):
-		payload["working_cache_publish"] = {
-			"requested": bool(canonical_workspace_publish_requested),
-			"published": bool(canonical_workspace_published),
-			"restored_paths": list(canonical_workspace_publish_summary.get("restored_paths", []) or []),
-			"missing_workspace_sources": list(
-				canonical_workspace_publish_summary.get("missing_cache_sources", []) or []
-			),
-		}
-	if cache_cleanup_removed:
-		payload["pre_merge_cache_cleanup"] = {
-			"removed_on_success": list(cache_cleanup_removed),
-		}
 	if generated_analyzer_cleanup_removed:
 		payload["generated_analyzer_cleanup"] = {
 			"enabled": bool(generated_analyzer_cleanup_enabled),
 			"removed_on_success": list(generated_analyzer_cleanup_removed),
 		}
-	if cache_error is not None:
-		payload["pre_merge_cache_error"] = str(cache_error)
-	if pre_merge_workspace_analyzer_error is not None:
-		payload["pre_merge_workspace_analyzer_error"] = str(pre_merge_workspace_analyzer_error)
-	if canonical_workspace_error is not None:
-		payload["working_cache_error"] = str(canonical_workspace_error)
-	if canonical_workspace_publish_error is not None:
-		payload["working_cache_publish_error"] = str(canonical_workspace_publish_error)
+	if replot_workspace_analyzer_error is not None:
+		payload["replot_workspace_analyzer_error"] = str(replot_workspace_analyzer_error)
 	if bombcell_report_error is not None:
 		payload["bombcell_label_error"] = str(bombcell_report_error)
 	if pre_merge_metadata_json is not None:

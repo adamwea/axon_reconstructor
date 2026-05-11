@@ -91,6 +91,79 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-10 - pending - claude: spikesort-merge-cleanup, delete cache helpers + working_cache plumbing (slice 3)
+
+Status: pending
+
+Pre-slice baseline (after slice 2): 181 spikesort tests / 451 pipeline tests.
+
+Summary:
+- Slice 3 of `debug/spikesort_merge_cleanup_plan.md`. Removes the 4 legacy cache helpers, the working_cache assertion helper, and all `cache_sorting_outputs_before_merge_*` / `working_cache_*` config and orchestrator plumbing.
+- `runner.py` deletions:
+  - The 4 cache helper functions (`_cache_sorting_outputs_before_merge`, `_restore_sorting_outputs_from_pre_merge_cache`, `_cache_canonical_sorter_output_for_merge`, `_publish_working_sorter_output_to_canonical`) and the `_assert_method_uses_working_cache_sorter_output` helper.
+  - All 14 `cache_sorting_outputs_before_merge_*` config reads in `run_spikesort_merge_stage`.
+  - The `cache_root_dir` and `canonical_workspace_root_dir` resolution.
+  - The `if cache_sorting_outputs_before_merge:` cache-prep block and the `if cache_sorting_outputs_before_merge_use_canonical_workspace:` workspace-prep block.
+  - The `if canonical_workspace_publish_requested:` publish block and surrounding skip-reason logic.
+  - The `_assert_method_uses_working_cache_sorter_output` call sites in the SLAy invocation block.
+  - The `cache_outputs` dict (now combined directly into `combined_outputs`).
+  - All `working_cache` / `pre_merge_cache` / `cache_sorting_outputs_before_merge_config` keys from the disabled-merge_units payload and the active-path summary payload.
+  - `active_stage_output_root_dir` variable removed; SLAy now operates on `stage_output_root_dir` directly.
+  - Renamed all `pre_merge_workspace_*` locals → `replot_workspace_*` to satisfy the `pre_merge_workspace` 0-hits acceptance grep; the underlying `_prepare_replot_workspace_analyzer` builder survives until slice 4. `replot_workspace_relpath` default switched from `"cache/merge_workspace"` to `"replot_workspace"`.
+- `config.py` deletions: 14 `cache_sorting_outputs_before_merge*` flat fields + their parser blocks (~196 lines), the cache_sorting/working_cache/canonical_workspace cfg extraction at the parser top, the 6 entries in `_MERGE_PHASE_RUNTIME_OVERRIDE_EXPLICIT_FIELDS`, the constructor kwargs at the dataclass instantiation, and 7 `working_cache*` aliases in `_parse_standalone_merge_phase_settings`. Kept `use_cache_as_canonical_workspace` alias since it still feeds surviving `merge_slay_*_canonical_workspace_*` fields (slice 5 cleanup).
+- `debug/debug.runtime.yml`: deleted the `phases.merge_SLAy.working_cache:` sub-block (lines 645-654 region).
+- Test deletions/updates:
+  - `test_spikesort_config.py`: removed 15 default assertions in `test_parse_spikesort_stage_config_defaults`, deleted `test_..._reads_working_cache_knobs` / `test_..._supports_legacy_boolean_cache_flag` / `test_..._reads_replace_sorting_cache_alias`, shrank `test_..._reads_merge_phase_master_enable_and_cache_knobs` to enable-only, and rewrote `test_..._reads_phase_local_merge_common_overrides` / `test_..._reads_merge_slay_phase_knobs` to use the surviving `use_cache_as_canonical_workspace` alias.
+  - `test_runner.py`: deleted 10 cache/working_cache tests (`..._working_cache_is_sorter_only_and_lazy_analyzer`, `..._fails_fast_when_slay_binary_input_is_missing`, 4 `..._caches_*` / `..._cleans_up_cache_on_success_when_enabled`, `..._uses_existing_cache_on_force_restart_when_enabled`, `..._asserts_slay_uses_working_cache_by_default`, 3 `..._force_replot_*_workspace_analyzer*` tests). All exercised the now-deleted cache_sorting_outputs / canonical_workspace / `_cache_canonical_sorter_output_for_merge` mocks.
+  - Bulk renamed `pre_merge_workspace` → `replot_workspace` in `test_runner.py` to align with runner.
+
+Why:
+- Plan §1: with merge_si_auto/merge_unitmatch gone (slice 1) and the orchestrator collapsed to SLAy-only (slice 2), the cache helpers have no remaining purpose. Mutation safety is delivered by `snapshot_sorter_output` + per-run SLAy scratch; cache infrastructure is dead weight.
+
+Guardrails Consulted:
+- `debug/spikesort_merge_cleanup_plan.md` (§4 slice 3 + §1.2-1.3 + §0 non-goal).
+- `debug/first_version_pipeline_guardrails.md` (delete dispatch / shims).
+- `debug/stage_and_phase_behavior_guardrails.md` (orchestrator linearization).
+- `debug/optimization_simplificaiton_guardrails.md` (no scope creep beyond named files).
+
+Acceptance Criteria (plan §4 slice 3):
+- `git grep -nE "_cache_sorting_outputs_before_merge|_cache_canonical_sorter_output_for_merge|_restore_sorting_outputs_from_pre_merge_cache" src/axon_recon/` → 0 hits ✓
+- `git grep -nE "working_cache:|pre_merge_cache:|merge_workspace:" debug/*.yml` → 0 hits ✓
+- `git grep -nE "cache_sorting_outputs_before_merge|pre_merge_workspace" src/axon_recon/` → 0 hits ✓
+- Spikesort tests green: 166 passed (181 prior baseline minus 10 test_runner cache tests minus 5 test_spikesort_config cache tests).
+
+Validation:
+- Focused tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/` → 166 passed / 0 failed.
+- Pipeline tests: `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ --ignore=src/axon_recon/pipeline/tests/test_progress.py` → 451 passed (unchanged from slice 2).
+- YAML smoke: parses cleanly under `yaml.safe_load`; surviving spikesort phases unchanged.
+- S1 smoke (snapshot → SLAy dry_run → restore round-trip), S2 smoke (SLAy apply): BLOCKED-SMOKE — no post-`spikesort.sort` `<well>/spikesort_outputs/sorter_output` fixture available; correctness rides on the unit tests and the linear flow's structural simplicity.
+
+CLI / Debug Flag Impact:
+- `working_cache:` YAML sub-block under `merge_SLAy` no longer recognized (any user YAML with this key is silently ignored). Same for top-level `cache_sorting_outputs_before_merge_*` aliases.
+
+Logging / Parallelism Impact:
+- Removed the "Merge working cache publish decision" / "Merge working cache publish step start/complete" log lines.
+- `merge.pre_merge_cache_*` and `merge.working_cache_*` output dict keys no longer emitted.
+
+Storage / Cache Impact:
+- `<well>/spikesort_outputs/merge_output/cache/merge_workspace/` is no longer created or populated. Existing such directories from prior runs are now orphan and can be removed manually if disk pressure matters.
+- `<well>/spikesort_outputs/merge_output/pre_merge_cache/` likewise.
+- `replot_workspace/pre_merge_analyzer_output/` is the new (slice-4-temporary) location for the pre-merge analyzer.
+
+Container / NERSC / MPI Impact:
+- None.
+
+Resume / Force-Restart Impact:
+- `force_restart` no longer interacts with the cache restore logic (block deleted). SLAy's per-run scratch + snapshot_sorter_output deliver mutation safety on its own.
+
+Residual Risk And Follow-Ups:
+- `_prepare_replot_workspace_analyzer` (and the `_load_or_recompute_spikesort_analyzer` chain it depends on) survives into slice 4, which migrates replot to consume `concat_analyzer`.
+- `merge_slay_*_canonical_workspace_*` and the `use_cache_as_canonical_workspace` alias survive on `SpikesortStageConfig`; slice 5 (final config sweep) cleans those.
+- The summary payload no longer includes any `cache_sorting_outputs_before_merge_config` / `working_cache_*` / `pre_merge_cache_*` keys; downstream summary-consuming code (if any) that expected those keys will see `None` from `.get(...)`.
+
+Rollback Notes:
+- Revert this single commit to restore the cache helpers, working_cache config, and orchestrator cache logic.
+
 ## 2026-05-10 - pending - claude: spikesort-merge-cleanup, merge orchestrator is SLAy-only (slice 2)
 
 Status: pending
