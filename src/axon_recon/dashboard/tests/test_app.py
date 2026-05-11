@@ -1,9 +1,17 @@
 from __future__ import annotations
 
 import dash
+import numpy as np
 import pandas as pd
 
 from ..app import (
+	ID_BOX_COLOR,
+	ID_BOX_CORRECTION,
+	ID_BOX_GROUP_COL,
+	ID_BOX_PLOT,
+	ID_BOX_SHOW_SIGNIFICANCE,
+	ID_BOX_TEST,
+	ID_BOX_VALUE_COL,
 	ID_FILTER_BOMBCELL,
 	ID_FILTER_CHIP,
 	ID_FILTER_DIV_RANGE,
@@ -20,19 +28,27 @@ from ..app import (
 	ID_HIST_COLOR,
 	ID_HIST_X_AXIS,
 	ID_HISTOGRAM,
+	ID_MAIN_TABS,
 	ID_UNITS_TABLE,
 	build_app,
+	build_box_plot,
 )
 
 
 def _walk_components(tree, out):
 	out.append(tree)
-	for child in getattr(tree, "children", None) or []:
-		if isinstance(child, list):
-			for sub in child:
-				_walk_components(sub, out)
-		elif child is not None:
-			_walk_components(child, out)
+	children = getattr(tree, "children", None)
+	if children is None:
+		return
+	if isinstance(children, (list, tuple)):
+		for child in children:
+			if child is not None and not isinstance(child, (str, int, float, bool)):
+				_walk_components(child, out)
+		return
+	if isinstance(children, (str, int, float, bool)):
+		return
+	# Single non-list child (e.g. dcc.Tab(children=html.Div(...))).
+	_walk_components(children, out)
 
 
 def _component_ids(app: dash.Dash) -> set[str]:
@@ -109,3 +125,101 @@ def test_build_app_handles_empty_units_df() -> None:
 def test_build_app_title_is_set() -> None:
 	app = build_app(_make_units_df(), pd.DataFrame())
 	assert app.title == "axon-recon dashboard"
+
+
+# ---------- slice 5: box plot + significance brackets ----------
+
+
+def test_build_app_exposes_box_plot_component_ids() -> None:
+	app = build_app(_make_units_df(), pd.DataFrame())
+	ids = _component_ids(app)
+	expected = {
+		ID_MAIN_TABS,
+		ID_BOX_VALUE_COL,
+		ID_BOX_GROUP_COL,
+		ID_BOX_COLOR,
+		ID_BOX_TEST,
+		ID_BOX_CORRECTION,
+		ID_BOX_SHOW_SIGNIFICANCE,
+		ID_BOX_PLOT,
+	}
+	missing = expected - ids
+	assert not missing, f"missing component ids: {sorted(missing)}"
+
+
+def _two_group_units_df() -> pd.DataFrame:
+	rng = np.random.default_rng(0)
+	wt_vals = rng.normal(loc=1.0, scale=0.1, size=20)
+	ko_vals = rng.normal(loc=5.0, scale=0.1, size=20)
+	return pd.DataFrame(
+		{
+			"recon_status": ["ok"] * 40,
+			"bombcell_label": ["good"] * 40,
+			"genotype": ["WT"] * 20 + ["KO"] * 20,
+			"branch_count": list(wt_vals) + list(ko_vals),
+			"total_branch_length_um": list(wt_vals * 100) + list(ko_vals * 100),
+			"template_density": list(wt_vals * 0.1) + list(ko_vals * 0.1),
+			"recon_density": list(wt_vals * 0.05) + list(ko_vals * 0.05),
+			"num_spikes": [100] * 40,
+			"num_branches": [1] * 20 + [5] * 20,
+		}
+	)
+
+
+def test_build_box_plot_renders_significance_for_separated_groups() -> None:
+	df = _two_group_units_df()
+	fig = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="genotype",
+		test="mann_whitney",
+		correction="none",
+		show_significance=True,
+	)
+	# Box plot trace exists + a significance bracket shape was added.
+	assert any(getattr(trace, "type", None) == "box" for trace in fig.data)
+	assert len(fig.layout.shapes) >= 1
+	assert len(fig.layout.annotations) >= 1
+	assert fig.layout.annotations[0].text == "***"
+
+
+def test_build_box_plot_handles_empty_df_without_raising() -> None:
+	fig = build_box_plot(pd.DataFrame(), value_col="branch_count", group_col="genotype", show_significance=True)
+	# Empty placeholder figure, no traces with real data.
+	assert fig is not None
+
+
+def test_build_box_plot_kruskal_wallis_adds_omnibus_annotation() -> None:
+	df = _two_group_units_df()
+	fig = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="genotype",
+		test="kruskal_wallis",
+		correction="none",
+		show_significance=True,
+	)
+	# Omnibus mode annotates the figure with the K-W p-value summary.
+	annotation_texts = [ann.text for ann in fig.layout.annotations]
+	assert any("Kruskal-Wallis" in str(text) for text in annotation_texts)
+
+
+def test_build_box_plot_show_significance_off_drops_brackets() -> None:
+	df = _two_group_units_df()
+	fig = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="genotype",
+		test="mann_whitney",
+		correction="none",
+		show_significance=False,
+	)
+	assert len(fig.layout.shapes) == 0
+	assert len(fig.layout.annotations) == 0
+
+
+def test_build_box_plot_missing_group_column_returns_empty_figure() -> None:
+	df = pd.DataFrame({"branch_count": [1.0, 2.0, 3.0]})
+	fig = build_box_plot(df, value_col="branch_count", group_col="missing", show_significance=True)
+	# Falls back to an empty box figure rather than raising.
+	assert fig is not None
