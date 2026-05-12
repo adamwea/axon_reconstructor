@@ -61,14 +61,44 @@ resources:
           description: Limit concurrent well-workers touching the same source H5 file.
           max_concurrent: 1
     perlmutter_cpu:
+      # Perlmutter CPU compute node (2x AMD EPYC 7763 Milan, 128 physical cores,
+      # 256 SMT threads, 512 GB RAM, no GPU). Intended for preprocess + reconstruct
+      # stages launched via srun -N <N> -n <N*tasks_per_node>; multi-node fanout
+      # comes from -N, not from inflating capacity here.
       capacity:
         cpu_cores: 128
-        ram_gb: 256
+        ram_gb: 480 # leave ~32 GB headroom for OS, shifter, kernel buffers
         gpu_sort_slots: 0
         h5_read_slots: 8
         disk_heavy_slots: 16
         plot_slots: 4
         analyzer_slots: 4
+      task_allocation:
+        enabled: true
+        backend: mpi
+        task_unit: well
+        cpus_per_task: 16
+        bind: physical_cores
+        use_hyperthreads: false
+        reserve_cpus: 0
+        set_thread_env: true
+        nested_thread_policy: match_cpus_per_task
+      keyed_resource_limits:
+        source_h5_path:
+          max_concurrent: 1
+    perlmutter_gpu:
+      # Perlmutter GPU compute node (1x AMD EPYC 7763 Milan, 64 physical cores,
+      # 128 SMT threads, 256 GB RAM, 4x NVIDIA A100 40GB). Use for spikesort.sort
+      # (Kilosort4 GPU) and any GPU-bound recon phases. cpus_per_task=16 puts 4
+      # ranks on the node, one rank per A100 (mpi_adapter partitions CUDA_VISIBLE_DEVICES).
+      capacity:
+        cpu_cores: 64
+        ram_gb: 224 # leave ~32 GB headroom
+        gpu_sort_slots: 4
+        h5_read_slots: 4
+        disk_heavy_slots: 8
+        plot_slots: 2
+        analyzer_slots: 2
       task_allocation:
         enabled: true
         backend: mpi

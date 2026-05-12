@@ -1,15 +1,12 @@
 
-# NERSC paths. ben-shalom_nas is mounted via CFS, scratch lives on pscratch.
-# Mirrors the lab-server debug.data.yml; raw_data_h5_path entries below have
-# been path-translated from /mnt/ben-shalom_nas/... to the NERSC CFS mount.
-#
-# Note: Media_Density_T5_02182026_AR may not yet be staged on the NERSC NAS.
-# Sync from the lab server before running, or override
-# include_in_runtime: false for entries that are not yet available.
-output_root: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW
+# NERSC paths. Raw data lives directly on pscratch under
+# /pscratch/sd/a/adammwea/raw_data/, so use_scratch_root is false (no copy-to-scratch
+# step). Outputs also live on pscratch; long-term publish to CFS is a separate
+# Globus step we are not wiring through publish_outputs for now.
+output_root: /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW
 scratch_root: /pscratch/sd/a/adammwea/scratch
 
-use_scratch_root: true
+use_scratch_root: false
 
 publish_outputs: false # When false, stage outputs stay on scratch and are not copied back to output_root.
 wipe_scratch_roots: false # When true and publish_outputs is true, publish uses move semantics and deletes scratch outputs after sync.
@@ -67,7 +64,7 @@ datasets:
   # filesystem date, or run number do not agree cleanly.
 
   #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/data.raw.h5
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/data.raw.h5
     include_in_runtime: true
     DIV: 6
     wells:
@@ -109,7 +106,7 @@ datasets:
           genotype: WT
 
   #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260224/M06804/AxonTracking/000032/data.raw.h5
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260224/M06804/AxonTracking/000032/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260224/M06804/AxonTracking/000032/data.raw.h5
     include_in_runtime: true
     DIV: 6
     wells:
@@ -151,7 +148,7 @@ datasets:
           genotype: WT
 
   #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260226/M08073/AxonTracking/000057/data.raw.h5
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260226/M08073/AxonTracking/000057/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260226/M08073/AxonTracking/000057/data.raw.h5
     include_in_runtime: true
     DIV: 8
     wells:
@@ -197,7 +194,7 @@ datasets:
   # date/DIV delta from 2026-02-18 lines up exactly and the chip/date/assay match cleanly.
   # I treated the run-number mismatch as a sheet/filesystem inconsistency rather than a bad date.
   #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
     include_in_runtime: true
     DIV: 12
     wells:
@@ -242,7 +239,7 @@ datasets:
   # The path date also lines up with DIV 12, but there is no M06804 Axon Tracking row on the
   # pasted 2026-03-02 sheet data, so I left this filesystem-only path out instead of inventing a row.
 
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260305/M08073/AxonTracking/000096/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260305/M08073/AxonTracking/000096/data.raw.h5
     include_in_runtime: true
     DIV: 15
     wells:
@@ -283,7 +280,7 @@ datasets:
           media: NBP
           genotype: WT
 
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260305/M06804/AxonTracking/000099/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260305/M06804/AxonTracking/000099/data.raw.h5
     include_in_runtime: true
     DIV: 15
     wells:
@@ -324,7 +321,7 @@ datasets:
           media: NBP
           genotype: WT
 
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260309/M08073/AxonTracking/000118/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260309/M08073/AxonTracking/000118/data.raw.h5
     include_in_runtime: true
     DIV: 19
     wells:
@@ -365,7 +362,7 @@ datasets:
           media: NBP
           genotype: WT
 
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
     include_in_runtime: true
     DIV: 22
     wells:
@@ -411,7 +408,7 @@ datasets:
   # date 2026-03-13 would imply DIV 23 from the plated date, not DIV 22, and the chip id also
   # does not map to a normal Axon Tracking row in the pasted sheet, so I left this path out.
 
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260316/M08073/AxonTracking/000165/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260316/M08073/AxonTracking/000165/data.raw.h5
     include_in_runtime: true
     DIV: 26
     wells:
@@ -455,7 +452,7 @@ datasets:
   # Sheet/date mismatch: the pasted sheet labels runs 170 and 174 as 2026-03-12, but 2026-03-12
   # would be DIV 22 from the plated date, not DIV 29. I used the filesystem date 260319 because
   # 2026-03-19 is exactly DIV 29 and the run numbers plus chip ids line up with those rows.
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260319/M08073/AxonTracking/000170/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260319/M08073/AxonTracking/000170/data.raw.h5
     include_in_runtime: true
     DIV: 29
     wells:
@@ -496,7 +493,7 @@ datasets:
           media: NBP
           genotype: WT
 
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260319/M06804/AxonTracking/000174/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260319/M06804/AxonTracking/000174/data.raw.h5
     include_in_runtime: true
     DIV: 29
     wells:
@@ -539,7 +536,7 @@ datasets:
 
   # Kept both same-day M08073 runs because the sheet has two Axon Tracking rows on 2026-03-26
   # at DIV 36: run 208 is the baseline-before-treatment scan and run 222 is the 2-hours-post-treatment scan.
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000208/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000208/data.raw.h5
     include_in_runtime: true
     DIV: 36
     wells:
@@ -580,7 +577,7 @@ datasets:
           media: NBP
           genotype: WT
 
-  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000222/data.raw.h5
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000222/data.raw.h5
     include_in_runtime: true
     DIV: 36
     wells:

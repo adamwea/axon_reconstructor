@@ -3,9 +3,9 @@
 # analysis) under Shifter with `backend: slurm` task allocation.
 #
 # Status: documentation. NERSC validation is DEFERRED per
-# debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md ("Treat NERSC
-# validation as deferred until real Perlmutter runs complete"). The script below
-# is correct on paper; nothing in this repo has been run on Perlmutter yet.
+# dev/notes/guardrails/container_mpi4py_NERSC_optimization_guardrails.md ("Treat
+# NERSC validation as deferred until real Perlmutter runs complete"). The script
+# below is correct on paper; nothing in this repo has been run on Perlmutter yet.
 #
 # Vocabulary mapping (resources.task_allocation ↔ Slurm directives):
 #   tasks_per_node       ↔ #SBATCH --ntasks-per-node
@@ -37,7 +37,7 @@ set -euo pipefail
 # slots for backend: slurm — partitioning happens via SLURM_PROCID/SLURM_NTASKS
 # inside the same axon-recon-side rank context machinery used for `backend: mpi`.
 srun --cpu-bind=cores \
-  shifter axon-reconstructor stages preprocess \
+  shifter axon-recon stages preprocess \
     --config /data/debug.runtime.yml \
     --task-backend slurm \
     --tasks-per-node ${SLURM_NTASKS_PER_NODE} \

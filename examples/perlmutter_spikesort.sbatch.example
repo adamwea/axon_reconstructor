@@ -2,7 +2,7 @@
 # Example NERSC Perlmutter sbatch script: GPU spikesort.sort under Shifter.
 #
 # Status: documentation. NERSC validation is DEFERRED per
-# debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md.
+# dev/notes/guardrails/container_mpi4py_NERSC_optimization_guardrails.md.
 #
 # GPU contention rule (container_shifter_shape_plan.md §6, implemented as
 # SpikesortGpuOversubscriptionError): Kilosort4 cannot safely share a single
@@ -41,7 +41,7 @@ export MPICH_GPU_SUPPORT_ENABLED=1
 # rank). The GPU contention check inside run_spikesort_stage stays inert because
 # ranks (1) <= visible GPU count (1).
 srun --cpu-bind=cores \
-  shifter axon-reconstructor stages spikesort.sort \
+  shifter axon-recon stages spikesort.sort \
     --config /data/debug.runtime.yml \
     --task-backend slurm \
     --tasks-per-node ${SLURM_NTASKS_PER_NODE} \

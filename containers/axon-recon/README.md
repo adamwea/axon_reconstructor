@@ -161,7 +161,7 @@ Current DockerHub tags pushed from this branch:
 
 ```text
 adammwea/axon-recon:pipeline-v2
-adammwea/axon-recon:20260501-pipeline-v2
+adammwea/axon-recon:20260512-pipeline-v2
 ```
 
 If this repo has moved beyond the digest behind those tags, rebuild and push a fresh tag before relying on newer in-image CLI behavior in Shifter/NERSC.
