@@ -143,7 +143,7 @@ resources:
     merge_SLAy:
       description: SLAy merge work that consumes a concat-level analyzer and produces merge recommendations and metadata summaries.
       bottleneck: ram_cpu_disk_io
-      ram_gb: 24
+      ram_gb: 48
       analyzer_slots: 1
       disk_heavy_slots: 1
       nested_shape: si_njobs
@@ -496,6 +496,7 @@ stages:
     - concat_analyzer
     - bombcell_label
     - merge_SLAy
+    #- bombcell_label_pass2
     - cleanup_concat_binary
     - cleanup_analyzers
     debug_outputs: false
@@ -597,7 +598,8 @@ stages:
         compute_sparsity: false
         extensions:
           random_spikes:
-            max_spikes_per_unit: 500
+            #max_spikes_per_unit: 500
+            max_spikes_per_unit: 2000
           waveforms:
             ms_before: 2.0
             ms_after: 3.0
@@ -606,7 +608,8 @@ stages:
             seed: 0
             #random_spikes_percentage: 25
             #min_spikes_per_unit: 1000
-            max_spikes_per_unit: 500
+            #max_spikes_per_unit: 500
+            max_spikes_per_unit: 2000
             log_before_after_spike_counts: true
           noise_levels: {}
         # n_jobs: null  # take from phase budget by default
@@ -791,7 +794,8 @@ stages:
 
           model_cache:
             enabled: true
-            use_cached_model: true
+            #use_cached_model: true
+            use_cached_model: false
             write_model_cache: true
             relpath: cache/slay_model/ae.pt
           force_restart_retrain_model: true
@@ -802,7 +806,8 @@ stages:
             post_samples: 62
             min_spikes: 50
             #max_spikes: -1
-            max_spikes: 1000
+            #max_spikes: 1000
+            max_spikes: 2000
             good_lbls: [good, non_soma_good]
             window_size: 0.1
             xcorr_bin_width: 0.0005
@@ -817,18 +822,72 @@ stages:
             sim_thresh: 0.4
             ae_pre: 10
             ae_post: 30
-            ae_chan: 8 #
+            #ae_chan: 8 #
+            ae_chan: 300
             ae_noise: true
             ae_shft: false #
-            ae_epochs: 10
-            #ae_epochs: 50
+            #ae_epochs: 10
+            ae_epochs: 50
             final_thresh: 0.5
-            max_dist: 10
+            #max_dist: 10
+            max_dist: 20
             auto_accept_merges: true
             plot_merges: true
 
+      # Second bombcell labeling pass on the POST-merge sorter. Same machinery as
+      # bombcell_label (above), but runs after merge_SLAy so SLAy-emitted unit IDs
+      # get real bombcell metrics instead of inherited-from-parents labels in
+      # cluster_group.tsv. Inherits analyzer/template/sparsity/waveform settings
+      # from `bombcell_label` above; only the differentiating knobs are exposed
+      # here. Outputs land under `bombcell_label_pass2_outputs/` so pass1 stays
+      # auditable alongside pass2.
+      #
+      # Before scoring, pass2 re-runs `spikesort.concat_analyzer` so the analyzer
+      # cache is rebuilt against the SLAy-mutated sorter (otherwise the
+      # numpysorting_info.json baked at pre-merge time would hide the new IDs).
+      bombcell_label_pass2:
+        # DISABLED: pass2's concat-analyzer rebuild does pick up the post-SLAy
+        # spike_clusters.npy, but SpikeInterface's KiloSortSortingExtractor inner-
+        # joins every cluster_*.tsv on cluster_id, and SLAy leaves
+        # cluster_Amplitude.tsv / cluster_ContamPct.tsv at their pre-merge sizes.
+        # The intersection collapses back to the pre-merge unit set, so pass2
+        # ends up re-labeling exactly the same units pass1 already labeled —
+        # zero added value. Reconstruct now reads cluster_KSLabel.tsv (post-SLAy)
+        # directly, which has the complete post-merge label set. Re-enable only
+        # when the inner-join issue is fixed (see roadmap entry on post-templates
+        # bombcell + SLAy rework).
+        enabled: false
+        resource_class: bombcell_label
+        relpath: bombcell_label_pass2_outputs
+        delete_outputs_on_force_restart: true
+        # Apply pass2 labels back to the post-merge sorter_output by default — that's
+        # the whole point of this pass. Flip to dry_run=true while validating thresholds.
+        dry_run: false
+        apply_to_sorter_output: true
+        write_cluster_group: true
+        fail_on_error: false
+        params:
+          label_non_somatic: true
+          split_non_somatic_good_mua: true
+          # thresholds: null
+          # thresholds_path: null
+        reports:
+          enabled: true
+          summary_json:
+            enabled: true
+            relpath: bombcell_label_pass2_summary.json
+        # The concat analyzer was built BEFORE the merge. SLAy mutated spike_clusters.npy
+        # but did not rebuild the analyzer cache, so its sorting is stale (no IDs 291/292
+        # etc.). We re-run concat_analyzer here; its fingerprint check detects the
+        # changed sorter and rebuilds. `force_restart: true` wipes the existing dir
+        # unconditionally; leave false to trust the fingerprint.
+        rebuild_concat_analyzer:
+          enabled: true
+          force_restart: false
+
       cleanup_concat_binary:
-        enabled: true
+        #enabled: true
+        enabled: false
         resource_class: disk_cleanup
         relpath: cache/bootstrap_concat_binary
         summary_json_relpath: cache/bootstrap_concat_binary_cleanup_summary.json
@@ -839,7 +898,8 @@ stages:
       # the canonical sorter_output. dry_run=true logs the paths that would
       # be removed without touching the filesystem.
       cleanup_analyzers:
-        enabled: true
+        #enabled: true
+        enabled: false
         dry_run: false
         resource_class: disk_cleanup
         relpath: concat_analyzer

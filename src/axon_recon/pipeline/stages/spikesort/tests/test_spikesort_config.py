@@ -118,6 +118,28 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.bombcell_label_reports_enabled is True
     assert parsed.bombcell_label_reports_summary_json_enabled is True
     assert parsed.bombcell_label_reports_summary_json_relpath == "bombcell_label_summary.json"
+    # pass2 defaults: disabled, inherits pass1 dry_run/apply/sparsity but with its own relpath.
+    assert parsed.bombcell_label_pass2_enabled is False
+    assert parsed.bombcell_label_pass2_relpath == "bombcell_label_pass2_outputs"
+    assert parsed.bombcell_label_pass2_summary_json_relpath == "bombcell_label_pass2_summary.json"
+    assert parsed.bombcell_label_pass2_delete_outputs_on_force_restart is True
+    assert parsed.bombcell_label_pass2_dry_run is True
+    assert parsed.bombcell_label_pass2_thresholds is None
+    assert parsed.bombcell_label_pass2_thresholds_path is None
+    assert parsed.bombcell_label_pass2_label_non_somatic is True
+    assert parsed.bombcell_label_pass2_split_non_somatic_good_mua is True
+    assert parsed.bombcell_label_pass2_apply_to_sorter_output is True
+    assert parsed.bombcell_label_pass2_write_cluster_group is True
+    assert parsed.bombcell_label_pass2_fail_on_error is False
+    assert parsed.bombcell_label_pass2_reports_enabled is True
+    assert parsed.bombcell_label_pass2_reports_summary_json_enabled is True
+    assert parsed.bombcell_label_pass2_rebuild_concat_analyzer is True
+    assert parsed.bombcell_label_pass2_rebuild_concat_analyzer_force_restart is False
+    assert parsed.bombcell_label_pass2_resource_class is None
+    assert parsed.bombcell_label_pass2_debug_mode_enabled is False
+    assert parsed.bombcell_label_pass2_debug_limit_datasets is None
+    assert parsed.bombcell_label_pass2_debug_limit_wells is None
+    assert parsed.bombcell_label_pass2_debug_limit_wells_per_dataset is None
     assert parsed.slay_enabled is False
     assert parsed.slay_relpath == "SLAy_outputs"
     assert parsed.slay_sorter_output_relpath is None
@@ -1356,6 +1378,150 @@ def test_parse_spikesort_stage_config_enables_bombcell_when_phase_block_present(
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
     assert parsed.bombcell_label_enabled is True
+
+
+def test_parse_spikesort_stage_config_reads_bombcell_label_pass2_phase_knobs() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "bombcell_label_pass2": {
+                            "enabled": True,
+                            "relpath": "merge_output/bombcell_pass2",
+                            "delete_outputs_on_force_restart": False,
+                            "dry_run": False,
+                            "params": {
+                                "thresholds_path": "/tmp/pass2_thresholds.json",
+                                "label_non_somatic": False,
+                                "split_non_somatic_good_mua": False,
+                            },
+                            "apply_to_sorter_output": False,
+                            "write_cluster_group": False,
+                            "fail_on_error": True,
+                            "reports": {
+                                "enabled": False,
+                                "summary_json": {
+                                    "enabled": True,
+                                    "relpath": "reports/bombcell_pass2_summary.json",
+                                },
+                            },
+                            "rebuild_concat_analyzer": {
+                                "enabled": False,
+                                "force_restart": True,
+                            },
+                            "debug_mode": {
+                                "enabled": True,
+                                "limit_datasets": 1,
+                                "limit_wells": 2,
+                                "limit_wells_per_dataset": 1,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.bombcell_label_pass2_enabled is True
+    assert parsed.bombcell_label_pass2_relpath == "merge_output/bombcell_pass2"
+    assert parsed.bombcell_label_pass2_delete_outputs_on_force_restart is False
+    assert parsed.bombcell_label_pass2_dry_run is False
+    assert parsed.bombcell_label_pass2_thresholds_path == "/tmp/pass2_thresholds.json"
+    assert parsed.bombcell_label_pass2_label_non_somatic is False
+    assert parsed.bombcell_label_pass2_split_non_somatic_good_mua is False
+    assert parsed.bombcell_label_pass2_apply_to_sorter_output is False
+    assert parsed.bombcell_label_pass2_write_cluster_group is False
+    assert parsed.bombcell_label_pass2_fail_on_error is True
+    assert parsed.bombcell_label_pass2_reports_enabled is False
+    assert parsed.bombcell_label_pass2_reports_summary_json_enabled is True
+    assert parsed.bombcell_label_pass2_summary_json_relpath == "reports/bombcell_pass2_summary.json"
+    assert parsed.bombcell_label_pass2_rebuild_concat_analyzer is False
+    assert parsed.bombcell_label_pass2_rebuild_concat_analyzer_force_restart is True
+    assert parsed.bombcell_label_pass2_debug_mode_enabled is True
+    assert parsed.bombcell_label_pass2_debug_limit_datasets == 1
+    assert parsed.bombcell_label_pass2_debug_limit_wells == 2
+    assert parsed.bombcell_label_pass2_debug_limit_wells_per_dataset == 1
+
+
+def test_parse_spikesort_stage_config_enables_bombcell_label_pass2_when_phase_block_present() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "bombcell_label_pass2": {},
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    assert parsed.bombcell_label_pass2_enabled is True
+
+
+def test_parse_spikesort_stage_config_bombcell_label_pass2_inherits_pass1_settings() -> None:
+    cfg = RuntimeConfig(
+        {
+            "stages": {
+                "spikesort": {
+                    "phases": {
+                        "bombcell_label": {
+                            "enabled": True,
+                            "dry_run": False,
+                            "apply_to_sorter_output": False,
+                            "params": {
+                                "label_non_somatic": False,
+                            },
+                            "fail_on_error": True,
+                        },
+                        "bombcell_label_pass2": {
+                            "enabled": True,
+                            # No params/dry_run/apply overrides — should inherit from pass1.
+                        },
+                    }
+                }
+            }
+        }
+    )
+
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+
+    # Inherited
+    assert parsed.bombcell_label_pass2_dry_run is False
+    assert parsed.bombcell_label_pass2_apply_to_sorter_output is False
+    assert parsed.bombcell_label_pass2_label_non_somatic is False
+    assert parsed.bombcell_label_pass2_fail_on_error is True
+    # Defaulted (pass1 didn't override)
+    assert parsed.bombcell_label_pass2_relpath == "bombcell_label_pass2_outputs"
+
+
+def test_parse_spikesort_stage_config_phase_sequence_includes_bombcell_label_pass2_by_default() -> None:
+    cfg = RuntimeConfig({"stages": {"spikesort": {}}})
+    parsed = parse_spikesort_stage_config(runtime_config=cfg)
+    # Default phase sequence places pass2 between merge_SLAy and cleanup.
+    assert "bombcell_label_pass2" in parsed.phase_sequence
+    idx_merge = parsed.phase_sequence.index("merge_SLAy")
+    idx_pass2 = parsed.phase_sequence.index("bombcell_label_pass2")
+    assert idx_pass2 == idx_merge + 1
+
+
+def test_normalize_spikesort_phase_name_resolves_bombcell_label_pass2_aliases() -> None:
+    from axon_recon.pipeline.stages.spikesort.config import normalize_spikesort_phase_name
+
+    for token in (
+        "bombcell_label_pass2",
+        "bombcell_pass2",
+        "bombcell_label_post_merge",
+        "bombcell_post_merge",
+        "spikesort.bombcell_label_pass2",
+        "spikesort.bombcell_post_merge",
+    ):
+        assert normalize_spikesort_phase_name(token) == "bombcell_label_pass2"
 
 
 def test_parse_spikesort_stage_config_reads_phase_local_merge_common_overrides() -> None:

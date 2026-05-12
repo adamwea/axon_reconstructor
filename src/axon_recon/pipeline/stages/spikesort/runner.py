@@ -2966,6 +2966,165 @@ def run_spikesort_bombcell_label_stage(
 	)
 
 
+def _bombcell_label_pass2_proxy_stage_config(stage_config: Any) -> SimpleNamespace:
+	"""Build a stage-config proxy that re-targets bombcell_label_* attrs to their pass2 counterparts.
+
+	pass2 inherits all analyzer/template/sparsity/waveform settings from pass1; only the
+	differentiating knobs (relpath, enabled, dry_run, thresholds, sorter-writeback flags,
+	reports, summary path) are re-pointed to the explicit pass2 fields.
+	"""
+	proxy = _copy_stage_config_to_namespace(stage_config)
+	# Re-point pass1 attribute names to pass2 values where they differ.
+	pass2_overrides = {
+		"bombcell_label_enabled": "bombcell_label_pass2_enabled",
+		"bombcell_label_relpath": "bombcell_label_pass2_relpath",
+		"bombcell_label_reports_summary_json_relpath": "bombcell_label_pass2_summary_json_relpath",
+		"bombcell_label_delete_outputs_on_force_restart": "bombcell_label_pass2_delete_outputs_on_force_restart",
+		"bombcell_label_dry_run": "bombcell_label_pass2_dry_run",
+		"bombcell_label_thresholds": "bombcell_label_pass2_thresholds",
+		"bombcell_label_thresholds_path": "bombcell_label_pass2_thresholds_path",
+		"bombcell_label_label_non_somatic": "bombcell_label_pass2_label_non_somatic",
+		"bombcell_label_split_non_somatic_good_mua": "bombcell_label_pass2_split_non_somatic_good_mua",
+		"bombcell_label_apply_to_sorter_output": "bombcell_label_pass2_apply_to_sorter_output",
+		"bombcell_label_write_cluster_group": "bombcell_label_pass2_write_cluster_group",
+		"bombcell_label_fail_on_error": "bombcell_label_pass2_fail_on_error",
+		"bombcell_label_reports_enabled": "bombcell_label_pass2_reports_enabled",
+		"bombcell_label_reports_summary_json_enabled": "bombcell_label_pass2_reports_summary_json_enabled",
+	}
+	for proxy_attr, source_attr in pass2_overrides.items():
+		setattr(proxy, proxy_attr, getattr(stage_config, source_attr, getattr(stage_config, proxy_attr, None)))
+	return proxy
+
+
+def _rerun_concat_analyzer_for_bombcell_pass2(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+) -> SpikesortResult | None:
+	"""Rebuild the concat analyzer against the current (post-merge) sorter_output.
+
+	Relies on the concat_analyzer phase's `rebuild_on_sorter_output_change` fingerprint
+	check: a no-op when the sorter hasn't changed; a full rebuild when SLAy mutated
+	`spike_clusters.npy` (so post-merge unit IDs land in the analyzer's sorting).
+	"""
+	rebuild_enabled = bool(
+		getattr(stage_config, "bombcell_label_pass2_rebuild_concat_analyzer", True)
+	)
+	if not rebuild_enabled:
+		return None
+	# Force-enable the concat_analyzer phase regardless of the pass1 enabled flag, since
+	# we explicitly want a rebuild here. Other concat_analyzer_* settings are inherited.
+	proxy = _copy_stage_config_to_namespace(stage_config)
+	setattr(proxy, "concat_analyzer_enabled", True)
+	rebuild_force_restart = bool(
+		getattr(stage_config, "bombcell_label_pass2_rebuild_concat_analyzer_force_restart", False)
+	)
+	return run_spikesort_concat_analyzer_stage(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=proxy,
+		force_restart=rebuild_force_restart,
+	)
+
+
+def run_spikesort_bombcell_label_pass2_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortBombcellResult:
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=str(output_rel_root).strip() or "spikesort_outputs",
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+
+	# Short-circuit when pass2 is disabled: skip the concat-analyzer rebuild too,
+	# otherwise we'd pay the rebuild cost only to discard the result.
+	if not bool(getattr(stage_config, "bombcell_label_pass2_enabled", False)):
+		proxy_stage_config = _bombcell_label_pass2_proxy_stage_config(stage_config)
+		report = _run_bombcell_label_phase(
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			output_rel_root=output_rel_root,
+			stage_config=proxy_stage_config,
+			force_restart=force_restart,
+		)
+		outputs_in = dict(report.get("outputs", {}) or {})
+		outputs: dict[str, str] = {}
+		for key, value in outputs_in.items():
+			new_key = key
+			if key.startswith("bombcell_label."):
+				new_key = "bombcell_label_pass2." + key[len("bombcell_label."):]
+			outputs[new_key] = value
+		bombcell_out_dir = Path(str(report.get("out_dir") or stage_output_root_dir)).resolve()
+		summary_json_raw = report.get("summary_json", None)
+		summary_json = (
+			Path(str(summary_json_raw)).resolve()
+			if summary_json_raw is not None
+			else None
+		)
+		return SpikesortBombcellResult(
+			well_out_dir=well_out_dir,
+			bombcell_out_dir=bombcell_out_dir,
+			summary_json=summary_json,
+			outputs=outputs,
+		)
+
+	# Rebuild concat analyzer first so it sees post-merge unit IDs from the SLAy-mutated sorter.
+	_rerun_concat_analyzer_for_bombcell_pass2(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+	)
+
+	proxy_stage_config = _bombcell_label_pass2_proxy_stage_config(stage_config)
+	report = _run_bombcell_label_phase(
+		well_out_dir=well_out_dir,
+		stage_output_root_dir=stage_output_root_dir,
+		output_rel_root=output_rel_root,
+		stage_config=proxy_stage_config,
+		force_restart=force_restart,
+	)
+	# Re-key outputs from "bombcell_label.*" -> "bombcell_label_pass2.*" so downstream
+	# consumers can distinguish pass1 and pass2 artifacts at a glance.
+	outputs_in = dict(report.get("outputs", {}) or {})
+	outputs: dict[str, str] = {}
+	for key, value in outputs_in.items():
+		new_key = key
+		if key.startswith("bombcell_label."):
+			new_key = "bombcell_label_pass2." + key[len("bombcell_label."):]
+		outputs[new_key] = value
+	bombcell_out_dir = Path(str(report.get("out_dir") or stage_output_root_dir)).resolve()
+	summary_json_raw = report.get("summary_json", None)
+	summary_json = (
+		Path(str(summary_json_raw)).resolve()
+		if summary_json_raw is not None
+		else None
+	)
+	return SpikesortBombcellResult(
+		well_out_dir=well_out_dir,
+		bombcell_out_dir=bombcell_out_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
 
 
 def _import_spikeinterface_full_module() -> Any:

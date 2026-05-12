@@ -23,13 +23,18 @@ def normalize_label_token(value: Any) -> str:
 
 
 def load_unit_labels_from_spikesorting(well_out_dir: Path) -> dict[str, str] | None:
-	for labels_json in _candidate_bombcell_label_json_paths(well_out_dir):
-		labels = _read_bombcell_labels_json(labels_json)
+	# Prefer cluster_KSLabel.tsv / cluster_group.tsv in sorter_output: post-SLAy
+	# this file is the only complete view (bombcell pass1 wrote its labels for
+	# pre-merge units, then SLAy appended inherited labels for the new merged
+	# unit IDs). bombcell_labels.json is pre-merge-only and is kept as a fallback
+	# for runs where bombcell ran with apply_to_sorter_output=false (dry_run).
+	for labels_tsv in _candidate_cluster_label_tsv_paths(well_out_dir):
+		labels = _read_cluster_label_tsv(labels_tsv)
 		if labels:
 			return labels
 
-	for labels_tsv in _candidate_cluster_label_tsv_paths(well_out_dir):
-		labels = _read_cluster_label_tsv(labels_tsv)
+	for labels_json in _candidate_bombcell_label_json_paths(well_out_dir):
+		labels = _read_bombcell_labels_json(labels_json)
 		if labels:
 			return labels
 

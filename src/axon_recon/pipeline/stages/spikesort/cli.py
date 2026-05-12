@@ -4,6 +4,7 @@ import argparse
 
 from .orchestrators import (
 	_run_bombcell_label_from_args as _run_bombcell_label_orchestrator_from_args,
+	_run_bombcell_label_pass2_from_args as _run_bombcell_label_pass2_orchestrator_from_args,
 	_run_bootstrap_concat_binary_from_args as _run_bootstrap_concat_binary_orchestrator_from_args,
 	_run_cleanup_analyzers_from_args as _run_cleanup_analyzers_orchestrator_from_args,
 	_run_cleanup_concat_binary_from_args as _run_cleanup_concat_binary_orchestrator_from_args,
@@ -85,6 +86,10 @@ def _run_restore_sorter_output_from_args(args: argparse.Namespace) -> int:
 
 def _run_bombcell_from_args(args: argparse.Namespace) -> int:
 	return _run_bombcell_label_orchestrator_from_args(args)
+
+
+def _run_bombcell_pass2_from_args(args: argparse.Namespace) -> int:
+	return _run_bombcell_label_pass2_orchestrator_from_args(args)
 
 
 def _run_bootstrap_concat_binary_from_args(args: argparse.Namespace) -> int:

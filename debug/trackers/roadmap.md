@@ -59,6 +59,50 @@ one-liner pointing at the plan doc.
   against the current pipeline; fixture dataset for benchmarking.
 - **See also**: placeholder — populate when user provides details.
 
+### Post-templates bombcell + SLAy pass (label/merge on full template payloads)
+- **Status**: idea
+- **Tags**: spikesort, curation, recon
+- **Problem**: bombcell labels and SLAy merges currently run on the raw kilosort
+  artifacts (mean waveforms, cluster TSVs, automerge templates) BEFORE recon
+  builds its per-segment + concat analyzer payloads. That means both algorithms
+  reason about each unit using an incomplete picture of its template — only the
+  channels and spike subset kilosort/SLAy chose to surface. Some units may be
+  misclassified ("good" vs "mua" vs "noise") or mis-paired-for-merge because the
+  available template is locally clean but globally noisy (or vice versa), and the
+  feature inputs to bombcell/SLAy don't see that. Running bombcell + SLAy a
+  second time, AFTER recon has materialized full per-segment + concat templates,
+  could correct those calls.
+- **Approach sketch**: After recon's `templates` stage finishes, expose a
+  follow-on phase (or top-level command) that re-projects each unit's full
+  per-segment + concat template payload into the feature shape bombcell expects
+  (template waveforms per channel, amplitude/contam metrics derived from the
+  larger spike set in the materialized payloads), then re-runs bombcell to emit a
+  fresh labels JSON. Same pattern for SLAy: feed the materialized concat
+  template into SLAy's similarity scorer (instead of the kilosort-mean-waveform
+  template) and run another merge pass on the candidate pool. Outputs land at a
+  distinct location (e.g. `bombcell_label_post_templates_outputs/`, parallel SLAy
+  output root) so the original kilosort-derived labels/merges stay auditable.
+  Decide downstream which label set the recon stage consumes via a config knob.
+- **Dependencies / blockers**: requires the templates stage to emit per-unit
+  template arrays in a shape bombcell/SLAy can ingest without re-running the
+  kilosort post-processing pipeline. May need an adapter layer that mimics the
+  kilosort folder layout from materialized payloads. The simpler version
+  (`bombcell_label_pass2` on raw kilosort artifacts) was prototyped on
+  2026-05-11 and shipped disabled-by-default: it hit a SpikeInterface
+  `KiloSortSortingExtractor` inner-join bug — the extractor merges every
+  `cluster_*.tsv` on `cluster_id`, and SLAy only updates `cluster_KSLabel.tsv`
+  + `cluster_group.tsv` (not `cluster_Amplitude.tsv` / `cluster_ContamPct.tsv`),
+  so the post-merge unit IDs get dropped by the intersection. To re-enable
+  pass2 (or to do the post-templates version), either strip the stale per-
+  metric TSVs before loading the sorting, force the loader through
+  `_build_numpy_sorting_from_kilosort_raw` (already exists), or patch SLAy to
+  write stub rows into the other cluster_*.tsv files for new unit IDs.
+- **See also**: discussed 2026-05-11; recon-side label loader now prefers
+  post-SLAy `cluster_KSLabel.tsv` over `bombcell_labels.json` for exactly this
+  reason — `cluster_KSLabel.tsv` is the only artifact that has the complete
+  post-merge label set (pass1 wrote bombcell labels into it for pre-merge IDs,
+  SLAy appended inherited labels for new merge IDs).
+
 ### Axon-vs-dendrite identification from signal characteristics
 - **Status**: idea
 - **Tags**: algorithms, analysis, recon

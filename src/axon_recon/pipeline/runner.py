@@ -110,6 +110,7 @@ from .stages.spikesort.api import (
 	restore_spikesort_sorter_output,
 	run_spikesort,
 	run_spikesort_bombcell,
+	run_spikesort_bombcell_pass2,
 	run_spikesort_merge,
 	snapshot_spikesort_sorter_output,
 	summarize_spikesort,
@@ -455,6 +456,7 @@ def _spikesort_phase_resource_classes_from_labels(
 		"concat_analyzer": "concat_analyzer_resource_class",
 		"bombcell_label": "bombcell_label_resource_class",
 		"merge_slay": "merge_slay_resource_class",
+		"bombcell_label_pass2": "bombcell_label_pass2_resource_class",
 		"cleanup_concat_binary": "cleanup_concat_binary_resource_class",
 		"cleanup_analyzers": "cleanup_analyzers_resource_class",
 	}
@@ -1814,6 +1816,7 @@ _SPIKESORT_DIRECT_PHASE_LABELS: dict[str, str] = {
 	"spikesort.sort": "sort",
 	"spikesort.summarize_sort": "summarize_sort",
 	"spikesort.bombcell_label": "bombcell_label",
+	"spikesort.bombcell_label_pass2": "bombcell_label_pass2",
 	"spikesort.merge": "merge",
 	"spikesort.merge_SLAy": "merge_slay",
 }
@@ -3039,6 +3042,19 @@ def _enabled_spikesort_runtime_phase_plan(
 				resource_class=getattr(stage_config, "merge_slay_resource_class", None),
 			)
 		)
+	if bool(getattr(stage_config, "bombcell_label_pass2_enabled", False)):
+		available_phases["bombcell_label_pass2"] = (
+			_SpikesortRuntimePhase(
+				name="spikesort.bombcell_label_pass2",
+				phase_label="bombcell_label_pass2",
+				debug_enabled_attr="bombcell_label_pass2_debug_mode_enabled",
+				debug_limit_datasets_attr="bombcell_label_pass2_debug_limit_datasets",
+				debug_limit_wells_attr="bombcell_label_pass2_debug_limit_wells",
+				target_runner=_run_spikesort_bombcell_label_pass2_target,
+				debug_limit_wells_per_dataset_attr="bombcell_label_pass2_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "bombcell_label_pass2_resource_class", None),
+			)
+		)
 	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)):
 		available_phases["cleanup_concat_binary"] = (
 			_SpikesortRuntimePhase(
@@ -3185,6 +3201,17 @@ def _run_spikesort_concat_analyzer_target(*, target: Any, stage_config: Any, uni
 
 def _run_spikesort_bombcell_label_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortBombcellResult:
 	return run_spikesort_bombcell(
+		h5_path=target.h5_path,
+		stream_id=target.stream_id,
+		mea_output_root=target.mea_output_root,
+		output_rel_root=_spikesort_output_rel_root(stage_config),
+		stage_config=stage_config,
+		force_restart=bool(getattr(stage_config, "force_restart", False)),
+	)
+
+
+def _run_spikesort_bombcell_label_pass2_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortBombcellResult:
+	return run_spikesort_bombcell_pass2(
 		h5_path=target.h5_path,
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
@@ -4258,6 +4285,129 @@ def run_spikesort_bombcell_label_from_runtime(
 		return _run_direct_phase_with_resource_tracking(
 			phase_name="bombcell_label",
 			runner=lambda: run_spikesort_bombcell(
+				h5_path=target.h5_path,
+				stream_id=target.stream_id,
+				mea_output_root=target.mea_output_root,
+				output_rel_root=runtime_stage_config.output_rel_root,
+				stage_config=runtime_stage_config,
+				force_restart=bool(runtime_stage_config.force_restart),
+			),
+			resource_class=_first_resource_class(phase_resource_classes),
+			pipeline_thread_count=int(runtime_n_jobs),
+			target=target,
+		)
+
+	with stage_resource_budget_context(resource_budget_manager):
+		target_results = _distribute_runtime_targets(
+			targets=targets,
+			parallelism=parallelism,
+			worker_fn=_worker,
+			stage_name=stage_name,
+			progress=PipelineProgress(ProgressSpec(label=f"{stage_name} wells", total=len(targets), unit="well")),
+			advance_progress_on_target_complete=True,
+			bundle=bundle,
+		)
+	target_results = [
+		_publish_spikesort_bombcell_target_result(item, policy=publish_policy)
+		for item in target_results
+	]
+
+	succeeded = sum(1 for item in target_results if item.status == "ok")
+	failed = sum(1 for item in target_results if item.status != "ok")
+	return MultiTargetStageResult(
+		stage=stage_name,
+		total_targets=len(target_results),
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=target_results,
+	)
+
+
+def run_spikesort_bombcell_label_pass2_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+	stage_name: str = "spikesort.bombcell_label_pass2",
+) -> MultiTargetStageResult:
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	publish_policy = _resolve_publish_policy(runtime_config=bundle.runtime_config, data_config=bundle.data_config)
+	_log_publish_policy(stage_name=stage_name, policy=publish_policy)
+	stage_config = parse_spikesort_stage_config(
+		runtime_config=bundle.runtime_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	stage_config = _with_debug_limit_overrides(
+		stage_config,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+	)
+	targets = _select_execution_targets_with_debug_limits(
+		bundle=bundle,
+		stage_name=stage_name,
+		stage_config=stage_config,
+		target_datasets=target_datasets_override,
+	)
+	targets = _apply_spikesort_stage_debug_limits(
+		stage_name="spikesort",
+		stage_config=stage_config,
+		targets=list(targets),
+	)
+	targets = _apply_spikesort_phase_debug_limits(
+		stage_name=stage_name,
+		stage_config=stage_config,
+		targets=list(targets),
+		phase_label="bombcell_label_pass2",
+		enabled_attr="bombcell_label_pass2_debug_mode_enabled",
+		limit_datasets_attr="bombcell_label_pass2_debug_limit_datasets",
+		limit_wells_attr="bombcell_label_pass2_debug_limit_wells",
+		limit_wells_per_dataset_attr="bombcell_label_pass2_debug_limit_wells_per_dataset",
+	)
+	phase_resource_classes = _spikesort_phase_resource_classes_from_labels(
+		stage_config, ("bombcell_label_pass2",)
+	)
+	parallelism = _resolve_runtime_stage_parallelism(
+		bundle=bundle,
+		stage_name="spikesort",
+		target_count=len(targets),
+		targets=targets,
+		phase_resource_classes=phase_resource_classes,
+		task_allocation_override=task_allocation_override,
+	)
+	n_jobs_source = _runtime_n_jobs_source(stage_config)
+	runtime_stage_config = _stage_config_with_runtime_n_jobs(
+		stage_config,
+		unit_workers=int(parallelism.unit_workers),
+	)
+	runtime_n_jobs = _runtime_n_jobs_from_stage_config(
+		runtime_stage_config,
+		fallback_n_jobs=int(parallelism.unit_workers),
+	)
+	resource_budget_manager = _build_stage_resource_budget_manager(
+		bundle=bundle,
+		parallelism=parallelism,
+		phase_resource_classes=phase_resource_classes,
+		target_count=len(targets),
+	)
+
+	def _worker(target):
+		_log_spikesort_phase_worker_allocation(
+			phase_name="bombcell_label_pass2",
+			target=target,
+			parallelism=parallelism,
+			n_jobs=int(runtime_n_jobs),
+			n_jobs_source=str(n_jobs_source),
+		)
+		return _run_direct_phase_with_resource_tracking(
+			phase_name="bombcell_label_pass2",
+			runner=lambda: run_spikesort_bombcell_pass2(
 				h5_path=target.h5_path,
 				stream_id=target.stream_id,
 				mea_output_root=target.mea_output_root,

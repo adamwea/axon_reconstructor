@@ -272,6 +272,7 @@ DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
 	"concat_analyzer",
 	"bombcell_label",
 	"merge_SLAy",
+	"bombcell_label_pass2",
 	"cleanup_concat_binary",
 	"cleanup_analyzers",
 )
@@ -299,6 +300,15 @@ _SPIKESORT_PHASE_ALIASES: dict[str, str] = {
 	"bombcell_label": "bombcell_label",
 	"bombcell": "bombcell_label",
 	"label_bombcell": "bombcell_label",
+	"bombcell_label_pass2": "bombcell_label_pass2",
+	"bombcell_pass2": "bombcell_label_pass2",
+	"bombcell_label_pass_2": "bombcell_label_pass2",
+	"bombcell_pass_2": "bombcell_label_pass2",
+	"bombcell_label_post_merge": "bombcell_label_pass2",
+	"bombcell_post_merge": "bombcell_label_pass2",
+	"label_bombcell_pass2": "bombcell_label_pass2",
+	"pass2_bombcell": "bombcell_label_pass2",
+	"pass2_bombcell_label": "bombcell_label_pass2",
 	"merge_slay": "merge_SLAy",
 	"merge_sla_y": "merge_SLAy",
 	"merge_slay_outputs": "merge_SLAy",
@@ -423,6 +433,7 @@ class SpikesortStageConfig:
 	merge_slay_resource_class: str | None
 	cleanup_concat_binary_resource_class: str | None
 	cleanup_analyzers_resource_class: str | None
+	bombcell_label_pass2_resource_class: str | None
 	summarize_sort_debug_mode_enabled: bool
 	summarize_sort_debug_limit_datasets: int | None
 	summarize_sort_debug_limit_wells: int | None
@@ -431,6 +442,10 @@ class SpikesortStageConfig:
 	bombcell_label_debug_limit_datasets: int | None
 	bombcell_label_debug_limit_wells: int | None
 	bombcell_label_debug_limit_wells_per_dataset: int | None
+	bombcell_label_pass2_debug_mode_enabled: bool
+	bombcell_label_pass2_debug_limit_datasets: int | None
+	bombcell_label_pass2_debug_limit_wells: int | None
+	bombcell_label_pass2_debug_limit_wells_per_dataset: int | None
 	sort_engine: str
 	sorter: str
 	docker_image: str | None
@@ -543,6 +558,22 @@ class SpikesortStageConfig:
 	bombcell_label_analyzer_waveforms_ms_before: float | None
 	bombcell_label_analyzer_waveforms_ms_after: float | None
 	bombcell_label_analyzer_waveforms_dtype: str | None
+	bombcell_label_pass2_enabled: bool
+	bombcell_label_pass2_relpath: str
+	bombcell_label_pass2_summary_json_relpath: str
+	bombcell_label_pass2_delete_outputs_on_force_restart: bool
+	bombcell_label_pass2_dry_run: bool
+	bombcell_label_pass2_thresholds: dict[str, Any] | None
+	bombcell_label_pass2_thresholds_path: str | None
+	bombcell_label_pass2_label_non_somatic: bool
+	bombcell_label_pass2_split_non_somatic_good_mua: bool
+	bombcell_label_pass2_apply_to_sorter_output: bool
+	bombcell_label_pass2_write_cluster_group: bool
+	bombcell_label_pass2_fail_on_error: bool
+	bombcell_label_pass2_reports_enabled: bool
+	bombcell_label_pass2_reports_summary_json_enabled: bool
+	bombcell_label_pass2_rebuild_concat_analyzer: bool
+	bombcell_label_pass2_rebuild_concat_analyzer_force_restart: bool
 	um_kwargs: dict[str, Any] | None
 	am_kwargs: dict[str, Any] | None
 	option_kwargs: dict[str, Any] | None
@@ -774,6 +805,16 @@ def parse_spikesort_stage_config(
 	bombcell_cleanup_on_success_cfg = _as_section(bombcell_phase_cfg.get("cleanup_on_success", {}))
 	bombcell_reports_cfg = _as_section(bombcell_phase_cfg.get("reports", {}))
 	bombcell_reports_summary_json_cfg = _as_section(bombcell_reports_cfg.get("summary_json", {}))
+	bombcell_pass2_phase_cfg_raw = phases_cfg.get("bombcell_label_pass2", None)
+	bombcell_pass2_phase_cfg = _as_section(bombcell_pass2_phase_cfg_raw)
+	bombcell_pass2_params_cfg = _as_section(bombcell_pass2_phase_cfg.get("params", {}))
+	bombcell_pass2_reports_cfg = _as_section(bombcell_pass2_phase_cfg.get("reports", {}))
+	bombcell_pass2_reports_summary_json_cfg = _as_section(
+		bombcell_pass2_reports_cfg.get("summary_json", {})
+	)
+	bombcell_pass2_rebuild_cfg = _as_section(
+		bombcell_pass2_phase_cfg.get("rebuild_concat_analyzer", {})
+	)
 	resources_cfg = _as_section(stage_cfg.get("resources", {}))
 	resources_config = parse_resources_config(runtime_config=runtime_config, logger=LOGGER)
 
@@ -803,6 +844,10 @@ def parse_spikesort_stage_config(
 	cleanup_analyzers_resource_class = _phase_resource_class(
 		cleanup_analyzers_phase_cfg,
 		"cleanup_analyzers",
+	)
+	bombcell_label_pass2_resource_class = _phase_resource_class(
+		bombcell_pass2_phase_cfg,
+		"bombcell_label_pass2",
 	)
 	logging_cfg = _as_section(stage_cfg.get("logging", {}))
 	legacy_debug_cfg = _as_section(stage_cfg.get("debug", {}))
@@ -1131,6 +1176,33 @@ def parse_spikesort_stage_config(
 	)
 	bombcell_label_debug_limit_wells_per_dataset = _as_optional_positive_int(
 		bombcell_debug_cfg.get("limit_wells_per_dataset", None)
+	)
+	bombcell_pass2_debug_cfg = _as_section(bombcell_pass2_phase_cfg.get("debug_mode", {}))
+	bombcell_label_pass2_debug_mode_enabled = _as_bool(
+		_coalesce(
+			bombcell_pass2_debug_cfg.get("enabled", None),
+			bombcell_label_debug_mode_enabled,
+			False,
+		),
+		False,
+	)
+	bombcell_label_pass2_debug_limit_datasets = _as_optional_positive_int(
+		_coalesce(
+			bombcell_pass2_debug_cfg.get("limit_datasets", None),
+			bombcell_label_debug_limit_datasets,
+		)
+	)
+	bombcell_label_pass2_debug_limit_wells = _as_optional_positive_int(
+		_coalesce(
+			bombcell_pass2_debug_cfg.get("limit_wells", None),
+			bombcell_label_debug_limit_wells,
+		)
+	)
+	bombcell_label_pass2_debug_limit_wells_per_dataset = _as_optional_positive_int(
+		_coalesce(
+			bombcell_pass2_debug_cfg.get("limit_wells_per_dataset", None),
+			bombcell_label_debug_limit_wells_per_dataset,
+		)
 	)
 
 	plot_enabled = _as_bool(plot_cfg.get("enabled", True), True)
@@ -2634,6 +2706,142 @@ def parse_spikesort_stage_config(
 		bombcell_analyzer_waveforms_cfg.get("dtype", None)
 	)
 
+	# pass2 bombcell label: re-score post-merge sorter so SLAy-emitted unit IDs get real bombcell labels.
+	# Knobs default to inherit-from-pass1 where it makes sense; only relpath defaults differently so
+	# pass2 outputs land beside (not on top of) pass1 outputs.
+	bombcell_label_pass2_enabled = _as_bool(
+		_coalesce(
+			bombcell_pass2_phase_cfg.get("enabled", None),
+			bool(bombcell_pass2_phase_cfg_raw is not None),
+		),
+		False,
+	)
+	bombcell_label_pass2_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bombcell_pass2_phase_cfg.get("relpath", None),
+			bombcell_pass2_phase_cfg.get("output_relpath", None),
+			"bombcell_label_pass2_outputs",
+		)
+	) or "bombcell_label_pass2_outputs"
+	bombcell_label_pass2_delete_outputs_on_force_restart = _as_bool(
+		_coalesce(
+			bombcell_pass2_phase_cfg.get("delete_outputs_on_force_restart", None),
+			bombcell_pass2_phase_cfg.get("delete_on_force_restart", None),
+			bombcell_label_delete_outputs_on_force_restart,
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_dry_run = _as_bool(
+		_coalesce(
+			bombcell_pass2_phase_cfg.get("dry_run", None),
+			bombcell_label_dry_run,
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_thresholds = _as_optional_dict(
+		_coalesce(
+			bombcell_pass2_params_cfg.get("thresholds", None),
+			bombcell_pass2_params_cfg.get("threshold_dict", None),
+			bombcell_pass2_phase_cfg.get("thresholds", None),
+			bombcell_pass2_phase_cfg.get("threshold_dict", None),
+			bombcell_label_thresholds,
+		)
+	)
+	bombcell_label_pass2_thresholds_path = _as_optional_str(
+		_coalesce(
+			bombcell_pass2_params_cfg.get("thresholds_path", None),
+			bombcell_pass2_params_cfg.get("thresholds_json", None),
+			bombcell_pass2_params_cfg.get("thresholds_json_path", None),
+			bombcell_pass2_phase_cfg.get("thresholds_path", None),
+			bombcell_pass2_phase_cfg.get("thresholds_json", None),
+			bombcell_pass2_phase_cfg.get("thresholds_json_path", None),
+			bombcell_label_thresholds_path,
+		)
+	)
+	bombcell_label_pass2_label_non_somatic = _as_bool(
+		_coalesce(
+			bombcell_pass2_params_cfg.get("label_non_somatic", None),
+			bombcell_pass2_phase_cfg.get("label_non_somatic", None),
+			bombcell_label_label_non_somatic,
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_split_non_somatic_good_mua = _as_bool(
+		_coalesce(
+			bombcell_pass2_params_cfg.get("split_non_somatic_good_mua", None),
+			bombcell_pass2_phase_cfg.get("split_non_somatic_good_mua", None),
+			bombcell_label_split_non_somatic_good_mua,
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_apply_to_sorter_output = _as_bool(
+		_coalesce(
+			bombcell_pass2_phase_cfg.get("apply_to_sorter_output", None),
+			bombcell_pass2_phase_cfg.get("apply_labels_to_sorter_output", None),
+			bombcell_label_apply_to_sorter_output,
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_write_cluster_group = _as_bool(
+		_coalesce(
+			bombcell_pass2_phase_cfg.get("write_cluster_group", None),
+			bombcell_label_write_cluster_group,
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_fail_on_error = _as_bool(
+		_coalesce(
+			bombcell_pass2_phase_cfg.get("fail_on_error", None),
+			bombcell_label_fail_on_error,
+			False,
+		),
+		False,
+	)
+	bombcell_label_pass2_reports_enabled = _as_bool(
+		_coalesce(
+			bombcell_pass2_reports_cfg.get("enabled", None),
+			bombcell_label_reports_enabled,
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_reports_summary_json_enabled = _as_bool(
+		_coalesce(
+			bombcell_pass2_reports_summary_json_cfg.get("enabled", None),
+			bombcell_label_pass2_reports_enabled,
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_summary_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			bombcell_pass2_reports_summary_json_cfg.get("relpath", None),
+			"bombcell_label_pass2_summary.json",
+		)
+	) or "bombcell_label_pass2_summary.json"
+	bombcell_label_pass2_rebuild_concat_analyzer = _as_bool(
+		_coalesce(
+			bombcell_pass2_rebuild_cfg.get("enabled", None),
+			bombcell_pass2_phase_cfg.get("rebuild_concat_analyzer", None),
+			True,
+		),
+		True,
+	)
+	bombcell_label_pass2_rebuild_concat_analyzer_force_restart = _as_bool(
+		_coalesce(
+			bombcell_pass2_rebuild_cfg.get("force_restart", None),
+			bombcell_pass2_phase_cfg.get("rebuild_concat_analyzer_force_restart", None),
+			False,
+		),
+		False,
+	)
+
 	slay_enabled = _as_bool(_coalesce(slay_cfg.get("enabled", None), False), False)
 	slay_relpath = _normalize_optional_relpath(
 		_coalesce(
@@ -3157,6 +3365,7 @@ def parse_spikesort_stage_config(
 		merge_slay_resource_class=merge_slay_resource_class,
 		cleanup_concat_binary_resource_class=cleanup_concat_binary_resource_class,
 		cleanup_analyzers_resource_class=cleanup_analyzers_resource_class,
+		bombcell_label_pass2_resource_class=bombcell_label_pass2_resource_class,
 		summarize_sort_debug_mode_enabled=bool(summarize_sort_debug_mode_enabled),
 		summarize_sort_debug_limit_datasets=summarize_sort_debug_limit_datasets,
 		summarize_sort_debug_limit_wells=summarize_sort_debug_limit_wells,
@@ -3165,6 +3374,10 @@ def parse_spikesort_stage_config(
 		bombcell_label_debug_limit_datasets=bombcell_label_debug_limit_datasets,
 		bombcell_label_debug_limit_wells=bombcell_label_debug_limit_wells,
 		bombcell_label_debug_limit_wells_per_dataset=bombcell_label_debug_limit_wells_per_dataset,
+		bombcell_label_pass2_debug_mode_enabled=bool(bombcell_label_pass2_debug_mode_enabled),
+		bombcell_label_pass2_debug_limit_datasets=bombcell_label_pass2_debug_limit_datasets,
+		bombcell_label_pass2_debug_limit_wells=bombcell_label_pass2_debug_limit_wells,
+		bombcell_label_pass2_debug_limit_wells_per_dataset=bombcell_label_pass2_debug_limit_wells_per_dataset,
 		sort_engine=sort_engine,
 		sorter=sorter_name,
 		docker_image=mea_analysis_docker_image,
@@ -3360,6 +3573,42 @@ def parse_spikesort_stage_config(
 		bombcell_label_analyzer_waveforms_ms_before=bombcell_label_analyzer_waveforms_ms_before,
 		bombcell_label_analyzer_waveforms_ms_after=bombcell_label_analyzer_waveforms_ms_after,
 		bombcell_label_analyzer_waveforms_dtype=bombcell_label_analyzer_waveforms_dtype,
+		bombcell_label_pass2_enabled=bool(bombcell_label_pass2_enabled),
+		bombcell_label_pass2_relpath=str(bombcell_label_pass2_relpath),
+		bombcell_label_pass2_summary_json_relpath=str(bombcell_label_pass2_summary_json_relpath),
+		bombcell_label_pass2_delete_outputs_on_force_restart=bool(
+			bombcell_label_pass2_delete_outputs_on_force_restart
+		),
+		bombcell_label_pass2_dry_run=bool(bombcell_label_pass2_dry_run),
+		bombcell_label_pass2_thresholds=(
+			dict(bombcell_label_pass2_thresholds)
+			if isinstance(bombcell_label_pass2_thresholds, dict)
+			else None
+		),
+		bombcell_label_pass2_thresholds_path=(
+			str(bombcell_label_pass2_thresholds_path)
+			if bombcell_label_pass2_thresholds_path is not None
+			else None
+		),
+		bombcell_label_pass2_label_non_somatic=bool(bombcell_label_pass2_label_non_somatic),
+		bombcell_label_pass2_split_non_somatic_good_mua=bool(
+			bombcell_label_pass2_split_non_somatic_good_mua
+		),
+		bombcell_label_pass2_apply_to_sorter_output=bool(
+			bombcell_label_pass2_apply_to_sorter_output
+		),
+		bombcell_label_pass2_write_cluster_group=bool(bombcell_label_pass2_write_cluster_group),
+		bombcell_label_pass2_fail_on_error=bool(bombcell_label_pass2_fail_on_error),
+		bombcell_label_pass2_reports_enabled=bool(bombcell_label_pass2_reports_enabled),
+		bombcell_label_pass2_reports_summary_json_enabled=bool(
+			bombcell_label_pass2_reports_summary_json_enabled
+		),
+		bombcell_label_pass2_rebuild_concat_analyzer=bool(
+			bombcell_label_pass2_rebuild_concat_analyzer
+		),
+		bombcell_label_pass2_rebuild_concat_analyzer_force_restart=bool(
+			bombcell_label_pass2_rebuild_concat_analyzer_force_restart
+		),
 		um_kwargs=resolved_um_kwargs,
 		am_kwargs=resolved_am_kwargs,
 		option_kwargs=resolved_option_kwargs,
