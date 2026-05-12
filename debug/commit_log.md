@@ -91,6 +91,8 @@ Rollback Notes:
 
 ## Commit Log
 
+CONTAINER SHIFTER + NERSC AFFINITY COMPLETE — container_shifter_shape_plan.md (slices 1–7), nersc_shaped_local_affinity_plan.md (slices 10–12), README sweep all landed. Plans moved to debug/plans/completed/.
+
 ## 2026-05-12 - pending - claude: README sweep documents all six run modes
 
 Status: pending
