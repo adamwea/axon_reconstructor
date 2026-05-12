@@ -33,7 +33,7 @@ if [[ "$maxwell_plugin_found" -ne 1 ]]; then
   exit 70
 fi
 
-if [[ $# -gt 0 && "${1}" == "axon-reconstructor" ]]; then
+if [[ $# -gt 0 && ( "${1}" == "axon-reconstructor" || "${1}" == "mpirun" ) ]]; then
   exec "$@"
 fi
 if [[ $# -gt 0 && "${1}" != -* ]] && command -v "${1}" >/dev/null 2>&1; then

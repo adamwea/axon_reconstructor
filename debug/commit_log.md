@@ -91,6 +91,38 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: entrypoint accepts mpirun as passthrough leader (slice 2)
+
+Status: pending
+
+Summary:
+- `containers/axon-recon/entrypoint.sh`: change the explicit-passthrough leader branch from
+  `[[ "${1}" == "axon-reconstructor" ]]` to
+  `[[ "${1}" == "axon-reconstructor" || "${1}" == "mpirun" ]]`. Behavior was already
+  covered incidentally by the second branch (any PATH-resolvable command), but the
+  explicit `mpirun` clause makes the intent legible and inoculates against a future
+  tightening of the second branch.
+
+Guardrails Consulted:
+- `debug/plans/active/container_shifter_shape_plan.md` slice 2 acceptance.
+- `debug/guardrails/container_mpi_strategy_note.md` Option B (inner mpirun is the chosen path).
+
+Acceptance Criteria:
+- ✅ `docker run --rm axon-recon:local mpirun -np 2 --allow-run-as-root axon-reconstructor --help` prints help text twice (one per rank), proving the entrypoint passes `mpirun` through cleanly and the inner `axon-reconstructor` rank initialises.
+- ✅ Existing `docker run --rm axon-recon:local axon-recon-smoke-cli` still ends with `axon_recon container smoke passed` (all import checks green, spikeinterface 0.104.3).
+
+Tests Run:
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ -q -x --ignore=src/axon_recon/pipeline/tests/test_progress.py` ran clean before the slice (baseline captured at slice 1). The entrypoint is shell, not exercised by pytest; the two real-container smokes above are the acceptance evidence.
+
+Storage / Cache Impact:
+- `axon-recon:local` rebuilt; sha256 changed (entrypoint COPY layer + final RUN layer reused otherwise).
+
+Container / NERSC / MPI Impact:
+- Inner `mpirun` recognized as leader. Same behaviour will hold at NERSC: `srun shifter axon-reconstructor stages …` runs the entrypoint with `$1=axon-reconstructor`, unaffected by this change.
+
+Residual Risk / Follow-ups:
+- None expected; the second (PATH-resolvable) branch is unchanged so other invocation shapes (`axon-recon-smoke-cli`, `python …`) continue to be passed through.
+
 ## 2026-05-12 - pending - claude: verify (or install) openmpi-bin in axon-recon image (slice 1)
 
 Status: pending
