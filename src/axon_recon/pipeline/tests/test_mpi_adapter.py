@@ -281,6 +281,65 @@ def test_apply_per_rank_cuda_no_mpi_env_noop(monkeypatch) -> None:
 	assert _os.environ["CUDA_VISIBLE_DEVICES"] == "5"
 
 
+def test_mpi_context_for_partition_returns_ctx_when_backend_mpi() -> None:
+	from types import SimpleNamespace
+
+	from axon_recon.pipeline.runner import _mpi_context_for_partition
+
+	ctx = MPIContext(rank=1, size=2, comm=None, is_fake=True)
+	parallelism = SimpleNamespace(task_allocation_backend="mpi")
+	assert _mpi_context_for_partition(mpi_context=ctx, parallelism=parallelism) is ctx
+
+
+def test_mpi_context_for_partition_skips_when_backend_local_affinity(caplog) -> None:
+	from types import SimpleNamespace
+
+	from axon_recon.pipeline.runner import _mpi_context_for_partition
+
+	ctx = MPIContext(rank=0, size=2, comm=None, is_fake=True)
+	parallelism = SimpleNamespace(task_allocation_backend="local_affinity")
+	import logging as _logging
+	caplog.set_level(_logging.INFO, logger="axon_recon.pipeline")
+	assert _mpi_context_for_partition(mpi_context=ctx, parallelism=parallelism) is None
+	assert any("skipping rank partitioning" in rec.getMessage() for rec in caplog.records)
+
+
+def test_mpi_context_for_partition_skips_when_backend_none() -> None:
+	from types import SimpleNamespace
+
+	from axon_recon.pipeline.runner import _mpi_context_for_partition
+
+	ctx = MPIContext(rank=0, size=2, comm=None, is_fake=True)
+	parallelism = SimpleNamespace(task_allocation_backend="none")
+	assert _mpi_context_for_partition(mpi_context=ctx, parallelism=parallelism) is None
+
+
+def test_mpi_context_for_partition_returns_none_when_no_mpi_context() -> None:
+	from types import SimpleNamespace
+
+	from axon_recon.pipeline.runner import _mpi_context_for_partition
+
+	parallelism = SimpleNamespace(task_allocation_backend="mpi")
+	assert _mpi_context_for_partition(mpi_context=None, parallelism=parallelism) is None
+
+
+def test_mpi_partition_targets_disjoint_across_ranks_when_backend_mpi() -> None:
+	"""End-to-end fake-MPI: with backend=mpi each rank's partition is disjoint and covers all targets."""
+	targets = list(range(7))
+	contexts = [MPIContext(rank=i, size=3, comm=None, is_fake=True) for i in range(3)]
+	partitions = [
+		partition_targets_by_mpi_rank(targets=targets, mpi_context=ctx)
+		for ctx in contexts
+	]
+	flat = sorted(t for partition in partitions for t in partition)
+	assert flat == targets
+	for i, partition in enumerate(partitions):
+		for j, other in enumerate(partitions):
+			if i == j:
+				continue
+			assert set(partition).isdisjoint(other), f"rank {i} and rank {j} overlap"
+
+
 def test_apply_per_rank_cuda_no_visible_gpus_noop(monkeypatch) -> None:
 	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
 	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")

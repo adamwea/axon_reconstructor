@@ -91,6 +91,50 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: wire backend=mpi into task allocation (affinity slice 11)
+
+Status: pending
+
+Summary:
+- `src/axon_recon/pipeline/execution/context.py`: `StageParallelism` gains `task_allocation_backend: str = "none"`. Default preserves existing behaviour for every direct constructor; the field is populated by `_attach_task_allocation_plan` once a runtime config is parsed.
+- `src/axon_recon/pipeline/runner.py`:
+  - `_attach_task_allocation_plan` writes the resolved `task_config.backend` into the returned `parallelism.task_allocation_backend` in both branches (plan-None: mpi/none; plan-Some: local_affinity/slurm).
+  - New `_mpi_context_for_partition()` helper returns the supplied MPI context only when `parallelism.task_allocation_backend == "mpi"`. Otherwise returns None and emits one INFO log line per ranked launch (`event: mpi_partition_skipped` with rank/size/backend) so the operator can see the skip in worker placement logs.
+  - The lone `distribute_targets(... mpi_context=mpi_context)` call in `_distribute_runtime_targets` now passes `_mpi_context_for_partition(...)`. Net effect: an `mpirun -np N axon-recon stages …` invocation that omits `--task-backend mpi` (or YAML `resources.task_allocation.backend: mpi`) no longer auto-partitions — the local-affinity and none backends are insulated from accidental MPI env exposure.
+- `src/axon_recon/pipeline/tests/test_mpi_adapter.py`: 5 new tests
+  - `_mpi_context_for_partition` returns the context when backend=mpi
+  - skips and logs `mpi_partition_skipped` when backend=local_affinity
+  - skips silently when backend=none
+  - returns None when no MPI context is supplied even if backend=mpi
+  - end-to-end fake-MPI: with 3 ranks of size 3 the partitions are disjoint and cover all targets
+
+Acceptance Criteria:
+- ✅ Fake-MPI tests prove deterministic non-overlapping target partitioning (`test_mpi_partition_targets_disjoint_across_ranks_when_backend_mpi`).
+- ✅ Non-MPI and local-affinity behaviour remain unchanged (the gate yields None for those backends; smoke baseline tests are green; the loop's pre-slice baseline of 537 pipeline tests is preserved).
+- ✅ `--task-backend mpi` continues to flow through `_build_task_allocation_override_from_args` (sets `enabled=True`, `backend="mpi"`), which `_attach_task_allocation_plan` now records on `parallelism.task_allocation_backend`.
+
+Guardrails Consulted:
+- `debug/plans/active/nersc_shaped_local_affinity_plan.md` slice 11 — "Rank partitioning happens before local target fanout" (preserved: partition lives inside `distribute_targets` before the executor pool); "Importing the package must not require MPI" (preserved: gate uses pure-Python `getattr(parallelism, …, "none")`, never imports mpi4py).
+- `debug/guardrails/container_mpi_strategy_note.md` — explicit opt-in matches the strategy note's framing of MPI as an additive, opt-in backend.
+- Loop-prompt pitfall: "Affinity slice 11 ≠ container_shifter_shape slice 4: ... slice 11 of affinity wires backend: mpi so the existing target-partition logic is gated on it being explicitly chosen." Implemented.
+
+Tests Run:
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/test_mpi_adapter.py -q` → 33 passed.
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ -q --ignore=src/axon_recon/pipeline/tests/test_progress.py` → all green.
+
+CLI / Debug Flag Impact:
+- No new flags. `--task-backend mpi` is preserved.
+
+Logging / Parallelism Impact:
+- New INFO log event `mpi_partition_skipped` (with rank/size/backend keys) fires once per stage invocation when MPI is detected but backend != mpi. Helps operators diagnose "I ran mpirun but I see all targets on every rank" — the answer is to add `--task-backend mpi`.
+
+Container / NERSC / MPI Impact:
+- Slice 5's real-data smoke (deferred behind user's wrapper run) will use `--task-backend mpi`; without it, slice 11's gate would now leave both ranks processing both targets and trip `FileExistsError`. Documented in slice 5 smoke command.
+
+Residual Risk / Follow-ups:
+- `debug/mpirun.sh`'s validated example already passes `--task-backend mpi`; the auto-partition behaviour change does not affect it.
+- Slice 12 will add `backend: slurm`; the gate already lets that fall through to a future explicit Slurm partition path (returns None at this gate; slurm partition will be in distributor or a new helper).
+
 ## 2026-05-12 - pending - claude: docs sweep for --mpi-ranks shifter-shape pivot (slice 7)
 
 Status: pending

@@ -357,6 +357,7 @@ def _attach_task_allocation_plan(
 		task_config = replace(task_config, **task_allocation_override)
 	if not bool(getattr(task_config, "enabled", False)):
 		return parallelism
+	backend_value = str(getattr(task_config, "backend", "none") or "none")
 	plan = build_task_allocation_plan(
 		config=task_config,
 		topology=detect_cpu_topology(logger=LOGGER),
@@ -372,6 +373,7 @@ def _attach_task_allocation_plan(
 			set_thread_env=bool(task_config.set_thread_env),
 			nested_thread_policy=str(task_config.nested_thread_policy or "preserve_existing"),
 			use_hyperthreads=bool(task_config.use_hyperthreads),
+			task_allocation_backend=backend_value,
 		)
 	if int(target_count) > 0 and not plan.slots:
 		raise ValueError(
@@ -383,6 +385,7 @@ def _attach_task_allocation_plan(
 		parallelism,
 		well_workers=int(effective_well_workers),
 		task_allocation_plan=plan,
+		task_allocation_backend=backend_value,
 	)
 
 
@@ -576,6 +579,45 @@ def _build_stage_resource_budget_manager(
 	)
 
 
+def _mpi_context_for_partition(
+	*,
+	mpi_context: Any | None,
+	parallelism: Any,
+	logger: logging.Logger | None = None,
+) -> Any | None:
+	"""Return the MPI context only when the active task-allocation backend opts into MPI partitioning.
+
+	Slice 11 of `nersc_shaped_local_affinity_plan.md` gates target partitioning on
+	an explicit `resources.task_allocation.backend: mpi` (or `--task-backend mpi`).
+	Without that opt-in, an `mpirun` launch that leaves backend at the default
+	will not auto-partition. This keeps the local-affinity and none backends
+	behaviorally insulated from accidental MPI env exposure.
+
+	When MPI is detected but skipped, a single INFO line is emitted so logs
+	preserve enough rank metadata to reconstruct the worker placement decision.
+	"""
+	if mpi_context is None:
+		return None
+	backend = str(getattr(parallelism, "task_allocation_backend", "none") or "none").strip().lower()
+	if backend == "mpi":
+		return mpi_context
+	resolved_logger = logger or LOGGER
+	if int(getattr(mpi_context, "size", 1)) > 1:
+		resolved_logger.info(
+			"MPI context detected (rank=%d size=%d) but task_allocation_backend=%s; skipping rank partitioning",
+			int(getattr(mpi_context, "rank", 0)),
+			int(getattr(mpi_context, "size", 1)),
+			str(backend),
+			extra={
+				"event": "mpi_partition_skipped",
+				"mpi_rank": int(getattr(mpi_context, "rank", 0)),
+				"mpi_size": int(getattr(mpi_context, "size", 1)),
+				"task_allocation_backend": str(backend),
+			},
+		)
+	return None
+
+
 def _distribute_runtime_targets(
 	*,
 	targets: list[Any],
@@ -759,6 +801,9 @@ def _distribute_runtime_targets(
 			progress.update(1)
 
 	progress_context = progress if progress is not None else nullcontext()
+	mpi_partition_context = _mpi_context_for_partition(
+		mpi_context=mpi_context, parallelism=parallelism, logger=LOGGER
+	)
 	with progress_context:
 		return distribute_targets(
 			targets=targets,
@@ -771,7 +816,7 @@ def _distribute_runtime_targets(
 			),
 			on_target_complete=_on_target_complete,
 			task_slots=task_slots,
-			mpi_context=mpi_context,
+			mpi_context=mpi_partition_context,
 		)
 
 
