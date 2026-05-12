@@ -91,6 +91,50 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: add slurm backend + perlmutter sbatch examples (affinity slice 12)
+
+Status: pending
+
+Summary:
+- `src/axon_recon/pipeline/cpu_allocation.py`: `build_task_allocation_plan` now recognises `backend: slurm` as a valid value and returns `None` (same shape as `backend: mpi` — no local task slots; rank context comes from `SLURM_PROCID`/`SLURM_NTASKS` env vars that srun injects). Error message updated to enumerate all three supported backends.
+- `src/axon_recon/pipeline/runner.py`: extend the `_mpi_context_for_partition` gate from `backend == "mpi"` to `backend in {"mpi", "slurm"}`. The same MPI partition path now fires under srun-launched jobs when the user opts in with `--task-backend slurm` or YAML `backend: slurm`. The skip-log event continues to fire when MPI is detected but backend is neither mpi nor slurm.
+- `src/axon_recon/pipeline/mpi_adapter.py`: add `SlurmEnvContext` dataclass + `detect_slurm_context()` parser. Reads SLURM_JOB_ID (falling back to legacy SLURM_JOBID), SLURM_PROCID, SLURM_NTASKS, SLURM_NTASKS_PER_NODE, SLURM_CPUS_PER_TASK, SLURM_NODELIST. Idempotent; unset vars become `None`; `is_active` distinguishes "running under Slurm" from "not".
+- `debug/perlmutter_preprocess.sbatch.example`: CPU-only multi-rank stage script. Uses `srun shifter axon-reconstructor stages preprocess … --task-backend slurm --tasks-per-node $SLURM_NTASKS_PER_NODE --cpus-per-task $SLURM_CPUS_PER_TASK`. Documents the vocabulary mapping (TaskAllocationConfig ↔ SBATCH directives) and the stage-split rationale.
+- `debug/perlmutter_spikesort.sbatch.example`: GPU sort script with `--ntasks-per-node=1` (single rank) and the GPU contention rule from container_shifter_shape_plan.md §6 restated in the comments. Explicitly notes `MPICH_GPU_SUPPORT_ENABLED=1` and `--module=gpu,cuda-mpich` for CUDA-aware MPI.
+- `src/axon_recon/pipeline/tests/test_mpi_adapter.py`: 5 new tests
+  - gate returns mpi_context when backend=slurm
+  - detect_slurm_context returns the full snapshot from fake env
+  - detect_slurm_context returns None fields with `is_active=False` when env is unset
+  - SLURM_JOBID legacy fallback works
+  - `current_mpi_context()` already auto-detects SLURM_PROCID/SLURM_NTASKS — verified against env injection (the detection is shared by mpi and slurm backends)
+
+Acceptance Criteria:
+- ✅ Slurm scripts derive task counts and CPU binding from the same config vocabulary (`--tasks-per-node`, `--cpus-per-task`, `--bind` mirror the TaskAllocationConfig fields).
+- ✅ Logs include rank/task metadata when Slurm or MPI is active (`current_mpi_context()` covers both; `mpi_partition_skipped` and `mpi_context` JSONL events both include `mpi_rank`/`mpi_size`).
+- ✅ NERSC-only assumptions documented as deferred until tested at NERSC (header comments in both .sbatch.example files cite the guardrails doc).
+- ✅ Fake-Slurm tests proved via env injection — no real Slurm needed.
+
+Guardrails Consulted:
+- `debug/plans/active/nersc_shaped_local_affinity_plan.md` slice 12 acceptance (vocabulary mapping, NERSC deferred).
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` — Shifter image rules ("Use absolute NERSC paths in `#SBATCH --volume` lines; do not rely on env expansion there"; `#SBATCH --module=gpu,cuda-mpich`; CUDA-aware MPI gating on `MPICH_GPU_SUPPORT_ENABLED=1`).
+- `debug/guardrails/container_mpi_strategy_note.md` — slurm shape is the NERSC analogue of the local Option B (one container image, N ranks inside via srun rather than mpirun -np).
+- `debug/plans/active/container_shifter_shape_plan.md` §6 — GPU contention rule re-stated verbatim in the spikesort sbatch example's header comments.
+
+Tests Run:
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/test_mpi_adapter.py src/axon_recon/pipeline/tests/test_cpu_allocation.py -q` → 78 passed (38 mpi_adapter + 40 cpu_allocation).
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ -q --ignore=src/axon_recon/pipeline/tests/test_progress.py` → all green.
+
+Storage / Cache Impact:
+- Two new `.sbatch.example` files under `debug/` (~1.5 KB each, documentation only).
+
+Container / NERSC / MPI Impact:
+- Local code path: `backend: slurm` is now an accepted value; previously it raised at `build_task_allocation_plan`. The runtime gate routes Slurm ranks through the same partition path as MPI.
+- NERSC validation: still deferred. The .sbatch.example files have not been run on Perlmutter. The slot in the user/operator's NERSC validation checklist (`container_mpi4py_NERSC_optimization_guardrails.md`) covers Shifter import, `srun shifter`, Cray MPICH/Shifter MPI swap, CUDA-aware MPI, and multi-node target partitioning. None of those are exercised by this commit.
+
+Residual Risk / Follow-ups:
+- The example sbatch files use placeholder values for `<NERSC_ACCOUNT>`, `<registry>/<image>:<tag>`, and the volume paths. The first real NERSC run should fill these in and replace the .example suffix with the actual jobname-keyed script under `debug/perlmutter_*.sbatch`.
+- The Slurm backend partitioning currently rides on `current_mpi_context()` which detects via `SLURM_PROCID/SLURM_NTASKS`. If a user opts into `backend: slurm` but launches without `srun -n N` (or `--ntasks > 1`), the partition gate falls back to None — every rank processes every target. The .example scripts always use `srun` so this only bites pathological invocations.
+
 ## 2026-05-12 - pending - claude: wire backend=mpi into task allocation (affinity slice 11)
 
 Status: pending

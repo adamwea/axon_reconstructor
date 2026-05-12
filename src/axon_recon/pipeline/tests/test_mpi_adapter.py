@@ -9,8 +9,10 @@ import pytest
 from axon_recon.pipeline.mpi_adapter import (
 	FakeMPI,
 	MPIContext,
+	SlurmEnvContext,
 	apply_per_rank_cuda_visible_devices,
 	current_mpi_context,
+	detect_slurm_context,
 	mpi_context,
 	partition_targets_by_mpi_rank,
 )
@@ -338,6 +340,72 @@ def test_mpi_partition_targets_disjoint_across_ranks_when_backend_mpi() -> None:
 			if i == j:
 				continue
 			assert set(partition).isdisjoint(other), f"rank {i} and rank {j} overlap"
+
+
+def test_mpi_context_for_partition_returns_ctx_when_backend_slurm() -> None:
+	from types import SimpleNamespace
+
+	from axon_recon.pipeline.runner import _mpi_context_for_partition
+
+	ctx = MPIContext(rank=0, size=4, comm=None, is_fake=True)
+	parallelism = SimpleNamespace(task_allocation_backend="slurm")
+	assert _mpi_context_for_partition(mpi_context=ctx, parallelism=parallelism) is ctx
+
+
+def test_detect_slurm_context_reads_all_relevant_env_vars(monkeypatch) -> None:
+	monkeypatch.setenv("SLURM_JOB_ID", "12345")
+	monkeypatch.setenv("SLURM_PROCID", "2")
+	monkeypatch.setenv("SLURM_NTASKS", "6")
+	monkeypatch.setenv("SLURM_NTASKS_PER_NODE", "6")
+	monkeypatch.setenv("SLURM_CPUS_PER_TASK", "4")
+	monkeypatch.setenv("SLURM_NODELIST", "nid001[2,3]")
+	ctx = detect_slurm_context()
+	assert isinstance(ctx, SlurmEnvContext)
+	assert ctx.job_id == "12345"
+	assert ctx.procid == 2
+	assert ctx.ntasks == 6
+	assert ctx.ntasks_per_node == 6
+	assert ctx.cpus_per_task == 4
+	assert ctx.nodelist == "nid001[2,3]"
+	assert ctx.is_active is True
+
+
+def test_detect_slurm_context_returns_none_fields_when_unset(monkeypatch) -> None:
+	for var in (
+		"SLURM_JOB_ID",
+		"SLURM_JOBID",
+		"SLURM_PROCID",
+		"SLURM_NTASKS",
+		"SLURM_NTASKS_PER_NODE",
+		"SLURM_CPUS_PER_TASK",
+		"SLURM_NODELIST",
+	):
+		monkeypatch.delenv(var, raising=False)
+	ctx = detect_slurm_context()
+	assert ctx.job_id is None
+	assert ctx.procid is None
+	assert ctx.ntasks is None
+	assert ctx.is_active is False
+
+
+def test_detect_slurm_context_falls_back_to_legacy_jobid(monkeypatch) -> None:
+	monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+	monkeypatch.setenv("SLURM_JOBID", "99999")
+	ctx = detect_slurm_context()
+	assert ctx.job_id == "99999"
+	assert ctx.is_active is True
+
+
+def test_current_mpi_context_detects_slurm_procid(monkeypatch) -> None:
+	monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
+	for ompi_var in ("OMPI_COMM_WORLD_RANK", "OMPI_COMM_WORLD_SIZE", "PMI_RANK", "PMI_SIZE", "PMIX_RANK", "PMIX_SIZE"):
+		monkeypatch.delenv(ompi_var, raising=False)
+	monkeypatch.setenv("SLURM_PROCID", "3")
+	monkeypatch.setenv("SLURM_NTASKS", "4")
+	ctx = current_mpi_context()
+	assert ctx is not None
+	assert ctx.rank == 3
+	assert ctx.size == 4
 
 
 def test_apply_per_rank_cuda_no_visible_gpus_noop(monkeypatch) -> None:

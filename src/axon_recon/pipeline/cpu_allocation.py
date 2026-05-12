@@ -623,9 +623,19 @@ def build_task_allocation_plan(
 		# MPI backend: rank partitioning happens at distributor level.
 		# No local allocation plan needed here; each rank will manage its own CPUs.
 		return None
+	if backend == "slurm":
+		# Slurm backend: rank partitioning happens at distributor level via the
+		# SLURM_PROCID/SLURM_NTASKS env vars that srun injects (already detected
+		# by mpi_adapter._context_from_mpi_env). The sbatch script (see
+		# debug/perlmutter_*.sbatch.example) supplies --ntasks-per-node /
+		# --cpus-per-task / --cpu-bind from the same TaskAllocationConfig
+		# vocabulary; the runtime side has nothing local to compute. NERSC
+		# validation stays deferred per
+		# debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md.
+		return None
 	if backend != "local_affinity":
 		raise ValueError(
-			f"Task allocation plan builder currently supports backend='local_affinity' or 'mpi', got {backend!r}"
+			f"Task allocation plan builder currently supports backend='local_affinity', 'mpi', or 'slurm', got {backend!r}"
 		)
 
 	cpus_per_task, cpus_per_task_source = _derive_cpus_per_task(

@@ -599,7 +599,7 @@ def _mpi_context_for_partition(
 	if mpi_context is None:
 		return None
 	backend = str(getattr(parallelism, "task_allocation_backend", "none") or "none").strip().lower()
-	if backend == "mpi":
+	if backend in {"mpi", "slurm"}:
 		return mpi_context
 	resolved_logger = logger or LOGGER
 	if int(getattr(mpi_context, "size", 1)) > 1:

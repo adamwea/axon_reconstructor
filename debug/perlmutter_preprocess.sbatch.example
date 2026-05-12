@@ -1,0 +1,45 @@
+#!/bin/bash
+# Example NERSC Perlmutter sbatch script: CPU-only stages (preprocess, reconstruct,
+# analysis) under Shifter with `backend: slurm` task allocation.
+#
+# Status: documentation. NERSC validation is DEFERRED per
+# debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md ("Treat NERSC
+# validation as deferred until real Perlmutter runs complete"). The script below
+# is correct on paper; nothing in this repo has been run on Perlmutter yet.
+#
+# Vocabulary mapping (resources.task_allocation ↔ Slurm directives):
+#   tasks_per_node       ↔ #SBATCH --ntasks-per-node
+#   cpus_per_task        ↔ #SBATCH --cpus-per-task
+#   bind: physical_cores ↔ --cpu-bind=cores (srun-side)
+#   backend: slurm       ↔ --task-backend slurm (axon-recon-side; same effect as
+#                          backend: mpi inside the pipeline — srun supplies the
+#                          SLURM_PROCID/SLURM_NTASKS env that mpi_adapter detects)
+#
+# Stage-split rationale: CPU stages benefit from many ranks per node; sort needs
+# its own GPU-bound job (see perlmutter_spikesort.sbatch.example).
+
+#SBATCH --job-name=axon-preprocess
+#SBATCH --account=<NERSC_ACCOUNT>
+#SBATCH --constraint=cpu
+#SBATCH --qos=regular
+#SBATCH --time=02:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=6
+#SBATCH --cpus-per-task=4
+#SBATCH --image=<registry>/<image>:<tag>
+#SBATCH --volume="/global/cfs/<path/to/data>:/data:ro"
+#SBATCH --volume="/global/cfs/<path/to/scratch>:/scratch:rw"
+
+set -euo pipefail
+
+# Stage-split job: preprocess only. Use the SAME --task-backend slurm value on
+# every CPU-only stage. The pipeline's task_allocation_plan returns no local
+# slots for backend: slurm — partitioning happens via SLURM_PROCID/SLURM_NTASKS
+# inside the same axon-recon-side rank context machinery used for `backend: mpi`.
+srun --cpu-bind=cores \
+  shifter axon-reconstructor stages preprocess \
+    --config /data/debug.runtime.yml \
+    --task-backend slurm \
+    --tasks-per-node ${SLURM_NTASKS_PER_NODE} \
+    --cpus-per-task ${SLURM_CPUS_PER_TASK} \
+    --bind physical_cores

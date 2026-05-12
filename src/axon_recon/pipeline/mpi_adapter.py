@@ -287,6 +287,50 @@ def apply_per_rank_cuda_visible_devices() -> str | None:
 	return str(assigned)
 
 
+@dataclass(frozen=True)
+class SlurmEnvContext:
+	"""Snapshot of the SLURM_* env vars relevant to task allocation.
+
+	All fields are `None` when the corresponding env var is unset, so callers
+	can distinguish "set to 0" from "unset" cleanly. Used by `backend: slurm`
+	allocations and by the logger to surface job/rank metadata at stage start.
+	NERSC validation stays deferred per
+	debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md.
+	"""
+
+	job_id: str | None
+	procid: int | None
+	ntasks: int | None
+	ntasks_per_node: int | None
+	cpus_per_task: int | None
+	nodelist: str | None
+
+	@property
+	def is_active(self) -> bool:
+		return self.procid is not None or self.ntasks is not None or self.job_id is not None
+
+
+def detect_slurm_context() -> SlurmEnvContext:
+	"""Read SLURM_* env vars into a structured snapshot.
+
+	Idempotent; missing vars become `None`. Reads:
+	- SLURM_JOB_ID (or SLURM_JOBID legacy)
+	- SLURM_PROCID
+	- SLURM_NTASKS
+	- SLURM_NTASKS_PER_NODE
+	- SLURM_CPUS_PER_TASK
+	- SLURM_NODELIST
+	"""
+	return SlurmEnvContext(
+		job_id=os.environ.get("SLURM_JOB_ID") or os.environ.get("SLURM_JOBID") or None,
+		procid=_parse_int_env("SLURM_PROCID"),
+		ntasks=_parse_int_env("SLURM_NTASKS"),
+		ntasks_per_node=_parse_int_env("SLURM_NTASKS_PER_NODE"),
+		cpus_per_task=_parse_int_env("SLURM_CPUS_PER_TASK"),
+		nodelist=os.environ.get("SLURM_NODELIST") or None,
+	)
+
+
 def log_mpi_context(logger: logging.Logger | None = None, context: MPIContext | None = None) -> None:
 	"""Log the current MPI context if active."""
 	resolved_logger = logger or LOGGER
