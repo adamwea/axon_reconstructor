@@ -129,6 +129,20 @@ class PipelineSummaryHandler(logging.Handler):
     def _write(self) -> None:
         if self.path is None:
             return
+        # Under MPI (size > 1), only rank 0 owns summary.json. Without this
+        # guard, every rank races on tmp_path.replace(path): two ranks each
+        # write summary.json.tmp, both call replace(), and whoever loses the
+        # race raises FileNotFoundError (the winner already consumed the tmp).
+        # The guardrail doc spells this out: "Rank 0 owns global summaries
+        # unless there is a tested rank-summary merge step." We have no merge
+        # step today, so silently skip on non-rank-0 ranks.
+        from ..mpi_adapter import current_mpi_context
+
+        mpi_ctx = current_mpi_context()
+        if mpi_ctx is not None and int(getattr(mpi_ctx, "size", 1)) > 1 and not bool(
+            getattr(mpi_ctx, "is_rank_0", True)
+        ):
+            return
         path = Path(self.path)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = path.with_suffix(path.suffix + ".tmp")

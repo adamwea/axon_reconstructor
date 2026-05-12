@@ -93,6 +93,32 @@ Rollback Notes:
 
 CONTAINER SHIFTER + NERSC AFFINITY COMPLETE — container_shifter_shape_plan.md (slices 1–7), nersc_shaped_local_affinity_plan.md (slices 10–12), README sweep all landed. Plans moved to debug/plans/completed/.
 
+## 2026-05-12 - pending - claude: fix MPI summary race + wire backend=mpi through merge_slay orchestrator
+
+Status: pending
+
+Summary:
+- Post-loop fixes for two bugs surfaced by a real `axon-recon-container --gpus all --mpi-ranks 2 stages spikesort.merge_slay --task-backend mpi` run.
+- **Fix 1 — `summary.py` MPI rank-0 gate**: `PipelineSummaryHandler._write()` was racing across MPI ranks. Both ranks wrote `summary.json.tmp` then called `tmp_path.replace(path)`; whoever lost the race got `FileNotFoundError` (the winner already consumed the tmp). `handleError` swallowed it but spammed stderr on every emit. Added a guard at the top of `_write()` that early-returns when `current_mpi_context()` reports `size > 1` and `is_rank_0 == False`. Comment references the guardrail rule "Rank 0 owns global summaries unless there is a tested rank-summary merge step." Single-rank runs unchanged.
+- **Fix 2 — `merge_slay.py` task_allocation_override forwarding**: The orchestrator never accepted or forwarded `task_allocation_override`, so `--task-backend mpi` from the CLI was parsed correctly into `args.task_allocation_override` (see `cli.py:877`) but dropped on the floor before reaching `_resolve_runtime_stage_parallelism`. Result: `parallelism.task_allocation_backend` stayed at `local_affinity`, so `_mpi_context_for_partition` logged `mpi_partition_skipped` and both ranks ran the same target (the "runs double" symptom the strategy note warned about). Followed the pattern already in `concat_analyzer.py` and `snapshot_sorter_output.py`: added `task_allocation_override: dict[str, Any] | None = None` kwarg to `run_spikesort_merge_slay_from_runtime`, forwarded to the inner runtime hook, and read `args.task_allocation_override` in `_run_merge_slay_from_args`.
+
+Acceptance Criteria:
+- ✅ `summary.py` no longer races: only rank 0 writes when MPI size > 1.
+- ✅ `merge_slay` orchestrator accepts and forwards `task_allocation_override`.
+- ✅ Pipeline test suite green (53 summary + mpi tests pass, 199 spikesort tests pass).
+- ⏳ Real-data re-run with `--mpi-ranks 2 --task-backend mpi`: expect no logging errors, expect rank 0 → dataset 11, rank 1 → dataset 12 (no `mpi_partition_skipped` event).
+
+Residual:
+- The same orchestrator gap exists in `bombcell_label.py`, `bombcell_label_pass2.py`, `sort.py`, `summarize_sort.py`, `bootstrap_concat_binary.py`, `cleanup_*.py`, and `merge_units.py`. Affinity slice 11 said it wired `backend=mpi`, but evidently only some orchestrators got the forwarding. A follow-up sweep should add `task_allocation_override` forwarding to those orchestrators using the same one-liner pattern.
+
+Guardrails Consulted:
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` (rank 0 owns summaries rule).
+- `debug/guardrails/container_mpi_strategy_note.md` (Option B, partition_targets_by_mpi_rank gating).
+
+Tests Run:
+- `pytest src/axon_recon/pipeline/tests/ -k "summary or mpi"` → 53 passed.
+- `pytest src/axon_recon/pipeline/stages/spikesort/tests/` → 199 passed.
+
 ## 2026-05-12 - pending - claude: README sweep documents all six run modes
 
 Status: pending
