@@ -16,6 +16,7 @@ from types import ModuleType, SimpleNamespace
 from typing import Any, Callable
 
 from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
+from axon_recon.pipeline.mpi_adapter import _detect_physical_gpu_count, current_mpi_context
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 	SpikeSortingInputs as LegacySpikeSortingInputs,
@@ -31,6 +32,39 @@ from .models.results import SpikesortBombcellResult, SpikesortMergeResult, Spike
 
 
 LOGGER = logging.getLogger("axon_recon.spikesort")
+
+
+class SpikesortGpuOversubscriptionError(RuntimeError):
+	"""Raised when MPI rank count exceeds the physical GPU count for kilosort-backed sort.
+
+	Kilosort4 cannot safely share a CUDA device across processes; the strategy is to
+	fail fast and let the user re-run with ``--mpi-ranks 1`` for the sort stage rather
+	than risk slow contention or CUDA OOM. See container_shifter_shape_plan.md §4.
+	"""
+
+
+def _assert_mpi_ranks_within_gpu_capacity_for_sort() -> None:
+	"""Fail fast if MPI ranks would oversubscribe physical GPUs for CUDA-backed sort.
+
+	No-op when MPI is not active or running a single rank. When NVML cannot report a
+	physical GPU count, defers to runtime (the partition logic in mpi_adapter has
+	already constrained per-rank visibility). The check exists to catch the obvious
+	"2 ranks, 1 GPU" lab-server case before kilosort initializes CUDA.
+	"""
+	ctx = current_mpi_context()
+	if ctx is None or int(ctx.size) <= 1:
+		return
+	physical_gpus = _detect_physical_gpu_count()
+	if physical_gpus is None:
+		return
+	if int(ctx.size) <= int(physical_gpus):
+		return
+	raise SpikesortGpuOversubscriptionError(
+		f"spikesort.sort: MPI size N={int(ctx.size)} exceeds visible GPU count G={int(physical_gpus)}. "
+		"Kilosort4 cannot safely share a single GPU across ranks. Re-run with --mpi-ranks 1 "
+		"for the sort stage, or use stage-split jobs (CPU preprocess multi-rank, GPU sort "
+		"single-rank, CPU reconstruct multi-rank). See container_shifter_shape_plan.md §4."
+	)
 
 
 def _env_flag(name: str) -> bool:
@@ -10109,6 +10143,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 		resume_from=inputs.resume_from,
 	)
 	if sort_engine == "local_spikeinterface":
+		_assert_mpi_ranks_within_gpu_capacity_for_sort()
 		sort_outputs = run_local_spikeinterface_sort_stage(
 			inputs=inputs,
 			well_out_dir=well_out_dir,

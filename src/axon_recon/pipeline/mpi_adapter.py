@@ -184,6 +184,27 @@ def partition_targets_by_mpi_rank(*, targets: list[Any], mpi_context: MPIContext
 	return [targets[i] for i in range(len(targets)) if i % int(mpi_context.size) == int(mpi_context.rank)]
 
 
+def _detect_physical_gpu_count() -> int | None:
+	"""Return total NVML-visible GPU count, ignoring ``CUDA_VISIBLE_DEVICES``.
+
+	Used by callers that need the *physical* device count regardless of any
+	per-rank partition already applied to ``CUDA_VISIBLE_DEVICES``. Returns
+	``None`` when pynvml is unavailable or the NVML query fails.
+	"""
+	try:  # pragma: no cover - pynvml is environment-specific
+		from pynvml import nvmlDeviceGetCount, nvmlInit, nvmlShutdown
+	except Exception:
+		return None
+	try:  # pragma: no cover - pynvml runtime behaviour is environment-specific
+		nvmlInit()
+		try:
+			return int(nvmlDeviceGetCount())
+		finally:
+			nvmlShutdown()
+	except Exception:
+		return None
+
+
 def _detect_visible_gpus() -> list[str] | None:
 	"""Return the current visible GPU id list, or None if unknown.
 

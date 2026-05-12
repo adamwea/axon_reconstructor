@@ -505,6 +505,122 @@ def test_run_spikesort_stage_dispatches_local_engine_without_legacy(monkeypatch,
     assert payload["sort_engine"] == "local_spikeinterface"
 
 
+def test_run_spikesort_stage_fails_fast_when_mpi_ranks_exceed_gpus(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.runner import SpikesortGpuOversubscriptionError
+
+    well_out_dir = tmp_path / "well001"
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+    def _fail_local_run(**kwargs):
+        raise AssertionError("local sort must not run when MPI oversubscribes GPUs")
+
+    monkeypatch.setattr(spikesort_runner, "run_local_spikeinterface_sort_stage", _fail_local_run)
+
+    import axon_recon.pipeline.mpi_adapter as mpi_adapter
+
+    monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
+    monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+    monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+    monkeypatch.setattr(spikesort_runner, "_detect_physical_gpu_count", lambda: 1)
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        sort_engine="local_spikeinterface",
+        local_spikeinterface_enabled=True,
+    )
+
+    with pytest.raises(SpikesortGpuOversubscriptionError, match=r"MPI size N=2 exceeds visible GPU count G=1"):
+        run_spikesort_stage(inputs)
+
+
+def test_run_spikesort_stage_passes_when_mpi_ranks_within_gpu_capacity(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.core.local_spikeinterface import LocalSpikeInterfaceSortOutputs
+
+    well_out_dir = tmp_path / "well001"
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+    def _fake_local_run(**kwargs):
+        stage_output_root_dir = Path(kwargs["stage_output_root_dir"])
+        sorter_output_dir = stage_output_root_dir / "sorter_output"
+        analyzer_dir = stage_output_root_dir / "analyzer_output"
+        sorter_output_dir.mkdir(parents=True, exist_ok=True)
+        analyzer_dir.mkdir(parents=True, exist_ok=True)
+        return LocalSpikeInterfaceSortOutputs(
+            recording_dir=well_out_dir / "preprocess_outputs/preprocessed_recording",
+            sorter_output_dir=sorter_output_dir,
+            output_dir=stage_output_root_dir,
+            analyzer_dir=analyzer_dir,
+        )
+
+    monkeypatch.setattr(spikesort_runner, "run_local_spikeinterface_sort_stage", _fake_local_run)
+
+    import axon_recon.pipeline.mpi_adapter as mpi_adapter
+
+    monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
+    monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+    monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+    monkeypatch.setattr(spikesort_runner, "_detect_physical_gpu_count", lambda: 2)
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        sort_engine="local_spikeinterface",
+        local_spikeinterface_enabled=True,
+    )
+
+    result = run_spikesort_stage(inputs)
+    assert result.outputs["local_spikeinterface.spikesort_out_dir"].endswith("spikesort_outputs")
+
+
+def test_run_spikesort_stage_passes_when_single_rank_regardless_of_gpus(monkeypatch, tmp_path: Path) -> None:
+    """Single-rank invocations skip the MPI/GPU precondition entirely."""
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.core.local_spikeinterface import LocalSpikeInterfaceSortOutputs
+
+    well_out_dir = tmp_path / "well001"
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+    def _fake_local_run(**kwargs):
+        stage_output_root_dir = Path(kwargs["stage_output_root_dir"])
+        sorter_output_dir = stage_output_root_dir / "sorter_output"
+        analyzer_dir = stage_output_root_dir / "analyzer_output"
+        sorter_output_dir.mkdir(parents=True, exist_ok=True)
+        analyzer_dir.mkdir(parents=True, exist_ok=True)
+        return LocalSpikeInterfaceSortOutputs(
+            recording_dir=well_out_dir / "preprocess_outputs/preprocessed_recording",
+            sorter_output_dir=sorter_output_dir,
+            output_dir=stage_output_root_dir,
+            analyzer_dir=analyzer_dir,
+        )
+
+    monkeypatch.setattr(spikesort_runner, "run_local_spikeinterface_sort_stage", _fake_local_run)
+
+    import axon_recon.pipeline.mpi_adapter as mpi_adapter
+
+    monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
+    # Single rank: env says size=1 (or absent) → context detection returns None → check is no-op.
+    monkeypatch.delenv("OMPI_COMM_WORLD_RANK", raising=False)
+    monkeypatch.delenv("OMPI_COMM_WORLD_SIZE", raising=False)
+    # Even with 0 reported GPUs, the precondition must not fire when MPI is inactive.
+    monkeypatch.setattr(spikesort_runner, "_detect_physical_gpu_count", lambda: 0)
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        sort_engine="local_spikeinterface",
+        local_spikeinterface_enabled=True,
+    )
+
+    result = run_spikesort_stage(inputs)
+    assert result.outputs["local_spikeinterface.spikesort_out_dir"].endswith("spikesort_outputs")
+
+
 def test_run_spikesort_stage_rejects_mea_analysis_inside_container(monkeypatch, tmp_path: Path) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 

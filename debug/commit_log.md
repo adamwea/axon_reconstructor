@@ -91,6 +91,44 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: fail fast when spikesort.sort ranks exceed visible GPUs (slice 6)
+
+Status: pending
+
+Summary:
+- `src/axon_recon/pipeline/mpi_adapter.py` adds `_detect_physical_gpu_count()` — an NVML-only probe that ignores `CUDA_VISIBLE_DEVICES` so callers can ask "how many physical GPUs does this host have" even after a per-rank partition has narrowed visibility (slice 4 sets each rank's `CUDA_VISIBLE_DEVICES` to a single device, which would otherwise mislead `_detect_visible_gpus()`).
+- `src/axon_recon/pipeline/stages/spikesort/runner.py`:
+  - New `SpikesortGpuOversubscriptionError(RuntimeError)` typed exception.
+  - New `_assert_mpi_ranks_within_gpu_capacity_for_sort()` precondition. Reads `current_mpi_context()` and `_detect_physical_gpu_count()`; no-ops when MPI is inactive, single-rank, or NVML is unavailable; raises the typed error with the actionable message from the plan otherwise.
+  - Wired into `run_spikesort_stage` immediately before the `local_spikeinterface` dispatch. CPU-only stages (preprocess, reconstruct, analysis, etc.) are untouched; the `mea_analysis` legacy branch is also unaffected because it already errors first inside the container.
+- `src/axon_recon/pipeline/stages/spikesort/tests/test_runner.py` adds 3 tests:
+  - fail-fast when `OMPI_COMM_WORLD_SIZE=2` + `_detect_physical_gpu_count==1` → `SpikesortGpuOversubscriptionError` matching `MPI size N=2 exceeds visible GPU count G=1`
+  - pass when `OMPI_COMM_WORLD_SIZE=2` + `_detect_physical_gpu_count==2` → local sort dispatches normally
+  - pass when no MPI env (single rank) regardless of GPU count → check is no-op
+
+Acceptance Criteria:
+- ✅ `axon-recon-container --gpus all --mpi-ranks 2 stages spikesort.sort …` will raise the typed error before any CUDA allocation (verified by unit test using monkey-patched MPI env + GPU count; real-data smoke deferred until user's wrapper run finishes).
+- ✅ `axon-recon-container --gpus all --mpi-ranks 1 stages spikesort.sort …` runs as today (single-rank test passes; existing `test_run_spikesort_stage_dispatches_local_engine_without_legacy` still passes).
+- ✅ `axon-recon-container --mpi-ranks 2 stages preprocess …` not affected — the check lives in spikesort runner only.
+- ✅ Unit test with fake MPI + monkey-patched GPU count.
+
+Guardrails Consulted:
+- `debug/plans/active/container_shifter_shape_plan.md` slice 6 (§3) — error contract, typed exception, fail-fast before CUDA init.
+- `debug/guardrails/container_mpi_strategy_note.md` open-question line: "with 2 ranks and 1 GPU, we'd need MPS or one rank running CPU-only. For 2 datasets × 1 well, serializing through one rank is faster than splitting one GPU two ways." — implemented as a hard refusal rather than silent fallback.
+
+Tests Run:
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/test_runner.py -q -k "mpi_ranks_exceed_gpus or mpi_ranks_within or single_rank_regardless or dispatches_local_engine"` → 4 passed.
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/ -q` → all green.
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ -q -x --ignore=src/axon_recon/pipeline/tests/test_progress.py` → all green.
+
+Container / NERSC / MPI Impact:
+- The check is host-agnostic; on NERSC the same precondition fires when `srun -n N shifter axon-reconstructor stages spikesort …` is launched with N > physical GPUs per node.
+- pynvml is required for the check to fire; image already installs `nvidia-ml-py`.
+
+Residual Risk / Follow-ups:
+- When NVML is unavailable (e.g., CPU-only build or `--gpus none`), the precondition no-ops. Document in slice 7.
+- The check uses physical GPU count; if a user explicitly sets `CUDA_VISIBLE_DEVICES` to a sub-set BEFORE the wrapper exec, the wrapper still sees more physical GPUs than the user intends. Acceptable because the precondition exists to catch the obvious "2 ranks 1 GPU" case, not to be exhaustive.
+
 ## 2026-05-12 - pending - claude: partition CUDA_VISIBLE_DEVICES across MPI ranks in mpi_adapter (slice 4)
 
 Status: pending
