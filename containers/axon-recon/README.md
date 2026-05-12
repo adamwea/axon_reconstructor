@@ -1,6 +1,6 @@
-# axon_reconstructor Container
+# axon_recon Container
 
-This image runs the same `axon-reconstructor` CLI as the host environment, with all pipeline stage selectors passed through unchanged. It is a full-pipeline execution environment, not a special-purpose sort image.
+This image runs the same `axon-recon` CLI as the host environment, with all pipeline stage selectors passed through unchanged. It is a full-pipeline execution environment, not a special-purpose sort image.
 
 ## Run modes
 
@@ -8,10 +8,10 @@ The pipeline supports six invocation shapes spanning local host vs. container, s
 
 ### Mode 1 — Local host, single-process
 
-One-liner: run `axon-reconstructor` directly on the lab server using the host conda env. No container, no MPI.
+One-liner: run `axon-recon` directly on the lab server using the host conda env. No container, no MPI.
 
 ```bash
-axon-reconstructor stages preprocess --config debug/debug.runtime.yml
+axon-recon stages preprocess --config debug/debug.runtime.yml
 ```
 
 - **Stages**: any (`preprocess`, `spikesort`, `reconstruct`, `analysis`, the `stages …` aggregate, sub-phases like `spikesort.sort`).
@@ -21,14 +21,14 @@ axon-reconstructor stages preprocess --config debug/debug.runtime.yml
 
 ### Mode 2 — Local host + `mpirun` (multi-rank, no container)
 
-One-liner: drive `axon-reconstructor` from the host's OpenMPI `mpirun -np N`, with explicit `--task-backend mpi` so the rank partition fires.
+One-liner: drive `axon-recon` from the host's OpenMPI `mpirun -np N`, with explicit `--task-backend mpi` so the rank partition fires.
 
 ```bash
 /usr/bin/mpirun -np 2 \
   --map-by ppr:2:node:pe=10 \
   --bind-to core \
   --report-bindings \
-  axon-reconstructor stages preprocess \
+  axon-recon stages preprocess \
     --config debug/debug.runtime.yml \
     --target-dataset 11,12 --limit-wells 1 \
     --task-backend mpi --force-restart
@@ -56,7 +56,7 @@ axon-recon-container stages reconstruct --config debug/debug.runtime.yml --limit
 
 ### Mode 4 — Local container + multi-rank inside one container (`--mpi-ranks`)
 
-One-liner: launch ONE container, run `mpirun -np N --allow-run-as-root --bind-to none axon-reconstructor stages …` inside it. The wrapper owns the rank count via `--mpi-ranks N` (or `-n N` short alias). Default (no flag) is byte-for-byte identical to Mode 3.
+One-liner: launch ONE container, run `mpirun -np N --allow-run-as-root --bind-to none axon-recon stages …` inside it. The wrapper owns the rank count via `--mpi-ranks N` (or `-n N` short alias). Default (no flag) is byte-for-byte identical to Mode 3.
 
 ```bash
 axon-recon-container --mpi-ranks 2 stages preprocess \
@@ -75,12 +75,12 @@ axon-recon-container --dry-run --mpi-ranks 2 stages preprocess --config debug/de
 
 ### Mode 5 — NERSC interactive (Shifter)
 
-One-liner: allocate an interactive Perlmutter node with the image attached, then drive `axon-reconstructor` through `srun shifter`. Same CLI tail as Mode 4, with `srun` substituting for `mpirun -np`.
+One-liner: allocate an interactive Perlmutter node with the image attached, then drive `axon-recon` through `srun shifter`. Same CLI tail as Mode 4, with `srun` substituting for `mpirun -np`.
 
 ```bash
 salloc --nodes=1 --time=01:00:00 --constraint=cpu --image=<registry>/<image>:<tag>
 # Once allocated:
-srun -n 6 --cpu-bind=cores shifter axon-reconstructor stages preprocess \
+srun -n 6 --cpu-bind=cores shifter axon-recon stages preprocess \
   --config /global/cfs/<path>/debug.runtime.yml \
   --task-backend slurm \
   --tasks-per-node 6 --cpus-per-task 4 --bind physical_cores
@@ -93,7 +93,7 @@ srun -n 6 --cpu-bind=cores shifter axon-reconstructor stages preprocess \
 
 ### Mode 6 — NERSC sbatch (Shifter, multi-rank)
 
-One-liner: full `#SBATCH` job script that pulls the image, mounts CFS/scratch paths, and runs `srun shifter axon-reconstructor stages … --task-backend slurm`. Stage-split is the recommended production shape (one job per CPU/GPU class).
+One-liner: full `#SBATCH` job script that pulls the image, mounts CFS/scratch paths, and runs `srun shifter axon-recon stages … --task-backend slurm`. Stage-split is the recommended production shape (one job per CPU/GPU class).
 
 ```bash
 #!/bin/bash
@@ -105,7 +105,7 @@ One-liner: full `#SBATCH` job script that pulls the image, mounts CFS/scratch pa
 #SBATCH --cpus-per-task=4
 #SBATCH --volume="/global/cfs/<path/to/data>:/data:ro"
 #SBATCH --volume="/global/cfs/<path/to/scratch>:/scratch:rw"
-srun --cpu-bind=cores shifter axon-reconstructor stages preprocess \
+srun --cpu-bind=cores shifter axon-recon stages preprocess \
   --config /data/debug.runtime.yml \
   --task-backend slurm \
   --tasks-per-node ${SLURM_NTASKS_PER_NODE} \
@@ -124,12 +124,12 @@ For GPU sort, swap `--constraint=cpu` for `--constraint=gpu --module=gpu,cuda-mp
 
 | Machine context | Scale | Mode | Launcher prefix |
 |---|---|---|---|
-| Lab server, host conda env | single process | 1 | `axon-reconstructor …` |
-| Lab server, host conda env | multi-rank | 2 | `/usr/bin/mpirun -np N axon-reconstructor … --task-backend mpi` |
+| Lab server, host conda env | single process | 1 | `axon-recon …` |
+| Lab server, host conda env | multi-rank | 2 | `/usr/bin/mpirun -np N axon-recon … --task-backend mpi` |
 | Lab server, container | single rank | 3 | `axon-recon-container …` |
 | Lab server, container | multi-rank | 4 | `axon-recon-container --mpi-ranks N … --task-backend mpi` |
-| NERSC Perlmutter, Shifter | interactive | 5 | `srun -n N shifter axon-reconstructor … --task-backend slurm` (after `salloc --image=…`) |
-| NERSC Perlmutter, Shifter | sbatch (production) | 6 | `srun shifter axon-reconstructor … --task-backend slurm` (inside an `#SBATCH` script) |
+| NERSC Perlmutter, Shifter | interactive | 5 | `srun -n N shifter axon-recon … --task-backend slurm` (after `salloc --image=…`) |
+| NERSC Perlmutter, Shifter | sbatch (production) | 6 | `srun shifter axon-recon … --task-backend slurm` (inside an `#SBATCH` script) |
 
 Modes 1–4 are validated on the lab server. Modes 5–6 are documentation-only until smoked on Perlmutter.
 
@@ -147,7 +147,7 @@ Full dependency builds should use the helper so sibling checkouts are copied int
 containers/axon-recon/build_local_image.sh --image axon-recon:local
 ```
 
-The default repo-root build installs `axon_reconstructor`, the active runtime Python dependency set, `spikeinterface==0.104.3`, `mpi4py`, and the system OpenMPI 4.x toolchain (`openmpi-bin`, `libopenmpi-dev`). It does not bake local data, scratch outputs, credentials, or sibling workspace paths into the image. The helper detects sibling `../UnitMatch/UnitMatchPy` and `../SLAy` checkouts when present, copies them under `external/` in a temporary context, and passes build args so imports are normal installed-package imports.
+The default repo-root build installs `axon_recon`, the active runtime Python dependency set, `spikeinterface==0.104.3`, `mpi4py`, and the system OpenMPI 4.x toolchain (`openmpi-bin`, `libopenmpi-dev`). It does not bake local data, scratch outputs, credentials, or sibling workspace paths into the image. The helper detects sibling `../UnitMatch/UnitMatchPy` and `../SLAy` checkouts when present, copies them under `external/` in a temporary context, and passes build args so imports are normal installed-package imports.
 
 Sibling package installs intentionally use package builds with `--no-deps` plus small compatibility runtime specs. UnitMatch and SLAy currently declare conflicting NumPy/Pandas/Torch dependency ranges, while the pipeline only needs them importable through the code paths it calls. Revisit those dependency pins after real merge-stage data smokes.
 
@@ -193,7 +193,7 @@ Inside a built image:
 
 ```bash
 axon-recon-smoke-cli
-python /opt/axon_reconstructor/containers/axon-recon/smoke_imports.py
+python /opt/axon_recon/containers/axon-recon/smoke_imports.py
 ```
 
 For a host-side syntax check that does not require all container-only packages to be installed locally:

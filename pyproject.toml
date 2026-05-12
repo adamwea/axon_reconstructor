@@ -3,7 +3,7 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "axon_reconstructor"
+name = "axon_recon"
 version = "0.1.0"
 description = "Axon reconstruction pipelines and utilities"
 readme = "README.md"
@@ -23,7 +23,6 @@ dev = [
 
 [project.scripts]
 axon-recon = "axon_recon.pipeline.cli:main"
-axon-reconstructor = "axon_recon.pipeline.cli:main"
 axon-recon-container = "axon_recon.pipeline.container_cli:main"
 axon-recon-dashboard = "axon_recon.dashboard.cli:entry_point"
 

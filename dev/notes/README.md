@@ -1,16 +1,16 @@
-# `dev_notes/` layout
+# `dev/notes/` layout
 
-This directory holds non-source development notes for the axon_reconstructor
-pipeline: plans for in-flight work, guardrails that bound agent behavior,
-trackers for ideas/bugs/cleanup that haven't graduated to plans yet, and the
-append-only commit log.
+This directory holds non-source development notes for the axon_recon pipeline:
+plans for in-flight work, guardrails that bound agent behavior, trackers for
+ideas/bugs/cleanup that haven't graduated to plans yet, and the append-only
+commit log.
 
-Runtime/data configs and launch wrappers used to live alongside these notes
-under `debug/`. They were split out during the NERSC migration:
+Runtime/data configs and launch wrappers live in sibling directories:
 
-- `debug_local/debug.runtime.yml` + `debug.data.yml` — canonical lab-server config
-- `debug_NERSC/debug.runtime.yml` + `debug.data.yml` — NERSC-tuned mirror
-- `default.runtime.yml` + `example.data.yml` (repo root) — hermetic template + schema
+- `dev/debug_local/debug.runtime.yml` + `debug.data.yml` — canonical lab-server config
+- `dev/debug_NERSC/debug.runtime.yml` + `debug.data.yml` — NERSC-tuned mirror
+- `src/axon_recon/default.runtime.yml` — hermetic template (bundled with package)
+- `examples/example.data.yml` — schema-only data config example
 - `examples/` — `mpirun.sh`, `localrun.sh`, `containrun.sh`, `smoketest_sort_and_recon.sh`,
   `perlmutter_*.sbatch.example`. All accept `RUNTIME_CFG=<path>` to point at any
   of the configs above.
@@ -18,11 +18,11 @@ under `debug/`. They were split out during the NERSC migration:
 ## Layout
 
 ```
-dev_notes/
+dev/notes/
   README.md                       ← you are here
   commit_log.md                   ← append-only commit log (each PR/slice adds an entry)
   Ammara_MaxTwo Tracking Sheet_*  ← lab metadata workbook (genotype/DIV/condition reference)
-  ai_notes/                       ← brainstorming dumps, transcripts, working notes
+  archive/                        ← older brainstorming dumps, transcripts, working notes
 
   plans/
     active/                       ← plans whose Definition of Done has not landed yet
@@ -44,7 +44,7 @@ dev_notes/
 
 ### When a plan starts
 
-1. Create a `<topic>_plan.md` under `dev_notes/plans/active/`.
+1. Create a `<topic>_plan.md` under `dev/notes/plans/active/`.
 2. If it'll be driven autonomously, write a sibling `<topic>_loop_prompt.md` next to it.
 3. Add (or update) a one-line entry in `roadmap.md` pointing at the new plan; bump its
    status from `idea` → `in-plan`.
@@ -54,7 +54,7 @@ dev_notes/
 1. Verify the plan's §8 Definition of Done is satisfied.
 2. Append a `## <date> - <PLAN NAME> COMPLETE` entry to `commit_log.md` summarizing test
    counts, smoke results, and any deviations.
-3. `git mv dev_notes/plans/active/<topic>_plan.md dev_notes/plans/completed/`. Move the sibling
+3. `git mv dev/notes/plans/active/<topic>_plan.md dev/notes/plans/completed/`. Move the sibling
    `_loop_prompt.md` with it.
 4. Update the roadmap entry (or remove it if it was a one-liner pointing at the plan):
    bump status to `landed` with a link to the merge commit.
@@ -63,7 +63,7 @@ dev_notes/
 
 1. Append a 1-paragraph `## Why dropped` preamble to the plan file explaining the
    decision and what we learned.
-2. `git mv` it into `dev_notes/plans/abandoned/`.
+2. `git mv` it into `dev/notes/plans/abandoned/`.
 3. Update the roadmap entry's status to `dropped`.
 
 ### When a tracker entry matures into a plan
@@ -73,16 +73,17 @@ doc. **Tracker entries point AT plans; plans do not duplicate tracker content.**
 
 ### Where configs and scripts live now
 
-- Tests use `default.runtime.yml` (hermetic) or build their own YAML via `tmp_path`.
-  Only one test (`stages/reconstruct/tests/test_config.py`) actually opens a real
-  config; it parent-traverses to `debug_local/debug.runtime.yml`.
+- Tests use the placeholder string `default.runtime.yml` (cosmetic — they don't
+  open the file) or build their own YAML via `tmp_path`. Only one test
+  (`stages/reconstruct/tests/test_config.py`) actually opens a real config; it
+  parent-traverses to `dev/debug_local/debug.runtime.yml`.
 - Launch wrappers in `examples/` accept `RUNTIME_CFG=<path>` so the same script
-  works against `debug_local/`, `debug_NERSC/`, or any custom config.
+  works against `dev/debug_local/`, `dev/debug_NERSC/`, or any custom config.
 - The `STOP_AUTONOMOUS_LOOP` sentinel (when it exists) is checked at the repo root.
 
 ### Cross-references
 
-When a plan or tracker entry references another file in `dev_notes/`, it should use a
-**full repo-relative path** (e.g. `dev_notes/plans/active/foo.md`). Don't introduce
+When a plan or tracker entry references another file in `dev/notes/`, it should use a
+**full repo-relative path** (e.g. `dev/notes/plans/active/foo.md`). Don't introduce
 relative references like `../plans/` because they break when a file is moved between
 active/completed/abandoned.

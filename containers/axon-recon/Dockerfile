@@ -31,9 +31,9 @@ ENV PYTHONUNBUFFERED=1 \
   NUMBA_CACHE_DIR=/tmp/axon-recon-cache/numba \
   PYTHONPYCACHEPREFIX=/tmp/axon-recon-cache/pycache
 
-WORKDIR /opt/axon_reconstructor
+WORKDIR /opt/axon_recon
 
-COPY containers/axon-recon/install_maxwell_hdf5_plugin.py /opt/axon_reconstructor/containers/axon-recon/install_maxwell_hdf5_plugin.py
+COPY containers/axon-recon/install_maxwell_hdf5_plugin.py /opt/axon_recon/containers/axon-recon/install_maxwell_hdf5_plugin.py
 
 RUN rm -rf /tmp/axon-recon-cache \
   && apt-get update \
@@ -54,7 +54,7 @@ RUN rm -rf /tmp/axon-recon-cache \
   && if [[ -n "${MPI4PY_SPEC}" ]]; then python -m pip install "${MPI4PY_SPEC}"; fi \
   && rm -rf /root/.cache/pip /tmp/axon-recon-cache /tmp/pip-* /tmp/build-*
 
-COPY . /opt/axon_reconstructor
+COPY . /opt/axon_recon
 
 RUN if [[ -n "${AXON_RECON_INSTALL_EXTRAS}" ]]; then \
   python -m pip install ".[${AXON_RECON_INSTALL_EXTRAS}]"; \
@@ -63,10 +63,10 @@ RUN if [[ -n "${AXON_RECON_INSTALL_EXTRAS}" ]]; then \
   fi \
   && if [[ -n "${UNITMATCH_SPEC}" ]]; then python -m pip install ${UNITMATCH_INSTALL_ARGS} "${UNITMATCH_SPEC}"; fi \
   && if [[ -n "${SLAY_SPEC}" ]]; then python -m pip install ${SLAY_INSTALL_ARGS} "${SLAY_SPEC}"; fi \
-  && chmod +x /opt/axon_reconstructor/containers/axon-recon/entrypoint.sh \
-  && chmod +x /opt/axon_reconstructor/containers/axon-recon/smoke_cli.sh \
-  && ln -sf /opt/axon_reconstructor/containers/axon-recon/entrypoint.sh /usr/local/bin/axon-recon-entrypoint \
-  && ln -sf /opt/axon_reconstructor/containers/axon-recon/smoke_cli.sh /usr/local/bin/axon-recon-smoke-cli \
+  && chmod +x /opt/axon_recon/containers/axon-recon/entrypoint.sh \
+  && chmod +x /opt/axon_recon/containers/axon-recon/smoke_cli.sh \
+  && ln -sf /opt/axon_recon/containers/axon-recon/entrypoint.sh /usr/local/bin/axon-recon-entrypoint \
+  && ln -sf /opt/axon_recon/containers/axon-recon/smoke_cli.sh /usr/local/bin/axon-recon-smoke-cli \
   && rm -rf /root/.cache/pip /tmp/axon-recon-cache /tmp/pip-* /tmp/build-*
 
 ENTRYPOINT ["axon-recon-entrypoint"]

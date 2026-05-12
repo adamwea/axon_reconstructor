@@ -211,8 +211,8 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 
 
 def test_load_config_reconstruct_populates_templates_inputs_from_debug_local_runtime() -> None:
-	repo_root = next(parent for parent in Path(__file__).resolve().parents if (parent / "debug_local" / "debug.runtime.yml").exists())
-	inputs = load_reconstruction_inputs_from_runtime(config_path=str(repo_root / "debug_local" / "debug.runtime.yml"))
+	repo_root = next(parent for parent in Path(__file__).resolve().parents if (parent / "dev" / "debug_local" / "debug.runtime.yml").exists())
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(repo_root / "dev" / "debug_local" / "debug.runtime.yml"))
 	assert inputs.templates_inputs is not None
 	assert isinstance(inputs.templates_inputs, TemplatesInputs)
 	assert inputs.debug_prints is False

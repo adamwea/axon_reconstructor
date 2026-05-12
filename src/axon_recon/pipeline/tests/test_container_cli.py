@@ -147,9 +147,9 @@ def test_container_wrapper_no_gpus_overrides_environment(monkeypatch) -> None:
 
 def test_source_fingerprint_preserves_logical_sibling_symlink(tmp_path: Path) -> None:
     workspace = tmp_path / "pkgs"
-    repo_root = workspace / "axon_reconstructor"
+    repo_root = workspace / "axon_recon"
     repo_root.mkdir(parents=True)
-    (repo_root / "pyproject.toml").write_text("[project]\nname = 'axon-reconstructor'\n", encoding="utf-8")
+    (repo_root / "pyproject.toml").write_text("[project]\nname = 'axon_recon'\n", encoding="utf-8")
 
     external_unitmatch = tmp_path / "external" / "UnitMatchPy"
     external_unitmatch.mkdir(parents=True)

@@ -65,7 +65,7 @@ class WrapperOptions:
 
 
 def usage() -> str:
-	return """Usage: axon-recon-container [wrapper-options] <axon-reconstructor-args...>
+	return """Usage: axon-recon-container [wrapper-options] <axon-recon-args...>
 
 Wrapper options:
   --image IMAGE          Container image to run (default: AXON_RECON_CONTAINER_IMAGE or axon-recon:local)
@@ -89,12 +89,12 @@ Wrapper options:
   --no-tty               Do not allocate an interactive TTY
   --mpi-ranks N, -n N    Run mpirun -np N inside one container (default: 1, single rank).
                          When N>1 the inner command becomes
-                         `mpirun -np N --allow-run-as-root --bind-to none axon-reconstructor ...`
+                         `mpirun -np N --allow-run-as-root --bind-to none axon-recon ...`
                          Host `mpirun -np N axon-recon-container ...` is unsupported; the
                          wrapper owns the rank count.
   --wrapper-help         Show this help
 
-All remaining arguments are passed unchanged to axon-reconstructor inside the image.
+All remaining arguments are passed unchanged to axon-recon inside the image.
 The default local image is built or updated when its source fingerprint is missing or stale.
 """
 
@@ -866,7 +866,7 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 				"--allow-run-as-root",
 				"--bind-to",
 				"none",
-				"axon-reconstructor",
+				"axon-recon",
 				*options.container_args,
 			]
 		)

@@ -1,4 +1,4 @@
-# Default runtime configuration for axon_reconstructor.
+# Default runtime configuration for axon_recon.
 #
 # This is a hermetic template:
 #   - No real lab data paths.

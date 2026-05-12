@@ -17,7 +17,7 @@ Options:
   --help                 Show this help
 
 The script copies this repo plus optional sibling package directories into a temporary
-context, then installs copied siblings from /opt/axon_reconstructor/external/... inside
+context, then installs copied siblings from /opt/axon_recon/external/... inside
 the image. This keeps runtime imports package-based instead of workspace-path based.
 EOF
 }
@@ -113,11 +113,11 @@ copy_tree "$repo_root" "$context_dir"
 build_args=()
 if [[ "$include_unitmatch" -eq 1 && -n "$unitmatch_path" && -d "$unitmatch_path" ]]; then
   copy_tree "$unitmatch_path" "$context_dir/external/UnitMatchPy"
-  build_args+=(--build-arg UNITMATCH_SPEC=/opt/axon_reconstructor/external/UnitMatchPy)
+  build_args+=(--build-arg UNITMATCH_SPEC=/opt/axon_recon/external/UnitMatchPy)
 fi
 if [[ "$include_slay" -eq 1 && -n "$slay_path" && -d "$slay_path" ]]; then
   copy_tree "$slay_path" "$context_dir/external/SLAy"
-  build_args+=(--build-arg SLAY_SPEC=/opt/axon_reconstructor/external/SLAy)
+  build_args+=(--build-arg SLAY_SPEC=/opt/axon_recon/external/SLAy)
 fi
 
 cmd=(

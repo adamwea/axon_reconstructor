@@ -1,7 +1,7 @@
 #!/bin/bash
 # End-to-end spikesort + reconstruct smoketest on the lab server.
-# Override RUNTIME_CFG to point at debug_NERSC/debug.runtime.yml, default.runtime.yml, etc.
-RUNTIME_CFG="${RUNTIME_CFG:-debug_local/debug.runtime.yml}"
+# Override RUNTIME_CFG to point at dev/debug_NERSC/debug.runtime.yml, src/axon_recon/default.runtime.yml, etc.
+RUNTIME_CFG="${RUNTIME_CFG:-dev/debug_local/debug.runtime.yml}"
 
 ## Spikesort stage
 # concat
