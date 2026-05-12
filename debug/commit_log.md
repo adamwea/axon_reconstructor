@@ -91,6 +91,47 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: validate task allocation inside axon-recon container (affinity slice 10)
+
+Status: pending
+
+Summary:
+- Real-data smoke for `nersc_shaped_local_affinity_plan.md` slice 10: ran `axon-recon-container --no-build stages preprocess --config debug/debug.runtime.yml --target-dataset 11,12 --limit-wells 1 --limit-segments 2 --force-restart`. Single-rank container, no MPI launch, default backend `local_affinity` from the active resource profile. Captured under `/tmp/smoke_affinity10.log` (788 lines).
+- Validation evidence:
+  - `Task allocation backend=local_affinity task_unit=well visible_cpus=0-47` (the lab server's full 48-logical-cpu topology is visible inside the container — addresses Slice 10's "container-visible `os.sched_getaffinity(0)` matches Docker CPU constraints" check.).
+  - Two `task_affinity_applied` events with distinct CPU sets per task slot:
+    - `task_slot=0 cpus=0-9 previous_cpus=0-47`
+    - `task_slot=1 cpus=10-19 previous_cpus=0-47`
+  - Per-slot nested-thread settings: `slot_cpus=10 phase_cap=none effective=10` for both slots (matches `cpus_per_task: 10` from debug.runtime.yml's local_affinity profile).
+  - `event=run_completed` recorded; no `FileExistsError`; no nested Docker or MPI launch (slice-10's acceptance "No nested Docker or MPI launch is required").
+
+Acceptance Criteria:
+- ✅ Container smoke with 2 datasets × 1 well = 2 wells shows two assigned CPU sets (`0-9` and `10-19`).
+- ✅ CPU-only stages run without OpenMPI inside the image (slice 1's openmpi-bin is present but unused on this path).
+- ✅ No nested Docker or MPI launch is required (single `docker run`, no `mpirun`).
+
+Guardrails Consulted:
+- `debug/plans/active/nersc_shaped_local_affinity_plan.md` slice 10 acceptance.
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` — container contract verified: `cuda_visible_devices` not relevant for this CPU-only smoke.
+
+Tests Run:
+- (Smoke-only; no pytest in this slice.)
+
+CLI / Debug Flag Impact:
+- None — this slice is a validation no-op.
+
+Logging / Parallelism Impact:
+- Confirms the slice-7 `task_allocation_plan` event + slice-8 `task_affinity_applied` event in the JSONL stream are both emitted inside the container, providing the trail Slice 9's phase-tune integration relies on.
+
+Storage / Cache Impact:
+- Reuses the preprocess outputs from this run's force-restart; same scratch root as slice 5's smoke.
+
+Container / NERSC / MPI Impact:
+- Slice 10 closes the local-container-readiness gate. With Goals 1 (slices 1–7 of container_shifter_shape) and 2 (slices 10–12 of affinity) complete, the only remaining loop deliverable is Goal 3's README sweep.
+
+Residual Risk / Follow-ups:
+- The loop-prompt's slice-10 invocation suggested `--mpi-ranks 2` but the plan body itself says "No nested Docker or MPI launch is required" — the single-rank invocation above is the plan-authoritative shape. Slice 5's `--mpi-ranks 2 --task-backend mpi` smoke covers the multi-rank MPI partition validation separately.
+
 ## 2026-05-12 - pending - claude: smoke validation of --mpi-ranks 2 preprocess on dataset 11+12 (slice 5)
 
 Status: pending
