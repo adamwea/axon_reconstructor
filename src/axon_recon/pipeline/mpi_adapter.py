@@ -184,6 +184,88 @@ def partition_targets_by_mpi_rank(*, targets: list[Any], mpi_context: MPIContext
 	return [targets[i] for i in range(len(targets)) if i % int(mpi_context.size) == int(mpi_context.rank)]
 
 
+def _detect_visible_gpus() -> list[str] | None:
+	"""Return the current visible GPU id list, or None if unknown.
+
+	Reads ``CUDA_VISIBLE_DEVICES`` first; if unset/empty, falls back to a small
+	pynvml probe. Never imports torch/cupy.
+	"""
+	raw_cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+	if raw_cvd is not None and str(raw_cvd).strip() != "":
+		ids = [s for s in (part.strip() for part in str(raw_cvd).split(",")) if s != ""]
+		return ids if ids else None
+	try:  # pragma: no cover - pynvml is environment-specific
+		from pynvml import nvmlDeviceGetCount, nvmlInit, nvmlShutdown
+	except Exception:
+		return None
+	try:  # pragma: no cover - pynvml runtime behaviour is environment-specific
+		nvmlInit()
+		try:
+			count = int(nvmlDeviceGetCount())
+		finally:
+			nvmlShutdown()
+	except Exception:
+		return None
+	if count <= 0:
+		return None
+	return [str(i) for i in range(count)]
+
+
+def apply_per_rank_cuda_visible_devices() -> str | None:
+	"""Round-robin partition visible GPUs across MPI ranks.
+
+	If ``MPI.COMM_WORLD.size > 1`` (detected from launcher env), reads the visible
+	GPU set from ``CUDA_VISIBLE_DEVICES`` (or pynvml when unset), then sets
+	``CUDA_VISIBLE_DEVICES`` for this process to ``visible[rank % len(visible)]``.
+
+	Idempotent. No-op when size==1 or no GPUs are visible. Must be called before
+	any module imports torch/cupy/kilosort so the visibility change is observed
+	at CUDA init.
+
+	Returns the new ``CUDA_VISIBLE_DEVICES`` value if it was mutated, else None.
+	"""
+	ctx = _context_from_mpi_env()
+	if ctx is None or int(ctx.size) <= 1:
+		return None
+	visible = _detect_visible_gpus()
+	if not visible:
+		return None
+	rank = int(ctx.rank)
+	size = int(ctx.size)
+	assigned = visible[rank % len(visible)]
+	if len(visible) < size:
+		LOGGER.warning(
+			"MPI size=%d exceeds visible GPU count=%d; ranks share devices (rank %d -> device %s)",
+			size,
+			len(visible),
+			rank,
+			assigned,
+			extra={
+				"event": "mpi_cuda_oversubscribe",
+				"mpi_rank": rank,
+				"mpi_size": size,
+				"visible_gpu_count": len(visible),
+				"assigned_device": assigned,
+			},
+		)
+	os.environ["CUDA_VISIBLE_DEVICES"] = str(assigned)
+	LOGGER.info(
+		"per-rank CUDA_VISIBLE_DEVICES applied rank=%d size=%d visible=%s assigned=%s",
+		rank,
+		size,
+		",".join(visible),
+		assigned,
+		extra={
+			"event": "mpi_cuda_partition",
+			"mpi_rank": rank,
+			"mpi_size": size,
+			"visible_gpus": ",".join(visible),
+			"assigned_device": str(assigned),
+		},
+	)
+	return str(assigned)
+
+
 def log_mpi_context(logger: logging.Logger | None = None, context: MPIContext | None = None) -> None:
 	"""Log the current MPI context if active."""
 	resolved_logger = logger or LOGGER

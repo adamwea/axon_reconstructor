@@ -91,6 +91,47 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: partition CUDA_VISIBLE_DEVICES across MPI ranks in mpi_adapter (slice 4)
+
+Status: pending
+
+Summary:
+- `src/axon_recon/pipeline/mpi_adapter.py`:
+  - New `_detect_visible_gpus()` reads `CUDA_VISIBLE_DEVICES` first; if unset, probes pynvml (already installed via `nvidia-ml-py` in the image). Returns `None` when no CUDA is in play.
+  - New `apply_per_rank_cuda_visible_devices()` partitions visible devices round-robin: rank R of size N gets `visible[R % len(visible)]`. Logs an INFO line on apply and a WARNING line when ranks outnumber GPUs (oversubscription).
+  - Both functions avoid importing torch/cupy/kilosort. Verified: after `from axon_recon.pipeline.mpi_adapter import apply_per_rank_cuda_visible_devices`, `'torch' in sys.modules == False`.
+- `src/axon_recon/pipeline/cli.py`: move the `mpi_adapter` import to the very top of axon_recon-side imports and call `apply_per_rank_cuda_visible_devices()` immediately, before `.cpu_allocation`, `.execution`, `.logging`, `.runner`, and the stage CLI imports. Verified: `from axon_recon.pipeline import cli` does not load `torch`, `cupy`, or `kilosort4`.
+- `src/axon_recon/pipeline/tests/test_mpi_adapter.py`: 7 new fake-MPI tests
+  - 2-rank, 2-GPU host → rank 0 → "0", rank 1 → "1"
+  - 2-rank, 1-GPU host → both ranks → "0", WARNING emitted on each apply
+  - single-rank → no mutation
+  - 4-rank, 2-GPU host → ranks 0,2 → "0", ranks 1,3 → "1"
+  - no MPI env → no mutation
+  - MPI env but no visible GPUs (pynvml monkey-patched) → no mutation
+
+Acceptance Criteria:
+- ✅ Fake-MPI tests pass (28 in test_mpi_adapter.py, was 21).
+- ✅ Behavior unchanged when `--mpi-ranks` absent (size==1 path is a no-op; verified by 1-rank test).
+- ✅ Real-data smoke not required by slice 4 acceptance; the dry-run mpirun line was already validated in slice 3 and remains correct (the function is a no-op without MPI env).
+
+Guardrails Consulted:
+- `debug/plans/active/container_shifter_shape_plan.md` slice 4 (§3) — function placement, idempotency, GPU detection precedence.
+- `debug/guardrails/container_mpi_strategy_note.md` Decision row "GPU partitioning location: `mpi_adapter.apply_per_rank_cuda_visible_devices()`" — keeps the partition wrapper-agnostic so the same call site serves both `axon-recon-container --mpi-ranks` and (future) Shifter `srun -n N`.
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` — function is opt-in via MPI env detection only; non-MPI imports are unaffected.
+
+Tests Run:
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/test_mpi_adapter.py -q` → 28 passed.
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ -q -x --ignore=src/axon_recon/pipeline/tests/test_progress.py` → all green (537+ tests, no regressions).
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/stages/spikesort/tests/ -q` → all green (mpi_adapter changes do not touch spikesort code paths; included because slice 6 will).
+- Pre-import-order verification: `python -c "from axon_recon.pipeline import cli; import sys; assert 'torch' not in sys.modules and 'cupy' not in sys.modules and 'kilosort4' not in sys.modules"` → exits 0.
+
+Container / NERSC / MPI Impact:
+- The image rebuild for this slice is deferred — slice 4's acceptance is satisfied by host-side fake-MPI tests + the import-order check. The image needs to pick up the new mpi_adapter for slice 5's real-data smoke; user's running wrapper invocation continues with the pre-slice image untouched. A rebuild will be triggered before slice 5 runs.
+
+Residual Risk / Follow-ups:
+- Slice 6 still must enforce the fail-fast contract for `spikesort.sort` when ranks > visible GPUs. This slice only partitions; it does not refuse to oversubscribe (it warns instead).
+- pynvml fallback is best-effort: if neither `CUDA_VISIBLE_DEVICES` is set nor pynvml is importable, the function no-ops. That means a Docker run that doesn't pass `--gpus all` ends up with size>1 ranks all seeing whatever default CUDA visibility kilosort would pick — generally fine for CPU-only stages.
+
 ## 2026-05-12 - pending - claude: add --mpi-ranks to axon-recon-container wrapper (slice 3)
 
 Status: pending

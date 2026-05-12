@@ -5,6 +5,13 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
+# Per-rank CUDA partitioning MUST run before any module imports torch/cupy/kilosort
+# so the visibility change is observed at CUDA init. Keep this import + call at
+# the very top of axon_recon-side imports.
+from .mpi_adapter import apply_per_rank_cuda_visible_devices, current_mpi_context
+
+apply_per_rank_cuda_visible_devices()
+
 from .cpu_allocation import detect_cpu_topology, format_cpu_topology
 from .execution import install_process_lifecycle
 from .execution.logging_context import (
@@ -17,7 +24,6 @@ from .logging import (
 	install_noisy_external_log_filters,
 	log_context,
 )
-from .mpi_adapter import current_mpi_context
 from .runner import build_stage_allocation_previews, format_stage_allocation_previews, print_stage_allocation_preview
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.cli import (

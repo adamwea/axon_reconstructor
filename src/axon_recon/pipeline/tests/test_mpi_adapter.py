@@ -9,6 +9,7 @@ import pytest
 from axon_recon.pipeline.mpi_adapter import (
 	FakeMPI,
 	MPIContext,
+	apply_per_rank_cuda_visible_devices,
 	current_mpi_context,
 	mpi_context,
 	partition_targets_by_mpi_rank,
@@ -207,3 +208,84 @@ def test_current_mpi_context_env_fallback_ignores_single_rank(monkeypatch) -> No
 	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "1")
 	ctx = current_mpi_context()
 	assert ctx is None or ctx.size == 1
+
+
+def test_apply_per_rank_cuda_2rank_2gpu_rank0(monkeypatch) -> None:
+	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+	monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+	assigned = apply_per_rank_cuda_visible_devices()
+	assert assigned == "0"
+	import os as _os
+	assert _os.environ["CUDA_VISIBLE_DEVICES"] == "0"
+
+
+def test_apply_per_rank_cuda_2rank_2gpu_rank1(monkeypatch) -> None:
+	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "1")
+	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+	monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+	assigned = apply_per_rank_cuda_visible_devices()
+	assert assigned == "1"
+	import os as _os
+	assert _os.environ["CUDA_VISIBLE_DEVICES"] == "1"
+
+
+def test_apply_per_rank_cuda_2rank_1gpu_warns_and_shares(monkeypatch, caplog) -> None:
+	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+	monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")
+	import logging as _logging
+	caplog.set_level(_logging.WARNING, logger="axon_recon.pipeline.mpi_adapter")
+	assigned_rank0 = apply_per_rank_cuda_visible_devices()
+	assert assigned_rank0 == "0"
+	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "1")
+	monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0")  # reset before second call
+	assigned_rank1 = apply_per_rank_cuda_visible_devices()
+	assert assigned_rank1 == "0"
+	warning_events = [rec for rec in caplog.records if rec.levelno == _logging.WARNING and "exceeds visible GPU count" in rec.getMessage()]
+	assert len(warning_events) >= 2
+
+
+def test_apply_per_rank_cuda_single_rank_no_mutation(monkeypatch) -> None:
+	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "1")
+	monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1,2,3")
+	assigned = apply_per_rank_cuda_visible_devices()
+	assert assigned is None
+	import os as _os
+	assert _os.environ["CUDA_VISIBLE_DEVICES"] == "0,1,2,3"
+
+
+def test_apply_per_rank_cuda_4rank_2gpu_round_robin(monkeypatch) -> None:
+	for rank, expected in [(0, "0"), (1, "1"), (2, "0"), (3, "1")]:
+		monkeypatch.setenv("OMPI_COMM_WORLD_RANK", str(rank))
+		monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "4")
+		monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "0,1")
+		assigned = apply_per_rank_cuda_visible_devices()
+		assert assigned == expected, f"rank {rank}: expected {expected}, got {assigned}"
+
+
+def test_apply_per_rank_cuda_no_mpi_env_noop(monkeypatch) -> None:
+	monkeypatch.delenv("OMPI_COMM_WORLD_RANK", raising=False)
+	monkeypatch.delenv("OMPI_COMM_WORLD_SIZE", raising=False)
+	monkeypatch.delenv("PMI_RANK", raising=False)
+	monkeypatch.delenv("PMI_SIZE", raising=False)
+	monkeypatch.delenv("PMIX_RANK", raising=False)
+	monkeypatch.delenv("PMIX_SIZE", raising=False)
+	monkeypatch.delenv("SLURM_PROCID", raising=False)
+	monkeypatch.delenv("SLURM_NTASKS", raising=False)
+	monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "5")
+	assigned = apply_per_rank_cuda_visible_devices()
+	assert assigned is None
+	import os as _os
+	assert _os.environ["CUDA_VISIBLE_DEVICES"] == "5"
+
+
+def test_apply_per_rank_cuda_no_visible_gpus_noop(monkeypatch) -> None:
+	monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+	monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+	monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+	# Force the pynvml-based fallback to also report no GPUs
+	monkeypatch.setattr(mpi_adapter, "_detect_visible_gpus", lambda: None)
+	assigned = apply_per_rank_cuda_visible_devices()
+	assert assigned is None
