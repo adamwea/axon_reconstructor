@@ -5,6 +5,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ARG AXON_RECON_INSTALL_EXTRAS=""
 ARG AXON_RECON_OBSERVABILITY_APT_PACKAGES="time sysstat procps"
+ARG AXON_RECON_MPI_APT_PACKAGES="openmpi-bin libopenmpi-dev"
 ARG AXON_RECON_RUNTIME_SPEC="numpy<2.0 h5py<4 tqdm<5 requests<3 psutil matplotlib<4 pandas<3.0 pyarrow plotly>=5.18 dash>=2.14 dash-ag-grid statsmodels kaleido openpyxl scipy<2.0 pyyaml docker pypdf scikit-learn<2.0 nvidia-ml-py"
 ARG AXON_VELOCITY_SPEC="axon_velocity==0.1.2"
 ARG SPIKEINTERFACE_SPEC="spikeinterface==0.104.3"
@@ -37,6 +38,7 @@ COPY containers/axon-recon/install_maxwell_hdf5_plugin.py /opt/axon_reconstructo
 RUN rm -rf /tmp/axon-recon-cache \
   && apt-get update \
   && if [[ -n "${AXON_RECON_OBSERVABILITY_APT_PACKAGES}" ]]; then DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${AXON_RECON_OBSERVABILITY_APT_PACKAGES}; fi \
+  && if [[ -n "${AXON_RECON_MPI_APT_PACKAGES}" ]]; then DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${AXON_RECON_MPI_APT_PACKAGES}; fi \
   && rm -rf /var/lib/apt/lists/* \
   && python containers/axon-recon/install_maxwell_hdf5_plugin.py --url "${MAXWELL_HDF5_PLUGIN_URL}" --plugin-dir "${MAXWELL_HDF5_PLUGIN_DIR}" \
   && python -m pip install --upgrade pip setuptools wheel \

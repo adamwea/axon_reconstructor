@@ -91,6 +91,42 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: verify (or install) openmpi-bin in axon-recon image (slice 1)
+
+Status: pending
+
+Summary:
+- `containers/axon-recon/Dockerfile`: add `AXON_RECON_MPI_APT_PACKAGES="openmpi-bin libopenmpi-dev"` ARG and a second apt-get install step alongside the existing observability packages step (same RUN layer). Baseline image had `mpi4py` installed but no system `mpirun`/`libmpi.so`; the in-container `python -c "from mpi4py import MPI"` raised `RuntimeError: cannot load MPI library`, and `which mpirun` returned empty.
+- After rebuild (`containers/axon-recon/build_local_image.sh --image axon-recon:local`), all three §2.3 probes pass:
+  - `docker run --rm axon-recon:local which mpirun` → `/usr/bin/mpirun`
+  - `docker run --rm axon-recon:local mpirun --version` → `mpirun (Open MPI) 4.0.3`
+  - `docker run --rm axon-recon:local python -c "from mpi4py import MPI; print(MPI.Get_library_version())"` → `Open MPI v4.0.3, package: Debian OpenMPI, ident: 4.0.3, repo rev: v4.0.3, Mar 03, 2020`
+- 2-rank smoke `docker run --rm axon-recon:local mpirun -np 2 --allow-run-as-root python -c "..."` prints both ranks with `size=2`. mpi4py 4.1.1 against host OpenMPI 4.0.3 — versions match the apt-shipped libmpi.so.40.
+
+Guardrails Consulted:
+- `debug/plans/active/container_shifter_shape_plan.md` §2.3 (compatibility probes) and §3 slice 1 acceptance.
+- `debug/guardrails/container_mpi_strategy_note.md` (Option B, the chosen path).
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` — confirmed that adding openmpi-bin/libopenmpi-dev to the local image does not couple to NERSC Cray MPICH; Shifter's `--module=gpu,cuda-mpich` swaps Cray MPICH at runtime regardless.
+
+Acceptance Criteria:
+- ✅ `mpirun --version` works inside the image (4.0.3).
+- ✅ `mpi4py` reports OpenMPI library version matching the system `mpirun` (both 4.0.3).
+- ✅ 2-rank smoke prints both ranks with `size=2`.
+
+Tests Run:
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ -q -x --ignore=src/axon_recon/pipeline/tests/test_progress.py` → all green (537 tests, no failures).
+
+Storage / Cache Impact:
+- New image layer adds `openmpi-bin libopenmpi-dev` (~85 MB on `ii openmpi-bin 4.0.3` + libs).
+- `axon-recon:local` rebuilt; new sha256 `7d911ad14730…`.
+
+Container / NERSC / MPI Impact:
+- Local Docker now has working OpenMPI 4.x. NERSC validation stays deferred per guardrails — Shifter will use Cray MPICH via `--module=gpu,cuda-mpich`, not the local libmpi.
+
+Residual Risk / Follow-ups:
+- A future kilosort4-base rebuild that bumps the OpenMPI version inside the Debian package set could divorce `mpi4py` from `libmpi.so.40` (mpi4py picks up the version at first-use). Mitigation: this slice pins neither side; on next rebuild, re-run the §2.3 probes from this commit's notes.
+- The user's currently-running docker wrapper invocation predates this image rebuild and continues using the prior image until next-run start; the rebuild does not disturb running containers.
+
 ## 2026-05-11 - ANALYSIS STAGE + DASHBOARD COMPLETE
 
 Status: accepted
