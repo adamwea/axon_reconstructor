@@ -91,6 +91,33 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: docs sweep for --mpi-ranks shifter-shape pivot (slice 7)
+
+Status: pending
+
+Summary:
+- `containers/axon-recon/README.md`: insert a "Multi-rank inside one container (`--mpi-ranks`)" section after "Local Wrapper" that documents the `--mpi-ranks N` shape, the unsupported host-mpirun-of-container shape, the NERSC `srun -n N shifter axon-reconstructor` parallel, and the slice-6 GPU policy. Does NOT touch the existing "Shifter Shape" section — the full Goal-3 run-modes sweep is a separate commit.
+- `debug/mpirun.sh`: replace the commented-out broken `mpirun … axon-recon-container …` blocks with a documented header naming both supported multi-rank shapes (host binary path + `--mpi-ranks` wrapper path) and keep the validated host `mpirun -np 2 axon-recon …` example runnable.
+- `debug/guardrails/container_mpi_strategy_note.md`: append a "Status (2026-05-12)" line under the Option B section recording the local implementation and the NERSC-deferred boundary. Strategy-note status flip per slice 7 deliverable.
+
+Acceptance Criteria:
+- ✅ README mentions `--mpi-ranks N` and `srun shifter`. (Section added between "Local Wrapper" and "Shifter Shape".)
+- ✅ `debug/mpirun.sh` example actually runs — the host binary path is unchanged from the validated form.
+- ✅ Strategy note Option B status reflects local implementation.
+
+Guardrails Consulted:
+- `debug/plans/active/container_shifter_shape_plan.md` slice 7 (§3) and §1 end-state checklist.
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` — NERSC validation remains "deferred until tested on Perlmutter"; the README and strategy note both restate that boundary.
+
+Tests Run:
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ -q -x --ignore=src/axon_recon/pipeline/tests/test_progress.py` → all green.
+
+Container / NERSC / MPI Impact:
+- Docs only; no code or image change. Slice 5 real-data smoke is still deferred until the user's wrapper run finishes; that smoke is the last container_shifter_shape_plan.md acceptance item.
+
+Residual Risk / Follow-ups:
+- Goal 3 README sweep will subsume the new "Multi-rank inside one container" section into a unified "Run modes" section that covers all six supported run modes. The slice-7 section is correct standalone but will be reorganised in the final README commit.
+
 ## 2026-05-12 - pending - claude: fail fast when spikesort.sort ranks exceed visible GPUs (slice 6)
 
 Status: pending

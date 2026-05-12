@@ -61,6 +61,8 @@ Use the container only for stages that need its bundled software (spikesort.sort
 
 **Short term: Option C.** It's already working. The `axon-recon-container` wrapper documents which stages it's appropriate for (spikesort.sort, anything else needing the kilosort4 conda env). For everything else, use `mpirun -np N axon-recon …` directly. The cleanup plan does not need to address container+mpi.
 
+**Status (2026-05-12)**: Option B implemented locally by `debug/plans/active/container_shifter_shape_plan.md`. The wrapper now exposes `--mpi-ranks N`; the inner command becomes `mpirun -np N --allow-run-as-root --bind-to none axon-reconstructor …`. Per-rank `CUDA_VISIBLE_DEVICES` partitioning lives in `mpi_adapter.apply_per_rank_cuda_visible_devices()` (called at the top of `cli.py` before any torch/cupy/kilosort import). `spikesort.sort` fails fast when ranks exceed the NVML-reported physical GPU count. NERSC validation stays deferred per `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`.
+
 **Medium term: Option B.** The entrypoint is a single docker invocation; ranks live inside. This generalizes to NERSC (shifter exec) and avoids host/container OMPI coupling. To implement:
 
 1. Verify `mpirun` + `mpi4py` + OpenMPI 4.x present in the kilosort4-base image (`docker run kilosort4-base which mpirun && mpirun --version`).

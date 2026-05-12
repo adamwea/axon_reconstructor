@@ -98,6 +98,33 @@ The equivalent generic override is `--user UID:GID`, or `AXON_RECON_CONTAINER_US
 
 Inside this image, `spikesort.phases.sort.engine: mea_analysis` is blocked by default because the legacy MEA_Analysis path can launch a nested Docker container. Use `engine: local_spikeinterface` for container and HPC runs. For intentional local debugging of nested container behavior, set `AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1`.
 
+## Multi-rank inside one container (`--mpi-ranks`)
+
+`axon-recon-container --mpi-ranks N stages …` launches **one** docker container with `mpirun -np N --allow-run-as-root --bind-to none axon-reconstructor stages …` as the inner command, so N ranks share the container's namespaces and `MPI.COMM_WORLD.size` is correctly N. Default (no flag) is byte-for-byte identical to today's single-rank invocation.
+
+```bash
+axon-recon-container --mpi-ranks 2 stages preprocess \
+    --config debug/debug.runtime.yml \
+    --target-dataset 11,12 --limit-wells 1 --limit-segments 2 \
+    --task-backend mpi --force-restart
+
+axon-recon-container --dry-run --mpi-ranks 2 stages preprocess \
+    --config debug/debug.runtime.yml
+```
+
+The wrapper owns the rank count via `--mpi-ranks N` (or the `-n N` short alias). **Host `mpirun -np N axon-recon-container …` is unsupported**: it spawns N separate containers, each with its own MPI_COMM_WORLD of size 1, and "runs double" (every rank processes every target, triggering `FileExistsError` at `kilosort4.py:127`). See `debug/guardrails/container_mpi_strategy_note.md` for the option-space analysis; Option B (one container, mpirun inside) is the chosen path.
+
+The same CLI tail will work under Shifter at NERSC modulo the launcher swap: `srun -n N shifter axon-reconstructor stages …` is structurally identical to `docker run … axon-recon:local mpirun -np N axon-reconstructor stages …`. Per-rank CUDA visibility is partitioned inside the image at `axon_recon.pipeline.mpi_adapter.apply_per_rank_cuda_visible_devices()`, called from the very top of `cli.py` *before* any torch/cupy/kilosort import.
+
+### GPU policy for `spikesort.sort` with `--mpi-ranks N`
+
+Kilosort4 cannot safely share a single CUDA device across processes. When `spikesort.sort` (engine `local_spikeinterface`) is invoked with MPI ranks exceeding the NVML-reported physical GPU count, the runner raises `SpikesortGpuOversubscriptionError` before any CUDA allocation. The error message recommends one of:
+
+- re-run with `--mpi-ranks 1` for the sort stage; or
+- stage-split jobs (CPU preprocess multi-rank, GPU sort single-rank, CPU reconstruct multi-rank).
+
+This check uses NVML directly (ignoring `CUDA_VISIBLE_DEVICES`) so it survives the slice-4 per-rank partitioning. On the lab server (1 GPU) the practical rule is: `--mpi-ranks 1` for `spikesort.sort`, `--mpi-ranks N` for CPU stages.
+
 ## Shifter Shape
 
 Later at NERSC, import the pushed image with:
