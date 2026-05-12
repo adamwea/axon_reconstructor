@@ -91,6 +91,45 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: README sweep documents all six run modes
+
+Status: pending
+
+Summary:
+- `containers/axon-recon/README.md` rewritten with a single canonical "Run modes" section covering all six supported invocation shapes in plan order:
+  1. **Local host, single-process** — `axon-reconstructor stages …` (host conda env, no container, no MPI). Mode for dev iteration.
+  2. **Local host + `mpirun` (multi-rank, no container)** — `/usr/bin/mpirun -np N axon-reconstructor … --task-backend mpi`. The validated path from `debug/mpirun.sh`; CPU stages only.
+  3. **Local container, single rank** — `axon-recon-container stages …`. Today's default container path with `--gpus all` for sort.
+  4. **Local container + `--mpi-ranks N`** — `axon-recon-container --mpi-ranks N … --task-backend mpi`. The Option-B local emulation of the NERSC shape, with the spikesort.sort GPU contention rule called out.
+  5. **NERSC interactive (Shifter)** — `salloc --image=…` then `srun -n N shifter axon-reconstructor … --task-backend slurm`. NERSC-deferred.
+  6. **NERSC sbatch (Shifter, multi-rank)** — full `#SBATCH` script. Points at the two `.example` files from affinity slice 12. NERSC-deferred.
+- Each mode entry has: one-line description, the exact command, what stages are appropriate, GPU/CPU constraints, status (validated/deferred), and "See also" pointers to the plan, guardrail, or example file that justifies it.
+- Section ends with a quick-reference table mapping (machine context, scale) → mode number (1–6). The table also marks Modes 5–6 as documentation-only until NERSC validation.
+- The previous standalone sections "Simple Wrapper UX", "Local Wrapper", "Multi-rank inside one container", and "Shifter Shape" are subsumed by the new Run modes section. Wrapper-implementation details (mount semantics, GPU passthrough, UID:GID, blocked engines) move into a slimmer "Wrapper Details" section. "Local Build" and "Smoke Checks" are kept as-is.
+- Update the spikeinterface version in the Local Build summary from the stale `0.103.2` to the current `0.104.3` (the slice-1 Dockerfile already installs 0.104.3 via SPIKEINTERFACE_SPEC).
+
+Acceptance Criteria:
+- ✅ README mentions all six modes with command, stages, constraints, "see also".
+- ✅ Quick-reference table maps (machine context, scale) → mode number.
+- ✅ "axon-recon-container --mpi-ranks N stages … --task-backend mpi" documented (Mode 4).
+- ✅ "srun -n N shifter axon-reconstructor stages … --task-backend slurm" documented for both interactive (Mode 5) and sbatch (Mode 6) shapes.
+- ✅ The two NERSC sbatch examples (`debug/perlmutter_preprocess.sbatch.example`, `debug/perlmutter_spikesort.sbatch.example`) are linked under Mode 6's "See also".
+
+Guardrails Consulted:
+- `debug/plans/active/container_shifter_shape_plan.md` §1 end-state checklist (Mode 4 description).
+- `debug/plans/active/nersc_shaped_local_affinity_plan.md` slices 10 + 11 + 12 (Modes 5+6 description).
+- `debug/guardrails/container_mpi_strategy_note.md` (Mode 4 rationale, host-mpirun-of-container unsupported).
+- `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` (Shifter and NERSC rules, deferred-until-validated).
+
+Tests Run:
+- (Docs only; no pytest.)
+
+Container / NERSC / MPI Impact:
+- This is the last commit before halt. All three loop goals are now satisfied. Plans move to `debug/plans/completed/` in this commit.
+
+Residual Risk / Follow-ups:
+- The previous "Local Build" section referenced `spikeinterface==0.103.2`. Slice 1's Dockerfile actually installs `spikeinterface==0.104.3`. README updated; future Dockerfile bumps should be cross-referenced here.
+
 ## 2026-05-12 - pending - claude: validate task allocation inside axon-recon container (affinity slice 10)
 
 Status: pending

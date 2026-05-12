@@ -1,18 +1,47 @@
 # axon_reconstructor Container
 
-This image is intended to run the same `axon-reconstructor` CLI as the host environment, with all pipeline stage selectors passed through unchanged.
+This image runs the same `axon-reconstructor` CLI as the host environment, with all pipeline stage selectors passed through unchanged. It is a full-pipeline execution environment, not a special-purpose sort image.
 
-## Simple Wrapper UX
+## Run modes
 
-After installing this package, or from this repo with `tools/axon-recon-container`, use the container wrapper with the same arguments you would pass to `axon-reconstructor`:
+The pipeline supports six invocation shapes spanning local host vs. container, single-rank vs. multi-rank, and lab server vs. NERSC Perlmutter. The CLI tail (`stages …`, `--config`, `--target-dataset`, `--limit-wells`, `--task-backend …`, etc.) is identical in every mode; only the launcher prefix changes.
+
+### Mode 1 — Local host, single-process
+
+One-liner: run `axon-reconstructor` directly on the lab server using the host conda env. No container, no MPI.
 
 ```bash
-axon-recon-container stages reconstruct --config debug/debug.runtime.yml
+axon-reconstructor stages preprocess --config debug/debug.runtime.yml
 ```
 
-With the default `axon-recon:local` image, the wrapper builds the image if it is missing and rebuilds it when the source fingerprint no longer matches the image label. Use `--no-build` to skip that check, `--rebuild` to force a rebuild, or `--build` when you intentionally want to build/update a non-default `--image` tag.
+- **Stages**: any (`preprocess`, `spikesort`, `reconstruct`, `analysis`, the `stages …` aggregate, sub-phases like `spikesort.sort`).
+- **CPU/GPU**: CPU stages run unconstrained on host CPUs; GPU stages use whatever CUDA visibility the host conda env sees.
+- **When to use**: development on the lab server, quick smokes, debugging where iteration speed matters more than reproducibility.
+- **See also**: top-level `README.md` in the repo root.
 
-Real-data smoke commands for the active debug runtime:
+### Mode 2 — Local host + `mpirun` (multi-rank, no container)
+
+One-liner: drive `axon-reconstructor` from the host's OpenMPI `mpirun -np N`, with explicit `--task-backend mpi` so the rank partition fires.
+
+```bash
+/usr/bin/mpirun -np 2 \
+  --map-by ppr:2:node:pe=10 \
+  --bind-to core \
+  --report-bindings \
+  axon-reconstructor stages preprocess \
+    --config debug/debug.runtime.yml \
+    --target-dataset 11,12 --limit-wells 1 \
+    --task-backend mpi --force-restart
+```
+
+- **Stages**: CPU stages only (`preprocess`, `reconstruct`, `analysis`). GPU sort would need `--mpi-ranks 1` semantics (see Mode 1 for sort).
+- **CPU/GPU**: host OpenMPI binds ranks to CPU subsets; per-rank thread env follows `resources.task_allocation.set_thread_env`.
+- **When to use**: validated end-to-end for preprocess after commit `82ed42c`; preferred when you want to avoid the container's caching/build overhead for fast iteration on CPU stages.
+- **See also**: `debug/mpirun.sh` (working example), `debug/plans/active/nersc_shaped_local_affinity_plan.md` slices 1–8 (the local-affinity machinery the per-rank thread env rides on).
+
+### Mode 3 — Local container, single rank
+
+One-liner: forward the same CLI tail through `axon-recon-container`, which manages image build/update, mounts, cache paths, and Docker execution.
 
 ```bash
 axon-recon-container stages preprocess --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1
@@ -20,7 +49,89 @@ axon-recon-container --gpus all stages spikesort --config debug/debug.runtime.ym
 axon-recon-container stages reconstruct --config debug/debug.runtime.yml --limit-segments 2 --limit-datasets 2 --limit-wells-per-dataset 1 --limit-units 5
 ```
 
-Those `--limit-*` flags are normal pipeline CLI flags. The wrapper does not interpret stage names or limits; it only handles image build/update, mounts, cache paths, and Docker execution. For spikesort, `--limit-segments` limits the preprocessed segment manifest consumed by `spikesort.bootstrap_concat_binary` before the bootstrapped binary recording is materialized, so downstream sort phases read the smaller concatenated recording.
+- **Stages**: any. Sort uses `engine: local_spikeinterface` automatically (`mea_analysis` is blocked inside the container by default).
+- **CPU/GPU**: pass `--gpus all` (or set `AXON_RECON_CONTAINER_GPUS=all`) for CUDA-backed sort. CPU-only stages don't need the flag.
+- **When to use**: today's default for one-shot stage runs that need the pinned container env (Kilosort4, SpikeInterface 0.104.x, UnitMatchPy, SLAy). Default behaviour on the lab server.
+- **See also**: `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` (Container Contract section).
+
+### Mode 4 — Local container + multi-rank inside one container (`--mpi-ranks`)
+
+One-liner: launch ONE container, run `mpirun -np N --allow-run-as-root --bind-to none axon-reconstructor stages …` inside it. The wrapper owns the rank count via `--mpi-ranks N` (or `-n N` short alias). Default (no flag) is byte-for-byte identical to Mode 3.
+
+```bash
+axon-recon-container --mpi-ranks 2 stages preprocess \
+    --config debug/debug.runtime.yml \
+    --target-dataset 11,12 --limit-wells 1 --limit-segments 2 \
+    --task-backend mpi --force-restart
+
+axon-recon-container --dry-run --mpi-ranks 2 stages preprocess --config debug/debug.runtime.yml
+```
+
+- **Stages**: CPU stages with `N > 1`. For GPU `spikesort.sort` use `--mpi-ranks 1` — the runner raises `SpikesortGpuOversubscriptionError` before any CUDA allocation when `ranks > NVML physical GPU count`, see `container_shifter_shape_plan.md` §6.
+- **CPU/GPU**: per-rank `CUDA_VISIBLE_DEVICES` partitioning happens inside the image at `axon_recon.pipeline.mpi_adapter.apply_per_rank_cuda_visible_devices()`, called from the top of `cli.py` *before* any torch/cupy/kilosort import.
+- **Important**: host `mpirun -np N axon-recon-container …` is **unsupported** — it spawns N separate containers, each with its own MPI_COMM_WORLD of size 1, and "runs double" (every rank processes every target, triggering `FileExistsError` at `kilosort4.py:127`). The wrapper owns the rank count.
+- **When to use**: CPU stages where you want multi-rank parallelism AND the container's pinned env. The local emulation of the NERSC `srun -n N shifter` shape.
+- **See also**: `debug/plans/active/container_shifter_shape_plan.md` (the Option-B plan), `debug/guardrails/container_mpi_strategy_note.md` (Option-A/B/C analysis).
+
+### Mode 5 — NERSC interactive (Shifter)
+
+One-liner: allocate an interactive Perlmutter node with the image attached, then drive `axon-reconstructor` through `srun shifter`. Same CLI tail as Mode 4, with `srun` substituting for `mpirun -np`.
+
+```bash
+salloc --nodes=1 --time=01:00:00 --constraint=cpu --image=<registry>/<image>:<tag>
+# Once allocated:
+srun -n 6 --cpu-bind=cores shifter axon-reconstructor stages preprocess \
+  --config /global/cfs/<path>/debug.runtime.yml \
+  --task-backend slurm \
+  --tasks-per-node 6 --cpus-per-task 4 --bind physical_cores
+```
+
+- **Stages**: CPU stages multi-rank (`--cpus-per-task ≥ 4`). For GPU sort, request `--constraint=gpu --module=gpu,cuda-mpich` and use `-n 1` per the GPU contention rule from Mode 4.
+- **CPU/GPU**: Shifter swaps Cray MPICH at runtime via `--module=gpu,cuda-mpich`; the local OpenMPI in the image is replaced transparently. The pipeline's `mpi_adapter` detects `SLURM_PROCID`/`SLURM_NTASKS` and partitions targets accordingly.
+- **Status**: **NERSC validation deferred** per `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md`. No part of this repo has been smoked on Perlmutter yet.
+- **See also**: `debug/guardrails/container_mpi4py_NERSC_optimization_guardrails.md` (Shifter And Perlmutter Rules).
+
+### Mode 6 — NERSC sbatch (Shifter, multi-rank)
+
+One-liner: full `#SBATCH` job script that pulls the image, mounts CFS/scratch paths, and runs `srun shifter axon-reconstructor stages … --task-backend slurm`. Stage-split is the recommended production shape (one job per CPU/GPU class).
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=axon-preprocess
+#SBATCH --image=<registry>/<image>:<tag>
+#SBATCH --constraint=cpu
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=6
+#SBATCH --cpus-per-task=4
+#SBATCH --volume="/global/cfs/<path/to/data>:/data:ro"
+#SBATCH --volume="/global/cfs/<path/to/scratch>:/scratch:rw"
+srun --cpu-bind=cores shifter axon-reconstructor stages preprocess \
+  --config /data/debug.runtime.yml \
+  --task-backend slurm \
+  --tasks-per-node ${SLURM_NTASKS_PER_NODE} \
+  --cpus-per-task ${SLURM_CPUS_PER_TASK} \
+  --bind physical_cores
+```
+
+For GPU sort, swap `--constraint=cpu` for `--constraint=gpu --module=gpu,cuda-mpich`, set `--ntasks-per-node=1`, and export `MPICH_GPU_SUPPORT_ENABLED=1` before `srun`.
+
+- **Stages**: stage-split production runs. CPU preprocess (multi-rank) → GPU sort (single-rank) → CPU reconstruct (multi-rank) → analysis.
+- **CPU/GPU**: same as Mode 5 modulo the launcher; the sort job's GPU contention rule still requires `--ntasks-per-node ≤ physical GPU count`.
+- **Status**: **NERSC validation deferred**. The .example scripts ship documentation only.
+- **See also**: `debug/perlmutter_preprocess.sbatch.example`, `debug/perlmutter_spikesort.sbatch.example`, `debug/plans/active/nersc_shaped_local_affinity_plan.md` slice 12.
+
+### Quick reference
+
+| Machine context | Scale | Mode | Launcher prefix |
+|---|---|---|---|
+| Lab server, host conda env | single process | 1 | `axon-reconstructor …` |
+| Lab server, host conda env | multi-rank | 2 | `/usr/bin/mpirun -np N axon-reconstructor … --task-backend mpi` |
+| Lab server, container | single rank | 3 | `axon-recon-container …` |
+| Lab server, container | multi-rank | 4 | `axon-recon-container --mpi-ranks N … --task-backend mpi` |
+| NERSC Perlmutter, Shifter | interactive | 5 | `srun -n N shifter axon-reconstructor … --task-backend slurm` (after `salloc --image=…`) |
+| NERSC Perlmutter, Shifter | sbatch (production) | 6 | `srun shifter axon-reconstructor … --task-backend slurm` (inside an `#SBATCH` script) |
+
+Modes 1–4 are validated on the lab server. Modes 5–6 are documentation-only until smoked on Perlmutter.
 
 ## Local Build
 
@@ -36,7 +147,7 @@ Full dependency builds should use the helper so sibling checkouts are copied int
 containers/axon-recon/build_local_image.sh --image axon-recon:local
 ```
 
-The default repo-root build installs `axon_reconstructor`, the active runtime Python dependency set, `spikeinterface==0.103.2`, and `mpi4py`. It does not bake local data, scratch outputs, credentials, or sibling workspace paths into the image. The helper detects sibling `../UnitMatch/UnitMatchPy` and `../SLAy` checkouts when present, copies them under `external/` in a temporary context, and passes build args so imports are normal installed-package imports.
+The default repo-root build installs `axon_reconstructor`, the active runtime Python dependency set, `spikeinterface==0.104.3`, `mpi4py`, and the system OpenMPI 4.x toolchain (`openmpi-bin`, `libopenmpi-dev`). It does not bake local data, scratch outputs, credentials, or sibling workspace paths into the image. The helper detects sibling `../UnitMatch/UnitMatchPy` and `../SLAy` checkouts when present, copies them under `external/` in a temporary context, and passes build args so imports are normal installed-package imports.
 
 Sibling package installs intentionally use package builds with `--no-deps` plus small compatibility runtime specs. UnitMatch and SLAy currently declare conflicting NumPy/Pandas/Torch dependency ranges, while the pipeline only needs them importable through the code paths it calls. Revisit those dependency pins after real merge-stage data smokes.
 
@@ -55,6 +166,27 @@ adammwea/axon-recon:20260501-pipeline-v2
 
 If this repo has moved beyond the digest behind those tags, rebuild and push a fresh tag before relying on newer in-image CLI behavior in Shifter/NERSC.
 
+## Wrapper Details
+
+The wrapper mounts the repo at the same absolute path and sets writable cache locations under `/tmp/axon-recon-cache`. When the forwarded CLI args include `--config`, the wrapper inspects that runtime config and its `data:` YAML with a lightweight scanner, then mounts configured output roots and scratch roots read-write and the common raw H5 root read-only. Disable this with `--no-config-mounts` and add manual mounts with repeated `--mount host_path:container_path[:mode]` flags when needed.
+
+```bash
+tools/axon-recon-container --dry-run stages --help
+tools/axon-recon-container --dry-run --mpi-ranks 2 stages preprocess --config debug/debug.runtime.yml
+```
+
+For CUDA-backed spikesort runs under Docker, request GPU passthrough explicitly with `--gpus all` or set `AXON_RECON_CONTAINER_GPUS=all`. Without Docker GPU passthrough, PyTorch inside the container cannot see a CUDA device and Kilosort will log `GPU usage: N/A` and `GPU memory: N/A`. This image also installs the NVML Python binding (`nvidia-ml-py`, imported by Kilosort as `pynvml`) so that, once CUDA is visible, Kilosort can report GPU utilization percentage in addition to GPU memory.
+
+On POSIX hosts, the wrapper defaults to your current UID:GID so files written through mounted output directories stay owned by the invoking user. Use `--current-user` to make that explicit, `--user UID:GID` to override it, or `--user 0:0` if you intentionally want root inside the container.
+
+```bash
+tools/axon-recon-container --current-user stages --help
+```
+
+The equivalent generic override is `--user UID:GID`, or `AXON_RECON_CONTAINER_USER=UID:GID`.
+
+Inside this image, `spikesort.phases.sort.engine: mea_analysis` is blocked by default because the legacy MEA_Analysis path can launch a nested Docker container. Use `engine: local_spikeinterface` for container and HPC runs. For intentional local debugging of nested container behavior, set `AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1`.
+
 ## Smoke Checks
 
 Inside a built image:
@@ -69,88 +201,3 @@ For a host-side syntax check that does not require all container-only packages t
 ```bash
 python containers/axon-recon/smoke_imports.py --allow-missing
 ```
-
-## Local Wrapper
-
-From the repo root, the host wrapper mirrors the normal CLI shape:
-
-```bash
-tools/axon-recon-container stages reconstruct --config debug/debug.runtime.yml
-```
-
-Dry-run the resolved build and Docker commands:
-
-```bash
-tools/axon-recon-container --dry-run stages --help
-```
-
-The wrapper mounts the repo at the same absolute path and sets writable cache locations under `/tmp/axon-recon-cache`. When the forwarded CLI args include `--config`, the wrapper inspects that runtime config and its `data:` YAML with a lightweight scanner, then mounts configured output roots and scratch roots read-write and the common raw H5 root read-only. Disable this with `--no-config-mounts` and add manual mounts with repeated `--mount host_path:container_path[:mode]` flags when needed.
-
-For CUDA-backed spikesort runs under Docker, request GPU passthrough explicitly with `--gpus all` or set `AXON_RECON_CONTAINER_GPUS=all`. Without Docker GPU passthrough, PyTorch inside the container cannot see a CUDA device and Kilosort will log `GPU usage: N/A` and `GPU memory: N/A`. This image also installs the NVML Python binding (`nvidia-ml-py`, imported by Kilosort as `pynvml`) so that, once CUDA is visible, Kilosort can report GPU utilization percentage in addition to GPU memory.
-
-On POSIX hosts, the wrapper now defaults to your current UID:GID so files written through mounted output directories stay owned by the invoking user. Use `--current-user` to make that explicit, `--user UID:GID` to override it, or `--user 0:0` if you intentionally want root inside the container:
-
-```bash
-tools/axon-recon-container --current-user stages --help
-```
-
-The equivalent generic override is `--user UID:GID`, or `AXON_RECON_CONTAINER_USER=UID:GID`.
-
-Inside this image, `spikesort.phases.sort.engine: mea_analysis` is blocked by default because the legacy MEA_Analysis path can launch a nested Docker container. Use `engine: local_spikeinterface` for container and HPC runs. For intentional local debugging of nested container behavior, set `AXON_RECON_ALLOW_CONTAINER_MEA_ANALYSIS=1`.
-
-## Multi-rank inside one container (`--mpi-ranks`)
-
-`axon-recon-container --mpi-ranks N stages …` launches **one** docker container with `mpirun -np N --allow-run-as-root --bind-to none axon-reconstructor stages …` as the inner command, so N ranks share the container's namespaces and `MPI.COMM_WORLD.size` is correctly N. Default (no flag) is byte-for-byte identical to today's single-rank invocation.
-
-```bash
-axon-recon-container --mpi-ranks 2 stages preprocess \
-    --config debug/debug.runtime.yml \
-    --target-dataset 11,12 --limit-wells 1 --limit-segments 2 \
-    --task-backend mpi --force-restart
-
-axon-recon-container --dry-run --mpi-ranks 2 stages preprocess \
-    --config debug/debug.runtime.yml
-```
-
-The wrapper owns the rank count via `--mpi-ranks N` (or the `-n N` short alias). **Host `mpirun -np N axon-recon-container …` is unsupported**: it spawns N separate containers, each with its own MPI_COMM_WORLD of size 1, and "runs double" (every rank processes every target, triggering `FileExistsError` at `kilosort4.py:127`). See `debug/guardrails/container_mpi_strategy_note.md` for the option-space analysis; Option B (one container, mpirun inside) is the chosen path.
-
-The same CLI tail will work under Shifter at NERSC modulo the launcher swap: `srun -n N shifter axon-reconstructor stages …` is structurally identical to `docker run … axon-recon:local mpirun -np N axon-reconstructor stages …`. Per-rank CUDA visibility is partitioned inside the image at `axon_recon.pipeline.mpi_adapter.apply_per_rank_cuda_visible_devices()`, called from the very top of `cli.py` *before* any torch/cupy/kilosort import.
-
-### GPU policy for `spikesort.sort` with `--mpi-ranks N`
-
-Kilosort4 cannot safely share a single CUDA device across processes. When `spikesort.sort` (engine `local_spikeinterface`) is invoked with MPI ranks exceeding the NVML-reported physical GPU count, the runner raises `SpikesortGpuOversubscriptionError` before any CUDA allocation. The error message recommends one of:
-
-- re-run with `--mpi-ranks 1` for the sort stage; or
-- stage-split jobs (CPU preprocess multi-rank, GPU sort single-rank, CPU reconstruct multi-rank).
-
-This check uses NVML directly (ignoring `CUDA_VISIBLE_DEVICES`) so it survives the slice-4 per-rank partitioning. On the lab server (1 GPU) the practical rule is: `--mpi-ranks 1` for `spikesort.sort`, `--mpi-ranks N` for CPU stages.
-
-## Shifter Shape
-
-Later at NERSC, import the pushed image with:
-
-```bash
-shifterimg -v pull docker:<registry>/<image>:<tag>
-```
-
-CPU-only stage example:
-
-```bash
-#SBATCH --image=docker:<registry>/<image>:<tag>
-#SBATCH --constraint=cpu
-
-srun shifter axon-reconstructor stages preprocess reconstruct --config /mounted/path/debug.runtime.yml
-```
-
-Kilosort-backed spikesort example:
-
-```bash
-#SBATCH --image=docker:<registry>/<image>:<tag>
-#SBATCH --constraint=gpu
-#SBATCH --module=gpu,cuda-mpich
-
-export MPICH_GPU_SUPPORT_ENABLED=1
-srun shifter axon-reconstructor stages spikesort --config /mounted/path/debug.runtime.yml
-```
-
-Use absolute paths in Slurm volume directives, keep large data on mounted filesystems, and treat CUDA-aware `mpi4py` validation as NERSC-deferred until tested on Perlmutter.
