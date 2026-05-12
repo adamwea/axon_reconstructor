@@ -1,0 +1,1914 @@
+# NERSC runtime configuration for axon reconstructor.
+#
+# This is the NERSC-tuned variant of debug_local/debug.runtime.yml. Differences
+# from the lab-server variant:
+#   - active_profile is `perlmutter_cpu` (MPI backend, large core/RAM budget)
+#   - data.yml points at the NERSC mirror of ben-shalom_nas
+#     (/global/cfs/cdirs/m2043/roybens/ben-shalom_nas/...)
+#   - scratch_root in debug.data.yml uses /pscratch/sd/a/adammwea
+#
+# Resources are organized by profile. Each profile owns its own
+# capacity, task_allocation, and keyed_resource_limits blocks.
+# Phase demand declarations live at resources.phase_budgets.
+# Only per-profile capacity nesting is recognized (legacy flat keys are rejected).
+
+# Data set config is seperated from runtime config.
+data: ./debug.data.yml
+
+env:
+  python:
+    # User-agnostic template path; ${HOME} expands per user.
+    executable_path: ${HOME}/miniconda3/envs/axon_recon/bin/python
+    # Preferred fallback when executable_path is absent on a machine.
+    conda_env_name: axon_recon
+
+resources:
+  active_profile: perlmutter_cpu
+  container_caps:
+    #shm_size: 8g # Docker /dev/shm cap for axon-recon-container; raise this for parallel analyzer runs, or set to null to stop forcing --shm-size.
+    shm_size: 24g # increase Docker /dev/shm cap for axon-recon-container to 16 GB to support more parallel analyzer runs and reduce the likelihood of out-of-shm errors during memory-intensive analysis phases; adjust as needed based on the expected memory usage of your analyzers and the degree of parallelism you want to enable, or set to null to stop forcing --shm-size.
+    memory: null # Optional Docker --memory hard cap, e.g. 48g.
+    memory_reservation: null # Optional Docker --memory-reservation soft cap.
+    memory_swap: null # Optional Docker --memory-swap total memory+swap cap.
+    ipc: null # Optional Docker --ipc mode, e.g. host.
+  profiles:
+    lab_server_safe:
+      capacity:
+        cpu_cores: 36 # 48 total cores, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and resource availability for others.
+        ram_gb: 50 # 62 GB total RAM, but leaving some free for system processes and other users; adjust as needed based on typical server load and desired balance between performance and availability for others.
+        gpu_sort_slots: 2
+        h5_read_slots: 6
+        disk_heavy_slots: 6
+        plot_slots: 2
+        analyzer_slots: 2
+        #default_chunk_duration: 1s
+      task_allocation:
+        enabled: true
+        backend: local_affinity
+        task_unit: well
+        cpus_per_task: 10
+        tasks_per_node: auto
+        bind: physical_cores
+        use_hyperthreads: false
+        reserve_cpus: 0
+        set_thread_env: true
+        #nested_thread_policy: preserve_existing
+        nested_thread_policy: match_cpus_per_task
+        ram_gb_per_task: null
+        shm_gb_per_task: null
+      keyed_resource_limits:
+        source_h5_path:
+          description: Limit concurrent well-workers touching the same source H5 file.
+          max_concurrent: 1
+          applies_to:
+            - h5_metadata
+            - h5_to_binary
+            - preprocess_segments
+            - bootstrap_concat_binary
+            - spikeinterface_analyzer_segment
+    perlmutter_cpu:
+      capacity:
+        cpu_cores: 128
+        ram_gb: 256
+        gpu_sort_slots: 0
+        h5_read_slots: 8
+        disk_heavy_slots: 16
+        plot_slots: 4
+        analyzer_slots: 4
+      task_allocation:
+        enabled: true
+        backend: mpi
+        task_unit: well
+        cpus_per_task: 16
+        bind: physical_cores
+        use_hyperthreads: false
+        reserve_cpus: 0
+        set_thread_env: true
+        nested_thread_policy: match_cpus_per_task
+      keyed_resource_limits:
+        source_h5_path:
+          max_concurrent: 1
+  phase_budgets:
+    h5_metadata:
+      description: Light HDF5 metadata and small file reads.
+      bottleneck: h5_read
+      ram_gb: 4
+      h5_read_slots: 1
+      nested_shape: serial
+      keyed_resources:
+        source_h5_path: 1
+    h5_to_binary:
+      description: HDF5/source read plus large binary write.
+      bottleneck: h5_read_and_disk_write
+      ram_gb: 16
+      h5_read_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+      keyed_resources:
+        source_h5_path: 1
+    preprocess_segments:
+      description: Segment-level preprocessing with HDF5/source reads and disk output.
+      bottleneck: h5_read_and_disk_io
+      ram_gb: 24
+      h5_read_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+      keyed_resources:
+        source_h5_path: 1
+    bootstrap_concat_binary:
+      description: Concatenated binary/cache creation from preprocessed segment recordings.
+      bottleneck: disk_io
+      ram_gb: 8
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+      keyed_resources:
+        source_h5_path: 1
+    kilosort4:
+      description: GPU-backed Kilosort4 sorting through SpikeInterface.
+      bottleneck: gpu_and_disk_io
+      #ram_gb: 24
+      ram_gb: 16
+      gpu_sort_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    spikeinterface_analyzer_concat:
+      description: SpikeInterface analyzer, waveform, template, sparsity, or curation work.
+      bottleneck: ram_cpu_disk_io
+      #ram_gb: 48
+      ram_gb: 28
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    bombcell_label:
+      description: Bombcell labeling work that consumes a concat-level analyzer and produces proposed labels.
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 16
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    merge_SLAy:
+      description: SLAy merge work that consumes a concat-level analyzer and produces merge recommendations and metadata summaries.
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 48
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    spikeinterface_analyzer_segment:
+      description: SpikeInterface analyzer work that can be done at the segment level before concatenation, such as per-segment quality metrics or representative channel scoring.
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 14
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+      keyed_resources:
+        source_h5_path: 1
+    extract_partial_templates:
+      description: Per-segment extraction of partial templates from cached analyzers.
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 24
+      analyzer_slots: 1
+      nested_shape: segment_workers
+    template_build:
+      description: Template merge/build or lightweight unit-level compute.
+      bottleneck: cpu_memory_light
+      ram_gb: 8
+      nested_shape: unit_workers
+    axon_reconstruction:
+      description: Axon reconstruction, GTR generation, branch extraction, or unit-level reconstruction math.
+      bottleneck: cpu_memory_light
+      ram_gb: 8
+      nested_shape: unit_workers
+    plot_unit:
+      description: Per-unit plotting or matplotlib-heavy rendering.
+      bottleneck: plotting_memory
+      ram_gb: 8
+      plot_slots: 1
+      nested_shape: unit_workers
+      cpus_per_task: 4
+    plot_report_grid:
+      description: Large report, grid, PDF, summary, or full-chip plotting.
+      bottleneck: plotting_memory_heavy
+      cpus_per_task: 4
+      ram_gb: 24
+      plot_slots: 1
+      nested_shape: serial
+    disk_cleanup:
+      description: Cleanup/deletion of generated intermediate files.
+      bottleneck: disk_metadata_io
+      ram_gb: 4
+      disk_heavy_slots: 1
+      nested_shape: serial
+  defaults:
+    chunk_duration: 1s
+
+logging:
+  enabled: true
+  level: INFO
+  console:
+    enabled: true
+    rich: true
+    level: INFO
+    blank_line_after_phase: true
+  structured:
+    enabled: true
+    path: logs/pipeline.jsonl
+    level: INFO
+  run_log:
+    enabled: true
+    path: logs/pipeline.log
+    level: INFO
+  error_log:
+    enabled: true
+    path: logs/errors.log
+    level: WARNING
+  dataset_logs:
+    enabled: true
+    level: INFO
+  recording_logs:
+    enabled: true
+    level: INFO
+  well_logs:
+    enabled: true
+    level: INFO
+  phase_logs:
+    enabled: true
+    level: INFO
+  resource_usage:
+    enabled: true
+    level: INFO
+    include_children: true
+    sample_interval_s: 0.25
+    include_gpu: true
+    include_disk_io: true
+    write_to_phase_summary: true
+    warnings:
+      enabled: true
+      level: WARNING
+      plan_fraction_threshold: 0.8
+      observed_ram_warn_fraction: 1.25
+      observed_thread_warn_fraction: 1.5
+      underuse_fraction: 0.25
+      underuse_observation_count: 5
+  summary:
+    enabled: true
+    path: logs/summary.json
+  include_external_stdout: false
+  include_external_stderr: false
+  capture_warnings: true
+  capture_uncaught_exceptions: true
+  multiprocessing:
+    enabled: true
+    use_queue_listener: false
+
+stages:
+
+  preprocess:
+    execution:
+      force_restart: false
+      force_replot: false
+    logging:
+      enabled: true
+      verbose: true
+      # Optional custom preprocess log path. Relative paths resolve under preprocess_outputs.
+      file_relpath: logs/preprocess_pipeline.log
+      # Suppress repetitive Neo Maxwell plugin status print (opt-in).
+      suppress_h5_plugin_messages: true
+      # Emit high-visibility phase divider lines in terminal and preprocess log.
+      phase_dividers: true
+    debug_mode:
+      # Optional debug overrides for preprocess execution and outputs.
+      #limit_wells: null # int or null for no limit
+      #limit_segments_per_well: 2 # int or null for no limit
+      #enabled: true
+      #limit_segments_per_well: null
+      #limit_datasets: 1
+      #limit_wells: 1
+      #limit_wells: null
+      #limit_wells_per_dataset: 2
+    observability:
+      # off|basic|detailed; detailed captures richer metadata artifacts for debugging.
+      mode: detailed
+      output_subdir: run_metadata
+      save_run_manifest: true
+      save_event_timeline: true
+      save_environment: true
+      save_artifact_inventory: true
+      save_stage_log: true
+      stage_log_relpath: logs/preprocess_pipeline.log
+    resources:
+      # Stage parallelism now derives from the active machine profile and the enabled phase resource_class envelopes.
+    rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
+    #phase_sequence: [copy_src_to_scratch, save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
+    phase_sequence:
+    - copy_src_to_scratch
+    - save_rec_metadata
+    - preprocess_segments
+    #- plot_segment_traces
+    #- plot_segment_channel_layouts
+    #- concat_segments
+    #- plot_concat_traces
+    #- plot_concat_channel_layout
+    #- plot_raster_threshold
+    #- report_preprocessing
+    #- cleanup_preprocessing_outputs
+    #- wipe_src_scratch
+    phases:
+      copy_src_to_scratch:
+        enabled: true
+        resource_class: h5_to_binary
+        requires_use_scratch_root: true
+        summary_json_relpath: context/copy_src_to_scratch_summary.json
+
+      save_rec_metadata:
+        enabled: true
+        resource_class: h5_metadata
+        verbose: true
+        #metadata_source: source_h5
+        metadata_source: scratch_h5 # use scratch H5 metadata as the source of truth for recording metadata during debugging iterations to validate the integrity of copied recordings and their metadata in scratch space; can be set to source_h5 to use source H5 metadata instead, which is faster to access and can be used when copy_src_to_scratch is false or not the focus of debugging iterations.
+        summary_json_relpath: context/recording_metadata_summary.json
+        segment_epochs_relpath: segment_epochs.json # start/stop timestamps for each segment; relative to preprocess output dir
+        contiguous_epochs_relpath: contiguous_epochs.json # start/stop timestamps for contiguous data within each segment; relative to preprocess output dir
+        sampling_metadata_relpath: sampling_metadata.json # per-segment sampling rate metadata; relative to preprocess output dir
+        common_electrodes_relpath: common_electrodes.npy
+        common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json
+
+      prepare_raw_binaries:
+        enabled: false
+        resource_class: h5_to_binary
+        summary_json_relpath: context/prepare_raw_binaries_summary.json
+        rel_output_root: raw_binary_recording
+        manifest_relpath: context/raw_binary_manifest.json
+        outputs:
+          save_chunk_duration: 1s
+          save_progress_bar: true
+          print_n_jobs_used: true
+
+      preprocess_segments:
+        enabled: true
+        resource_class: preprocess_segments
+        output_mode: lazy # lazy | binary; lazy mode saves per-segment preprocessed outputs in a way that supports lazy loading for downstream phases, while binary mode saves concatenated preprocessed outputs directly as memory-mapped binaries without intermediate per-segment files; keep lazy by default for debugging iterations to allow more granular inspection of per-segment preprocessing outputs, but can be set to binary to skip intermediate file saving and speed up iterations when segment-level inspection is not the focus.
+        #lazy_source: src # src | scratch
+        lazy_source: scratch # use scratch as the default lazy source for preprocess_segments to test lazy loading from scratch outputs during debugging iterations; can be set to src to test lazy loading directly from source recordings instead.
+        rel_output_root: preprocessed_segments
+        summary_json_relpath: context/segment_recordings_summary.json
+        outputs:
+          save_chunk_duration: 1s
+          save_progress_bar: true
+          print_n_jobs_used: true
+
+      plot_segment_traces:
+        enabled: false
+        resource_class: plot_unit
+        summary_json_relpath: context/plot_segment_traces_summary.json
+        plot:
+          # Master preprocess PNG diagnostics override.
+          # true  -> force all preprocess PNG diagnostics OFF
+          # false -> force all preprocess PNG diagnostics ON
+          # null/omit -> respect individual toggles below
+          disable_all_png_diagnostics: false
+
+          # Individual diagnostic toggles for more granular control. These are all independent, so you can enable any combination of them.
+          layouts: false
+          segment_traces: true # legacy alias for per-segment enabled flag
+          # Optional explicit output roots for preprocess diagnostics.
+          # Relative paths resolve under the preprocess output directory.
+          assay_stats_relpath: assay_stats_{stream_id}.txt
+          channel_layouts_subdir: channel_layouts
+          segment_traces_subdir: segment_traces
+          # Representative controls for per-segment trace diagnostics.
+          per_segment_traces:
+            enabled: true
+            # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
+            n_reps: 2
+          # Downsample plotting density for concat/segment trace figures.
+          # Example math (10 kHz source, 30 min recording):
+          #   duration_s = 30 * 60 = 1800 s
+          #   raw_points_per_channel = 10000 * 1800 = 18,000,000
+          #   downsampled_points_per_channel = 250 * 1800 = 450,000
+          #   decimation_factor = 10000 / 250 = 40x fewer samples
+          #   reduction = 1 - (250 / 10000) = 97.5% fewer points
+          # Effective plotting rate is capped further by trace_max_points.
+          #trace_downsample_hz: 250.0
+          #trace_downsample_hz: null # when null, no downsampling is applied to trace diagnostics; use with trace_max_points
+          trace_downsample_hz: 100.0 # downsample to 100 Hz for trace diagnostics; effective rate may be further reduced by trace_max_points
+          trace_max_points: -1 # int or -1 for no cap
+
+      plot_segment_channel_layouts:
+        enabled: false
+        resource_class: plot_unit
+        summary_json_relpath: context/plot_segment_channel_layouts_summary.json
+        plot:
+          layouts: true
+          channel_layouts_subdir: channel_layouts
+
+      concat_segments:
+        enabled: false
+        resource_class: bootstrap_concat_binary
+        concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
+        output_mode: lazy
+        summary_json_relpath: context/concat_segments_summary.json
+        rel_output_root: concatenated_recording
+        manifest_relpath: context/concat_segments_manifest.json
+        outputs:
+          save_chunk_duration: 1s
+          save_progress_bar: true
+          print_n_jobs_used: true
+
+      plot_concat_traces:
+        enabled: false
+        resource_class: plot_unit
+        summary_json_relpath: context/plot_concat_traces_summary.json
+        plot:
+          # Representative controls for concatenated trace diagnostics.
+          concat_trace:
+            enabled: true
+            # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
+            n_reps: 3
+          concat_trace_relpath: concat_cluster_reps_{stream_id}.png
+
+      plot_concat_channel_layout:
+        enabled: false
+        resource_class: plot_unit
+        summary_json_relpath: context/plot_concat_channel_layout_summary.json
+        plot:
+          layouts: true
+          channel_layouts_subdir: channel_layouts
+
+      plot_raster_threshold:
+        enabled: false
+        resource_class: plot_unit
+        summary_json_relpath: context/plot_raster_threshold_summary.json
+        rel_output_root: raster_threshold
+
+      report_preprocessing:
+        enabled: false
+        resource_class: plot_report_grid
+        summary_json_relpath: context/report_preprocessing_summary.json
+        report_relpath: report/preprocessing_report.md
+        json_summary_relpath: report/preprocessing_report.json
+
+      cleanup_preprocessing_outputs:
+        enabled: false
+        resource_class: disk_cleanup
+        summary_json_relpath: context/cleanup_preprocessing_outputs_summary.json
+
+      wipe_src_scratch:
+        enabled: false
+        resource_class: disk_cleanup
+        dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.
+        requires_use_scratch_root: true
+        summary_json_relpath: context/wipe_src_scratch_summary.json
+
+  spikesort:
+    resources:
+      chunk_duration: 1s
+    logging:
+      enabled: true
+      verbose: true
+      file_relpath: logs/spikesort_pipeline.log
+    debug_mode:
+      enabled: true
+      #limit_datasets: 2
+      #limit_wells: 2
+      #limit_wells: null
+      limit_wells_per_dataset: 1
+
+      # This option limits segments included in phases for quicker smoke testing.
+      # - limit number of segments cocatenated in bootstrap_concat_binary.
+      #limit_segments: null
+
+    execution:
+      force_restart: false
+      force_replot: false
+      # Optional debug overrides for spikesort execution and outputs.
+      # limit_wells: null # int or null for no limit
+      # Relative paths resolve under the per-well output directory.
+      output_root: spikesort_outputs # put all outputs during spikesort stage under this subdir in each well's output directory
+      delete_outputs_on_force_restart: true # sort-phase cleanup toggle (alias for phases.sort.delete_outputs_on_force_restart). When force_restart is true, removes stale sort outputs under <well>/<output_root> (for example sorter_output and analyzer_output) before rerunning sort.
+
+      # Optional checkpoint rewind stage in MEA_Analysis (e.g. merge).
+      resume_from: null
+      #resume_from: merge
+    inputs:
+      # Relative paths resolve under the per-well output directory.
+      preprocess_concat_recording_relpath: preprocess_outputs/concatenated_recording
+    #phase_sequence: [bootstrap_concat_binary, sort, bombcell_label, merge_SLAy, cleanup_concat_binary]
+    #phase_sequence: [bootstrap_concat_binary, sort, summarize_sort, bombcell_label, cleanup_concat_binary]
+    phase_sequence:
+    - bootstrap_concat_binary
+    - sort
+    #- summarize_sort
+    - snapshot_sorter_output
+    - concat_analyzer
+    - bombcell_label
+    - merge_SLAy
+    #- bombcell_label_pass2
+    - cleanup_concat_binary
+    - cleanup_analyzers
+    debug_outputs: false
+    phases:
+      #resolve_sources:
+      bootstrap_concat_binary:
+        enabled: true
+        resource_class: bootstrap_concat_binary
+        # Source manifest is produced by preprocess.preprocess_segments; the binary cache is local to spikesort_outputs.
+        source_segment_manifest_relpath: preprocess_outputs/preprocessed_segments/manifest.json
+        cache_relpath: cache/bootstrap_concat_binary
+        recording_relpath: cache/bootstrap_concat_binary/recording
+        manifest_relpath: cache/bootstrap_concat_binary/concat_segments_manifest.json
+        summary_json_relpath: cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json
+        use_as_preprocess_concat_recording: true
+        overwrite_existing: false
+        overwrite_on_force_restart: true
+        chunk_duration: 1s
+        progress_bar: true
+
+      sort:
+        enabled: true
+        resource_class: kilosort4
+        engine: local_spikeinterface # local_spikeinterface works both on the host and inside the axon_recon container; mea_analysis remains available below for explicit local legacy runs.
+
+        source:
+          use_bootstrapped_concat_binary: true # when true, uses the output of the bootstrap_concat_binary phase as the source recording for sorting; when false, uses the original concatenated recording from preprocess outputs instead.
+          use_lazy_source: false # when true, uses the lazy loading mechanism for the source recording during sorting; when false, loads the source recording directly into memory for sorting.
+          assert_one_source: false # when true, asserts that there is exactly one valid source recording available for sorting; when false, allows multiple source recordings and relies on other logic to select the appropriate one.
+
+        sorter:
+          name: kilosort4
+          kilosort:
+            batch_duration_s: 0.75
+            thresholds:
+              universal: 8
+              learned: 7
+              single_ch: 5
+            clustering:
+              downsampling: 15
+            channels:
+              nearest: 12
+              max_distance: 40
+
+        # Two engine options for Kilosort-backed SpikeInterface sorting:
+        # local_spikeinterface - runs in the current Python/container environment. Use this for container and HPC runs.
+        # mea_analysis - runs a MEA_Analysis-style local legacy sort using its configured Docker image. This is tested on the lab server.
+        # Do not enable both at the same time; the sorter configuration options below apply to local_spikeinterface and are ignored when using mea_analysis engine.
+        local_spikeinterface:
+          enabled: true
+          output_relpath: sorter_output
+          remove_existing_on_force_restart: true
+          run_sorter_kwargs: {}
+          analyzer:
+            enabled: true
+            output_relpath: analyzer_output
+
+        mea_analysis:
+          enabled: false
+          docker_image: adammwea/benshalomlab_spikesorter_pythonpatch:v3
+          plot:
+            enabled: true
+            mode: separate # separate|merged
+            plot_debug: false
+            raster_sort: null # e.g. unit_id|firing_rate or null
+            fixed_y: false
+          report:
+            enabled: true
+            no_curation: true
+            export_to_phy: false
+
+      summarize_sort:
+        enabled: false
+        resource_class: template_build
+        emit_logs: true
+        generate_artifacts: false
+
+      snapshot_sorter_output:
+        # Cheap recursive copy of <well>/spikesort_outputs/sorter_output taken once after
+        # summarize_sort. Lets bombcell_label / merge_SLAy iterate without re-running sort.
+        # Restore via the spikesort.restore_sorter_output CLI utility (--confirm required).
+        enabled: true
+        resource_class: template_build
+        relpath: sorter_output_snapshot
+        skip_if_exists: true
+
+      concat_analyzer:
+        # Build the canonical concat-level SortingAnalyzer once per well.
+        # bombcell_label and merge_SLAy consume this analyzer instead of
+        # building their own.
+        # rebuild_on_sorter_output_change=true uses sorter_output_fingerprint.json to skip
+        # rebuilds when sorter_output is unchanged.
+        enabled: true
+        resource_class: spikeinterface_analyzer_concat
+        relpath: concat_analyzer
+        format: binary_folder
+        rebuild_on_sorter_output_change: true
+        #compute_sparsity: true
+        compute_sparsity: false
+        extensions:
+          random_spikes:
+            #max_spikes_per_unit: 500
+            max_spikes_per_unit: 2000
+          waveforms:
+            ms_before: 2.0
+            ms_after: 3.0
+          templates:
+            # Optional template build parameters; when null, defaults are used.
+            seed: 0
+            #random_spikes_percentage: 25
+            #min_spikes_per_unit: 1000
+            #max_spikes_per_unit: 500
+            max_spikes_per_unit: 2000
+            log_before_after_spike_counts: true
+          noise_levels: {}
+        # n_jobs: null  # take from phase budget by default
+        # extensions: null  # null → use DEFAULT_CONCAT_ANALYZER_EXTENSIONS (random_spikes,
+        #                   #   waveforms, templates, noise_levels). Override with a mapping:
+        # extensions:
+        #   random_spikes:
+        #     max_spikes_per_unit: 500
+        #   waveforms:
+        #     ms_before: 1.0
+        #     ms_after: 2.0
+        #   templates: {}
+        #   noise_levels: {}
+
+      bombcell_label:
+        # Slice 3: bombcell_label now consumes the canonical analyzer built by
+        # spikesort.concat_analyzer (slice 2) and honors dry_run. The phase no
+        # longer caches sorter_output or builds its own analyzer; run
+        # spikesort.concat_analyzer first.
+        enabled: true
+        #resource_class: spikeinterface_analyzer_concat
+        resource_class: bombcell_label
+        # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
+        relpath: bombcell_label_outputs
+        delete_outputs_on_force_restart: true
+
+        # When dry_run=true, sorter_output is NEVER mutated. The proposed
+        # cluster_KSLabel.tsv / cluster_group.tsv land in
+        # <bombcell_out_dir>/dry_run/proposed_*.tsv for inspection. Flip to
+        # false once the labels are validated and you want them written back.
+        dry_run: false
+
+        # Canonical Bombcell labeling function arguments.
+        # Mirrors spikeinterface.curation.bombcell_label_units(...)
+        params:
+          label_non_somatic: true
+          split_non_somatic_good_mua: true
+          # optional: provide a custom thresholds dict or thresholds_path
+          # thresholds: null
+          # thresholds_path: null
+
+        apply_to_sorter_output: true
+        write_cluster_group: true
+        # keep false for iterative debugging so merge can continue even if labeling fails
+        fail_on_error: false
+
+        reports:
+          enabled: true
+          # write a summary JSON with label counts and other relevant metadata.
+          summary_json:
+            enabled: true
+            relpath: bombcell_label_summary.json
+
+      merge_SLAy:
+
+        enabled: true
+        #resource_class: spikeinterface_analyzer_concat
+        resource_class: merge_SLAy
+        rel_output_root: merge_SLAy
+        delete_outputs_on_force_restart: true
+        force_restart: false
+        force_replot: false
+
+        # Slice 4: when dry_run=true, sorter_output is copied to a per-run scratch
+        # at <merge_out_dir>/dry_run/sorter_output_scratch and SLAy is pointed
+        # there. SLAy artifacts (run-output.json, recommended_merge_groups.json,
+        # automerge/, candidates.tsv) land under <merge_out_dir>/dry_run/. The
+        # canonical sorter_output stays byte-identical. Flip to false once you
+        # want SLAy to apply merges (with auto_accept_merges=true).
+        dry_run: false
+
+        # merge_SLAy does not build its own analyzer. The canonical concat-level
+        # analyzer (built by spikesort.concat_analyzer) is read once to cache
+        # pre-merge templates / unit_locations / spike counts, then post-merge
+        # values are derived from automerge/new2old.json (weighted average over
+        # constituent pre-merge templates). Analyzer-shaped knobs (random_spikes,
+        # sparsity, waveforms ms_before/after) belong in phases.concat_analyzer.
+        # Post-merge analyzer cleanup is handled by phases.cleanup_analyzers.
+
+        pre_merge_metadata:
+          enabled: true
+          write_json: true
+          json_relpath: pre_merge_metadata_summary.json
+          include_unit_locations: true
+          log_summary_details: true
+
+        post_merge_metadata:
+          enabled: true
+          write_json: true
+          json_relpath: post_merge_metadata_summary.json
+          include_unit_locations: true
+          log_summary_details: true
+
+        reports:
+          enabled: true
+
+          unit_diff_json:
+            enabled: true
+            relpath: unit_diffs_after_merge.json
+
+          unit_diff_map:
+            enabled: true
+            relpath: unit_diff_map.json
+
+          unit_diff_map_flat:
+            enabled: true
+            relpath: unit_diff_map_flat.json
+
+          post_merge_unit_locations:
+            enabled: true
+            relpath: post_merge_unit_locations.json
+
+          2panels_unit_locations_before_after_merge:
+            enabled: true
+            point_size: 2
+            highlight_merges:
+              enabled: true
+              linked_highlight: true
+              before_color: "#ff7f0e"
+              after_color: "#2ca02c"
+              palette: tab20
+              plot_after_other_units: true
+              label_affected_units: false
+              show_legend: true
+              legend_position: center left
+              legend_x: -0.75
+              legend_y: 0.5
+              sort_pre_legend_by_groups: true
+              debug_json: true
+              debug_json_relpath: unit_locations_highlight_linkage.json
+            inherit_probe_dimensions: true
+            zoom_to_affected_units: true
+            label_pre_and_post_units: false
+            assets:
+              before:
+                write_png: true
+                write_svg: false
+                relpath: unit_locations_before_merge.png
+                point_color: "#7a7a7a"
+              after:
+                write_png: true
+                write_svg: false
+                relpath: unit_locations_after_merge.png
+                point_color: "#7a7a7a"
+            write_png: true
+            write_svg: false
+            relpath: unit_locations_before_after_merge.png
+
+          template_heatmaps_per_merge:
+            enabled: true
+            relpath: template_heatmaps_per_merge
+            write_png: true
+            write_svg: false
+            panel_width_in: 11.0
+            panel_height_in: 6.0
+            marker_size: 10.0
+            cmap: viridis
+            show_colorbar: true
+            relative_color_bar_height: 0.5
+            color_scale: log
+            log_epsilon: 0.001
+            magnitude_mode: ptp
+            debug_json_relpath: template_heatmaps_per_merge_report.json
+            assets:
+              relpath: assets
+              write_png: true
+              write_svg: false
+            inherit_probe_dimensions: true
+
+        slay:
+          # SLAy - https://github.com/saikoukunt/SLAy
+          relpath: SLAy_outputs
+          # Optional explicit KS folder. If null, use the selected sorter output and auto-probe nested sorter_output/.
+          # sorter_output_relpath: ../sorter_output/sorter_output
+          allow_numpy_fallback: true
+          copy_automerge_artifacts: true
+          auto_accept_merges: true
+          plot_merges: true
+          output_json_relpath: run-output.json
+          candidate_pairs_relpath: recommended_merge_candidates.tsv
+          merge_groups_relpath: recommended_merge_groups.json
+
+          model_cache:
+            enabled: true
+            #use_cached_model: true
+            use_cached_model: false
+            write_model_cache: true
+            relpath: cache/slay_model/ae.pt
+          force_restart_retrain_model: true
+
+          params:
+            dtype: int16
+            pre_samples: 20
+            post_samples: 62
+            min_spikes: 50
+            #max_spikes: -1
+            #max_spikes: 1000
+            max_spikes: 2000
+            good_lbls: [good, non_soma_good]
+            window_size: 0.1
+            xcorr_bin_width: 0.0005
+            overlap_tol: 0.00016666666666666666 # 5 / 30000
+            min_xcorr_rate: 800
+            xcorr_coeff: 0.25
+            ref_pen_bin_width: 1
+            max_viol: 0.15
+            ref_pen_coeff: 1
+            spikes_path: null
+            model_path: null
+            sim_thresh: 0.4
+            ae_pre: 10
+            ae_post: 30
+            #ae_chan: 8 #
+            ae_chan: 300
+            ae_noise: true
+            ae_shft: false #
+            #ae_epochs: 10
+            ae_epochs: 50
+            final_thresh: 0.5
+            #max_dist: 10
+            max_dist: 20
+            auto_accept_merges: true
+            plot_merges: true
+
+      # Second bombcell labeling pass on the POST-merge sorter. Same machinery as
+      # bombcell_label (above), but runs after merge_SLAy so SLAy-emitted unit IDs
+      # get real bombcell metrics instead of inherited-from-parents labels in
+      # cluster_group.tsv. Inherits analyzer/template/sparsity/waveform settings
+      # from `bombcell_label` above; only the differentiating knobs are exposed
+      # here. Outputs land under `bombcell_label_pass2_outputs/` so pass1 stays
+      # auditable alongside pass2.
+      #
+      # Before scoring, pass2 re-runs `spikesort.concat_analyzer` so the analyzer
+      # cache is rebuilt against the SLAy-mutated sorter (otherwise the
+      # numpysorting_info.json baked at pre-merge time would hide the new IDs).
+      bombcell_label_pass2:
+        # DISABLED: pass2's concat-analyzer rebuild does pick up the post-SLAy
+        # spike_clusters.npy, but SpikeInterface's KiloSortSortingExtractor inner-
+        # joins every cluster_*.tsv on cluster_id, and SLAy leaves
+        # cluster_Amplitude.tsv / cluster_ContamPct.tsv at their pre-merge sizes.
+        # The intersection collapses back to the pre-merge unit set, so pass2
+        # ends up re-labeling exactly the same units pass1 already labeled —
+        # zero added value. Reconstruct now reads cluster_KSLabel.tsv (post-SLAy)
+        # directly, which has the complete post-merge label set. Re-enable only
+        # when the inner-join issue is fixed (see roadmap entry on post-templates
+        # bombcell + SLAy rework).
+        enabled: false
+        resource_class: bombcell_label
+        relpath: bombcell_label_pass2_outputs
+        delete_outputs_on_force_restart: true
+        # Apply pass2 labels back to the post-merge sorter_output by default — that's
+        # the whole point of this pass. Flip to dry_run=true while validating thresholds.
+        dry_run: false
+        apply_to_sorter_output: true
+        write_cluster_group: true
+        fail_on_error: false
+        params:
+          label_non_somatic: true
+          split_non_somatic_good_mua: true
+          # thresholds: null
+          # thresholds_path: null
+        reports:
+          enabled: true
+          summary_json:
+            enabled: true
+            relpath: bombcell_label_pass2_summary.json
+        # The concat analyzer was built BEFORE the merge. SLAy mutated spike_clusters.npy
+        # but did not rebuild the analyzer cache, so its sorting is stale (no IDs 291/292
+        # etc.). We re-run concat_analyzer here; its fingerprint check detects the
+        # changed sorter and rebuilds. `force_restart: true` wipes the existing dir
+        # unconditionally; leave false to trust the fingerprint.
+        rebuild_concat_analyzer:
+          enabled: true
+          force_restart: false
+
+      cleanup_concat_binary:
+        #enabled: true
+        enabled: false
+        resource_class: disk_cleanup
+        relpath: cache/bootstrap_concat_binary
+        summary_json_relpath: cache/bootstrap_concat_binary_cleanup_summary.json
+
+      # Slice 13: dedicated post-merge analyzer cleanup. Runs after
+      # cleanup_concat_binary and deletes <well>/spikesort_outputs/concat_analyzer/
+      # so the analyzer cache doesn't linger after SLAy has applied merges to
+      # the canonical sorter_output. dry_run=true logs the paths that would
+      # be removed without touching the filesystem.
+      cleanup_analyzers:
+        #enabled: true
+        enabled: false
+        dry_run: false
+        resource_class: disk_cleanup
+        relpath: concat_analyzer
+        summary_json_relpath: concat_analyzer_cleanup_summary.json
+
+  reconstruct:
+    phase_sequence:
+      #- resolve_sources
+      - analyzers
+      - extract_partial_templates
+      - build_templates
+      #- compute_template_similarity
+      #- plot_templates
+      - plot_templates_v2
+      - report_templates
+      - generate_gtrs
+      - plot_recons
+      - plot_branch_propagations
+      - plot_branch_velocities
+      - plot_unit_summary
+      - report_recons
+      - report_recon_grid
+      - report_full_chip_layout
+      - report_summaries
+      - clear_templates_cache
+
+    # debug_mode:
+    #   #enabled: true
+    #   #limit_datasets: null
+    #   #limit_datasets: 1
+    #   limit_wells: null
+    #   #limit_wells_per_dataset: null
+    #   limit_wells_per_dataset: 1
+
+    #   # this option limits a phases so that they run quickly for smoke testing:
+    #   # - analyzers prepared for each segment in analyzer phase.
+    #   # - segments loaded to build templates in build_templates phase
+    #   limit_segments: null
+
+    #   # this option limits the number of units to process for faster iterations during debugging; set to null or -1 for no limit.
+    #   # - number of templates built in build_templates phase.
+    #   # - number of templates plotted in plot_templates phase.
+    #   # - number of templates included in report_templates phase.
+    #   # - number of gtrs generated in generate_gtrs phase.
+    #   # - number of units included in plot_recons phase.
+    #   # - number of units included in plot_branch_propagations phase.
+    #   # - number of units included in plot_branch_velocities phase.
+    #   # - number of units included in plot_unit_summary phase.
+    #   # - number of units included in report_recons phase.
+    #   # - number of units included in report_full_chip_layout phase.
+    #   # - number of units included in report_summaries phase.
+    #   unit_limit: null
+
+    debug_prints: false # when true, allow raw/unexpected matplotlib/PIL/fontTools debug output during reconstruct plotting and report phases.
+
+    execution:
+      force_restart: false
+      force_replot: true
+      #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
+
+      unit_label_filter:
+        allowed_labels: [good, non_soma_good]
+        required: true
+
+      # limit number of unit templates to build for debugging purposes. Set to -1 or null for no limit.
+      unit_limit: -1
+      #unit_limit: 1
+
+      # Optional explicit unit subset for fast, deterministic reruns.
+      #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
+
+      # required if clearing concat recording binary at the end of spikesort stage:
+      # only_use_segments: true # since preprocessed segment recordings have the full provenance required to be valid to register spikes from concat spikesorting.
+      # exclude_shared_concat_channels_from_segments: false # when true, this saves a little time by excluding channels shared between segments from the per-segment preprocessed recordings,
+      #   but this also means those channels won't be available for template extraction from segments. If concat binary is cleared, and this is set to true, those share channels wont be included at all.
+      #   therefore this setting must be set to false if only_use_segments is true to ensure that all channels are included in the segment recordings used for template extraction.
+      only_use_segments: true
+      exclude_shared_concat_channels_from_segments: false
+
+    unit_limit: 1000
+    output_rel_root: recon_outputs
+    unit_reldir: units/{unit_id:04d}/
+    report_sort_by: unit_id
+    overwrite_report_outputs_on_unit_rerun: false
+    cleanup_failed_unit_outputs: false
+    failed_units_summary_relpath: failed_units_summary.json
+
+    branch_colors:
+      unique_color_per_branch: true
+      color_scheme: Set1
+
+    phases:
+      resolve_sources:
+        enabled: false
+        resource_class: h5_metadata
+        show_header: true # whether to show a header for this phase in the logs, which can help visually separate it from other phases and identify it quickly when scanning logs.
+        log_candidates: false # Log each candidate path considered per source category.
+        check_path_exists: true # Include existence checks in logs and summaries for candidate paths.
+        include_alternate_well_dirs: false # Probe alternate output roots (for example output_root_2) in addition to the primary well output root.
+        probe_unit_labels: true
+        max_candidates_per_source: 12 # Cap logged/serialized candidate paths per source category.
+        fail_if_required_sources_missing: false # Optional strict mode for debugging source requirements before running heavier phases.
+        write_json: true # Optional write of resolve summary JSON under templates output root.
+        json_relpath: context/resolve_sources_summary.json
+      analyzers:
+        enabled: true
+        resource_class: spikeinterface_analyzer_segment
+        summary_json_relpath: context/analyzers_summary.json
+        defaults:
+          # Job controls applied when templates needs to recompute analyzer extensions locally.
+          #n_jobs: 4
+          #chunk_duration: 1s
+          waveforms:
+            ms_before: 2
+            ms_after: 5
+            #dtype: float32
+          template_extraction:
+            # null or -1 means uncapped (use all available spikes per unit per source)
+            max_spikes_per_unit: -1
+            # uniform samples spikes randomly; all disables random subsampling for template extraction.
+            #random_spikes_method: all
+            random_spikes_percentage: 25
+            #min_spikes_per_unit: 250
+            #margin_size: 0
+            random_seed: 0
+            log_before_after_spike_counts: true
+          sparsity:
+            # false means rebuild/use a dense analyzer payload when templates has to prepare one locally.
+            compute_sparsity: false
+            method: radius
+            radius_um: 100.0
+            peak_sign: neg
+            num_spikes_for_sparsity: 100
+        concat:
+          enabled: false
+          required: false
+          # Segment-only template extraction path: keep this disabled when spikesort cleans up the concat recording binary.
+          # Segment analyzer registration still uses sorting_relpath below and does not require the concat analyzer.
+          use_existing_analyzer: false
+          # Leave false in segment-only mode; rebuilding a concat analyzer requires the preprocessed concat recording.
+          build_if_missing: false
+          analyzer_relpath: /spikesort_outputs/analyzer_output
+          sorting_relpath: /spikesort_outputs/sorter_output
+          preprocessed_recording_reldir: /preprocess_outputs/preprocessed_recording
+          waveforms:
+            ms_before: 2
+            ms_after: 5
+            #dtype: float32
+          template_extraction:
+            #max_spikes_per_unit: -1
+            #random_spikes_method: all
+            random_spikes_percentage: 25
+            #min_spikes_per_unit: 250
+            #margin_size: 0
+            random_seed: 0
+            log_before_after_spike_counts: true
+          sparsity:
+            compute_sparsity: false
+            method: radius
+            radius_um: 100.0
+            peak_sign: neg
+            num_spikes_for_sparsity: 100
+        segments:
+          enabled: true
+          required: true
+          use_existing_analyzer: true
+          build_if_missing: true
+          preprocessed_sources_reldir: /preprocess_outputs/preprocessed_segments
+          waveforms:
+            ms_before: 2
+            ms_after: 5
+            #dtype: float32
+          template_extraction:
+            #max_spikes_per_unit: -1
+            #max_spikes_per_unit: 50
+            #random_spikes_method: all # TODO: this also defaults to 25 % for some reason...
+            #random_spikes_percentage: 75
+            random_spikes_percentage: 100
+            #random_spikes_percentage: 10
+            #random_spikes_percentage: 1
+            #min_spikes_per_unit: 250
+            #margin_size: 0
+            random_seed: 0
+            log_before_after_spike_counts: true
+          sparsity:
+            compute_sparsity: false
+            method: radius
+            radius_um: 100.0
+            peak_sign: neg
+            num_spikes_for_sparsity: 100
+        emit_total_unique_channel_count_per_unit_log: true
+        outputs:
+          analyzer_cache:
+            enabled: true
+            #relpath: cache/analyzers
+            relpath_root: cache/analyzers
+            concat_analyzer_subdir: concat
+            segment_analyzers_subdir: segments
+            cleanup_on_success: false
+      extract_partial_templates:
+        enabled: true
+        resource_class: extract_partial_templates
+        summary_json_relpath: context/extract_partial_templates_summary.json
+      build_templates:
+        enabled: true
+        resource_class: template_build
+        summary_json_relpath: context/build_templates_summary.json
+        lazy_load_analyzers: true # whether to lazy load analyzers during template building, which can reduce memory usage and speed up builds for large datasets with many segments by only loading analyzers when needed for each unit, at the cost of potentially increased runtime due to more frequent loading operations; keep false by default for debugging iterations to simplify data flow and provide more immediate access to analyzer data during development.
+        emit_unit_source_materialization_log: true # log each unit/source payload materialization result, including segment analyzer sources, duration, channel count, and waveform count; useful for finding slow or missing unit-segment pairs during build_templates.
+        outputs:
+          # merged_template: the final merged template waveform for the unit, typically averaged across all segments and/or concatenated segments.
+          # This is the main data artifact representing the spatial footprint and waveform shape of the neuron across the MEA channels, and is used for downstream analyses and plotting.
+          # Will usually be sparse. Should only contain channel / electrodes non-zero signal in the template in at least one template source (segments and / or concat)
+          merged_template:
+            write_npy: true # Usually it's enough to write the merged_template. square, scan, and/or full templates can be derived as needed downstream.
+            npy_relpath: merged_template.npy
+            channel_locations_npy_relpath: merged_channel_locations.npy
+
+          # square_template: a version of the merged template that has been padded to have a square channel layout, with dimensions equal to the max spatial extent of the template
+          # across x and y.
+          # padding can be zeros, ones, or nans as specified in square_template_padding_value.
+          # This can be useful for certain types of analyses or plotting that require a rectangular input format, while still preserving the spatial relationships between channels.
+          square_template:
+            write_npy: false
+            npy_relpath: square_template.npy
+            channel_locations_npy_relpath: square_channel_locations.npy
+            padding_value: zero # zero, one, or nan
+
+          # scan_template: a version of the merged template that includes all electrodes present in the source recording data across all segments.
+          # Dimensions are determined by the full spatial extent of the MEA channels present in the recording, which may be larger than the spatial extent of the template signal itself.
+          # Padded with zeros, ones, or nans as specified in scan_template_padding_value for channels that are not part of the template.
+          scan_template:
+            write_npy: false
+            npy_relpath: scan_template.npy
+            channel_locations_npy_relpath: scan_channel_locations.npy
+            padding_value: zero # zero, one, or nan
+
+          # full_template: a version of the merged template that includes all electrodes present in the full probe, including channels that were not explicitly recorded in the source data
+          # but are present in the MEA layout. By default, we assume the full probe layout corresponds to the maxone and maxtwo channel coordinates in the template locations,
+          # but this can be overridden by specifying a custom full probe layout in the data config.
+          # Copied from debug.data.yml for reference.
+          # Probe: # https://www.mxwbio.com/products/maxtwo
+          #   brand: maxwell
+          #   device: maxtwo_HDMEA
+          #   plate_format: 6-well
+          #   # Per-well active sensing area (used for geometry-aware channel layout plotting).
+          #   active_sensing_area_mm:
+          #     x: 3.85
+          #     y: 2.10
+          #     z: null
+          #   electrodes_per_well: 26400
+          #   # Keep for future runtime checks and resampling defaults.
+          #   sampling_rate_hz: 10000
+          #   pitch_um: 17.5
+          #   electrode_size_um:
+          #     x: 12.0
+          #     y: 8.8
+          full_template:
+            write_npy: false
+            npy_relpath: full_template.npy
+            channel_locations_npy_relpath: full_channel_locations_xy.npy
+            padding_value: zero # zero, one, or nan
+        execution_upsampling:
+          enabled: true
+          method: sinc
+          factor: 10
+          mismatch_tolerance_hz: 0.5
+          raw_rate_fallback_hz: null # optional fallback when raw recording rate cannot be read
+        merge:
+          enable: true
+          # mean_all_waveforms: merge all overlapping source waveforms equally (v1 behavior)
+          # weighted_by_channel_waveform_count: weighted average by per-source waveform count at overlapping channels
+          method: mean_all_waveforms
+          centering_method: pre_peak_robust_baseline # TODO: validate methods here
+          #max_waveforms_per_source_channel: 500
+          max_waveforms_per_source_channel: -1
+          overlap_match_priority: [electrode_id, location]
+          location_tolerance_um: 1.0
+        emit_channel_count_per_unit_after_merge_log: true # whether to log the number of channels in the template after merging, which can be a useful sanity check to ensure that the merge is combining templates in a way that increases the spatial footprint as expected, rather than just taking one template or producing an output with fewer channels than the inputs.
+      compute_template_similarity:
+        enabled: false
+        resource_class: template_build
+        method: hybrid_template_similarity
+        method_options:
+          support: intersection
+          max_lag_samples: 2
+          hybrid_waveform_weight: 0.30
+          hybrid_amplitude_weight: 0.50
+          hybrid_occupancy_weight: 0.20
+        candidate_selection:
+          min_similarity: 0.40
+          top_k_per_unit: 3
+          max_pairs: 12
+      plot_templates:
+        enabled: false
+        resource_class: plot_unit
+        debug_prints: false # when true, allow raw/unexpected plotting debug output from render helpers and third-party plot libraries.
+        summary_json_relpath: context/plot_templates_summary.json
+        resources:
+          unit_procs: 1
+        outputs:
+          ## Per-Unit Template Plots
+          circles:
+            output:
+              write_png: true
+              write_svg: false
+              dpi: 420
+              relpath: template_circles
+            display:
+              channel_scope: contributing_channels
+              invert_y_axis: true
+              force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
+              show_scale_bar: true
+              show_scale_circle: true
+              size_by: amplitude # amplitude or latency; if amplitude, channel circle sizes are scaled by the relative amplitude of the template on each channel. If latency, channel circle sizes are scaled by the relative latency of the template on each channel.
+              color_by: latency # amplitude or latency; if amplitude, channel colors are determined by the relative amplitude of the template on each channel. If latency, channel colors are determined by the relative latency of the template on each channel.
+              scale_bar:
+                text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
+                horizontal_alignment: right
+                vertical_alignment: bottom
+                y_offset_frac: 0.015 # vertical offset of bar from lower edge in axis-height fractions
+                x_offset_frac: 0.02 # horizontal offset of bar from left edge in axis-width fractions
+                x_offset_considers_fontsize: true # when true, x_offset also reserves horizontal room for the scale-bar label text width at current font size.
+                fontsize: 25
+                linewidth: 6
+                #length_um: null # optional fixed bar length; when null uses auto 50/100 um
+
+              #circle in top right corner showing the scale to amplitude values (
+              # e.g. how big a circle with amplitude equal to the max template amplitude would be);
+              # can help visually interpret circle sizes in the plot.
+              scale_circle:
+                diameter: equal_to_max_amplitude # can be equal_to_max_amplitude or fixed_value
+                linewidth: 3
+                #linestyle: solid
+                linestyle: null
+                fill: true
+                fill_color: white
+                fontsize: 15
+                horizontal_alignment: left
+                vertical_alignment: top
+                x_offset_frac: 0.02
+                y_offset_frac: 0.005
+                font_location: right # inside or outside the circle
+                digits_after_decimal: 1 # number of digits after decimal point in scale circle label; set to 0 for integer formatting.
+
+                # only applies if font_location is inside; if the scale circle diameter is smaller than this fraction of the axis width, will move the label outside the circle for better readability.
+                font_location_circle_too_small: below # when font_location is inside, if the scale circle diameter is smaller than this fraction of the axis width, will move the label outside the circle for better readability.
+
+                units: "µV" # label for scale circle units; can be empty string if no units desired.
+
+            render:
+              #fast_render: true # speed-oriented render mode: clamp output DPI and skip expensive overlap/scale-circle passes.
+              fast_render: true # keep false by default for debugging iterations to ensure all rendering features are applied for thorough visual inspection, but can be set to true to speed up iterations when plot formatting is the main focus and some rendering features can be sacrificed.
+              background: black
+              signal_color: white
+              scale_bar_color: white
+              scale_circle_color: white
+            color_bar:
+              units: "ms" # label for color bar units
+              title: "Latency (ms)" # title to show above color bar; if empty string, no title is shown and only tick labels with units are shown.
+              show_axes_title: false # whether to show the "Latency (ms)" title above the color bar, or just the tick labels with units.
+              show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
+              tick_decimal_places: 2 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
+              tick_target_count: 5 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
+              tick_fontsize: 18 # color bar tick label font size
+
+              # when true, forces color bar range to shift.
+              # values at 0 delay and below will be in the first color range.
+              # the exact color depends on the selected colormap.
+              # so values 0 and below will be in that colormap's first range.
+              # if there are negative values, zero will be the least
+              # intense value at the transition point to higher colors.
+              force_zero_and_neg_values_first_color_range: true
+              # >=1.0; higher values sharpen separation around zero while
+              # keeping zero fixed at the first/second color boundary.
+              zero_transition_contrast: 1.5
+            propagation_order_labels:
+              show: false # when true, draw numeric labels on circles in propagation ordering rank.
+              fontsize: 7
+              color: white
+              bbox_alpha: 0.30
+            unit_id_label:
+              show: true
+              fontsize: 30
+              color: white
+              x_offset_frac: 0.02
+              y_offset_frac: 0.00
+              x_offset_considers_fontsize: true
+              horizontal_alignment: right
+              vertical_alignment: top
+            show_axes: false
+            center_most_channel_coords:
+              show: true # whether to show coordinate labels centered on the most central channel in the template, which can help with orienting the template relative to the MEA layout.
+              fontsize: 25
+              color: white
+              x_offset_frac: 0.02
+              y_offset_frac: 0.00
+              horizontal_alignment: left
+              vertical_alignment: bottom
+
+            # edge case overlapping in displayed elements in plot can happen.
+            # easy fix, detect overlaps, increase xy range (zoom out) and replot until overlap is resolved.
+            # measure xy space covered by fonts and shapes.
+            # determine if same space is occupied by elements in any case.
+            # if so, zoom out a bit and try again.
+            overlap_controls:
+              scalebar_coords_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              scalebar_colorbar_overlap_detect: true # whether to check for overlaps between scale bar and color bar; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              unitid_label_channel_overlap_detect: true # whether to check for overlaps between unit ID label and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              coords_channel_overlap_detect: true # whether to check for overlaps between coordinate labels and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              scalebar_channel_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+              max_overlap_check_iterations: 10 # maximum number of iterations to attempt to resolve overlaps through zooming out; if exceeded, will give up and plot with overlaps.
+              scalecircle_channel_overlap_detect: true # whether to check for overlaps between scale circle and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+      plot_templates_v2:
+        enabled: true
+        resource_class: plot_unit
+        debug_prints: false
+        summary_json_relpath: context/plot_templates_v2_summary.json
+        force_soma_lowest_color_range: true # when true, forces the channel identified as the soma (i.e. the channel with the largest amplitude in the template) to be in the lowest color range of the colormap, which can help with visually distinguishing the soma channel from other channels in the template plot, especially when using a colormap where higher values are more visually prominent.
+        force_soma_lowest_color_range_buffer_ms: .75 # width of the soma-friendly low-color band in milliseconds; only used when force_soma_lowest_color_range is true.
+        output:
+          write_png: true
+          write_svg: false
+          dpi: 420
+          relpath: template_circles_v2
+          bbox_inches: null # null avoids the extra tight-bbox layout pass; set to tight only when needed.
+        display:
+          channel_scope: contributing_channels
+          size_by: amplitude
+          color_by: latency
+          padding_fraction: 0.08
+          padding_um: null
+          x_min: null
+          x_max: null
+          y_min: null
+          y_max: null
+          force_square_aspect: true
+          center_on_peak: false
+          invert_y_axis: true
+          show_axes: false
+          show_axis_labels: false
+        render:
+          background: black
+          marker_color: white
+          edge_color: none
+          marker_linewidth: 0
+          marker_alpha: 0.92
+          marker_min_size: 1
+          marker_max_size: 3.15
+          marker_size_scaling: log # linear | sqrt | log ; controls how marker sizes are scaled by the amplitude values.
+          show_scale_circle: true
+          scale_circle_color: white
+          scale_circle:
+            digits_after_decimal: 1
+            units: uV
+          cmap: viridis
+        layout:
+          figsize: [8.0, 6.0]
+          left: 0.06
+          right: 0.88
+          bottom: 0.06
+          top: 0.94
+        title:
+          show: true
+          text: "Unit {unit_id}"
+          x: 0.5
+          y: 0.98
+          fontsize: 9
+          color: white
+          horizontal_alignment: center
+          vertical_alignment: top
+        unit_id_label:
+          show: false
+          text: "{unit_id}"
+          x: 0.98
+          y: 0.98
+          fontsize: 8
+          color: white
+          horizontal_alignment: right
+          vertical_alignment: top
+        coords:
+          show: true
+          text: "x={x_um:.1f} um, y={y_um:.1f} um"
+          x: 0.02
+          y: 0.02
+          fontsize: 7
+          color: white
+          horizontal_alignment: left
+          vertical_alignment: bottom
+        colorbar:
+          show: true
+          label: ""
+          units: ms
+          reverse: true
+          fontsize: 7
+          tick_fontsize: 6
+          color: white
+          x: 0.90
+          y: 0.14
+          width: 0.025
+          height: 0.70
+        scale_bar:
+          show: true
+          length_um: 100
+          label: "{length_um:g} um"
+          x: 0.96
+          y: 0.06
+          fontsize: 6
+          color: white
+          linewidth: 1.6
+          horizontal_alignment: right
+          text_y_offset: 0.018
+      report_templates:
+        enabled: true
+        consume: plot_templates_v2 # plot_templates | plot_templates_v2
+        resource_class: plot_report_grid
+        summary_json_relpath: context/report_templates_summary.json
+        # write pdf slide deck of all circle style template plots for all units.
+        relpath: template_report.pdf
+        write_pdf: true
+      per_unit_processing:
+        enabled: false
+        resource_class: template_build
+        outputs:
+          # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
+          # but should not include file name or extension components since those are specified separately for each output type below.
+          unit_reldir: units/{unit_id:04d}/
+        quality_checks:
+          enabled: false
+          config:
+            suppress_warnings: true
+            multiple_peaks_at_channel_templates:
+              enable: true
+              prominence_fraction: 0.30
+              min_separation_samples: 8
+              # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
+              max_peaks_per_channel: 2
+              plot_violations: true
+          outputs:
+            data_outputs:
+              quality_checks:
+                multiple_peaks_at_channel_templates:
+                  write_json: true
+                  json_relpath: multiple_peaks_at_channel_templates.json
+            quality_checks:
+              # multiple_peaks_at_channel_templates: information about any channels in the template that have multiple peaks in their waveforms,
+              # which can be an indicator of potential issues with the template such as overlapping units or noise contamination.
+              multiple_peaks_at_channel_templates:
+                write_json: true
+                json_relpath: multiple_peaks_at_channel_templates.json
+                plot:
+                  write_png: true
+                  write_svg: false
+                  relpath: multiple_peaks_at_channel_templates
+                  show_multiple_peak_markers: true # when true, draw all detected negative peaks for each violating channel.
+                  delay_peak_marker_color: red # color used for the peak selected for delay ordering/latency calculations.
+        analysis:
+          enabled: true
+          propagation_ordering:
+            enable: true
+            latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
+            latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
+            debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
+      reports:
+        enabled: false
+        resource_class: plot_report_grid
+        summary_json_relpath: context/reports_summary.json
+        locations:
+          enabled: true
+        wf_overlay_grid:
+          enabled: true
+        footprint_grids:
+          enabled: true
+        multi_source_pdf:
+          enabled: true
+        config:
+          # Before this point, the last time we see and report locations is in spikesortings stage.
+          # and at that point we have incomplete templates. Only info from cocat.
+          # So here we iterate through each template and get location of each one
+          # based on maximum_neg_peak channel in each template.
+          # Collect the locations in a json file.
+          # plot the chip with unit location scatter.
+          # label points with unit id optionally.
+          locations:
+            output:
+              write_json: true
+              json_relpath: unit_locations.json
+              write_png: true
+              png_relpath: unit_locations.png
+              write_svg: true
+              svg_relpath: unit_locations.svg
+            render:
+              background: black
+              chip_scatter_color: white
+              chip_scatter_size: 6
+              chip_scatter_alpha: 0.8
+              invert_y_axis: true
+              use_probe_active_area: true
+              underlay_concat_channels: true
+              concat_channel_scatter_color: "#8a8a8a"
+              concat_channel_scatter_size: 1.8
+              concat_channel_scatter_alpha: 0.25
+              underlay_template_channels: false
+              template_channel_scatter_size: 1.2
+              template_channel_scatter_alpha: 0.35
+              template_channel_colormap: tab20
+            display:
+              show_unit_id_labels: false
+              show_original_to_current_redlines: true
+              redline_color: red
+              redline_alpha: 0.9
+              redline_linewidth: 0.7
+              unit_id_label_fontsize: 6
+              unit_id_label_color: white
+              unit_id_label_x_offset_frac: 0.02
+              unit_id_label_y_offset_frac: 0.02
+              unit_id_label_horizontal_alignment: right
+              unit_id_label_vertical_alignment: top
+
+          grids:
+            sort_by: unit_id # unit_id, max_amplitude, max_ptp, or max_negative_peak, max_delay, template density
+            wf_overlay_grid:
+              output:
+                write_pdf: false
+                pdf_relpath: wf_overlay_grid.pdf
+                write_png: true
+                png_relpath: wf_overlay_grid.png
+                write_svg: true
+                svg_relpath: wf_overlay_grid.svg
+                keep_temp_svg: false
+                temp_svg_relpath: wf_overlay_grid__temp.svg
+              render:
+                mode: direct_replot
+                dpi: 420
+                subplot_background_color: white
+                figure_background_color: white
+              display:
+                top_channels_per_template: 10
+
+              # I think this was just for the wf overlay grid report...
+              # but it may go in other place.
+              # TODO: assess where else this type of upsampling might go.
+              # Maybe just need to upsample after spikesorting.
+              time_upsample:
+                factor: 10
+                method: sinc
+
+            footprint_grids:
+              circles_map_grid:
+                output:
+                  write_pdf: false
+                  pdf_relpath: circles_map_grid.pdf
+                  write_png: true
+                  png_relpath: circles_map_grid.png
+                  write_svg: true
+                  svg_relpath: circles_map_grid.svg
+                  keep_temp_svg: false
+                  temp_svg_relpath: circles_map_grid__temp.svg
+                display:
+                  show_title: false
+                render:
+                  mode: direct_replot
+                  dpi: 420
+                  template: square
+                  global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
+                  subplot_background_color: black # background color for each subplot in the grid; separate from the underlying map plot background configured on the corresponding plot output block.
+
+              amplitude_map_grid:
+                output:
+                  write_pdf: false
+                  pdf_relpath: amplitude_map_grid.pdf
+                  write_png: true
+                  png_relpath: amplitude_map_grid.png
+                  write_svg: true
+                  svg_relpath: amplitude_map_grid.svg
+                  keep_temp_svg: false
+                  temp_svg_relpath: amplitude_map_grid__temp.svg
+                display:
+                  show_title: false
+                render:
+                  mode: direct_replot
+                  dpi: 420
+                  template: square
+                  global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
+                  subplot_background_color: black # background color for each subplot in the grid; separate from the underlying map plot background configured on the corresponding plot output block.
+
+              latency_map_grid:
+                output:
+                  write_pdf: false
+                  pdf_relpath: latency_map_grid.pdf
+                  write_png: true
+                  png_relpath: latency_map_grid.png
+                  write_svg: true
+                  svg_relpath: latency_map_grid.svg
+                  keep_temp_svg: false
+                  temp_svg_relpath: latency_map_grid__temp.svg
+                display:
+                  show_title: false
+                render:
+                  mode: direct_replot
+                  dpi: 420
+                  template: square
+                  global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
+                  subplot_background_color: black # background color for each subplot in the grid; separate from the underlying map plot background configured on the corresponding plot output block.
+      generate_gtrs:
+        enable: true
+        resource_class: axon_reconstruction
+        #reconstruct_with_axon_velocity: true
+        outputs:
+          # JSON artifacts emitted by the generate_gtrs phase.
+          write_branches_raw_json: true
+          branches_raw_relpath: branches_raw.json
+          write_branches_json: true
+          branches_relpath: branches.json
+
+          write_detection_filter_json: true
+          detection_filter_relpath: detection_filter.json
+          write_kurtosis_filter_json: true
+          kurtosis_filter_relpath: kurtosis_filter.json
+          write_peak_std_filter_json: true
+          peak_std_filter_relpath: peak_std_filter.json
+          write_delay_filter_json: true
+          delay_filter_relpath: delay_filter.json
+          write_all_filters_json: true
+          all_filters_relpath: all_filters.json
+          write_heuristics_json: true
+          heuristics_relpath: heuristics.json
+
+
+          diagnostic_figs:
+
+            # filters fig.
+            # column 1:
+            # - amplitude map
+            # - latency map
+            # column 2:
+            # - selected after detection filter
+            # - selected after kurtosis filter
+            # - selected after peak std filter
+            # - selected after init delay filter
+            # column 3:
+            # - selected after all filters
+            channel_selection:
+              write_png: true
+              write_svg: false
+              relpath: diagnostic_figs/channel_selection
+              dpi: 300
+              invert_y_axis: true
+
+            # heuristic fig.
+            # row 1:
+            # - h_init heuristics
+            # - h_edge heuristics
+            # row 2:
+            # - raw branches
+            # - branch velocities
+            axon_reconstruction:
+              write_png: true
+              write_svg: false
+              relpath: diagnostic_figs/axon_reconstruction
+              dpi: 300
+              invert_y_axis: true
+
+
+
+          # GTR artifacts.
+          template_source: merged # which template to use for GTR-based analyses and outputs; merged, square, full, or full_from_merged.
+          write_gtr_pkl: true
+          gtr_pkl_relpath: gtr.pkl
+          write_gtr_json: false
+          gtr_json_relpath: gtr.json
+        axon_velocity:
+          enabled: true
+          params:
+            upsample: 1
+            init_delay: 0.1
+            #init_delay: 0
+            # default: 3
+            min_points_after_branching: 2
+            # default: 100
+            min_path_length: 17.5
+            # default: 5
+            min_path_points: 4
+            # default: 0.5
+            # max_peak_latency_for_splitting: 2.0
+            # max_peak_latency_for_splitting: 0.5 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
+            max_peak_latency_for_splitting: .25 # lower -> more aggressive splitting, higher -> less splitting; controls the maximum allowed latency of the peak channel in a branch for it to be eligible for splitting, which can help prevent over-splitting of branches with long propagation delays and/or low SNR peaks.
+            # default: 0.3
+            kurt_threshold: 0.3
+            #kurt_threshold: -10.0
+            peak_std_threshold: 1.0
+            #peak_std_threshold: null
+            peak_std_distance: 30
+            # default: 3
+            n_neighbors: 8
+            # default: 2
+            # distance_exp: 1
+            distance_exp: 2
+            # default: true
+            remove_isolated: false
+            detection_type: "relative" # "relative" or "absolute". relative means the detect_threshold is relative to the expected amplitude of the branch at that location, while absolute means the detect_threshold is an absolute value in microvolts.
+            # default: 0.01
+            detect_threshold: 0.01
+            #detect_threshold: 0.0001
+            # default: 30
+            min_selected_points: 30
+            #r2_threshold: 0.9
+            r2_threshold: 0.85
+            #max_distance_for_edge: 75
+            max_distance_for_edge: 100
+            max_distance_to_init: 200
+            # default: 8
+            mad_threshold: 10
+            init_amp_peak_ratio: 0.2
+            edge_dist_amp_ratio: 0.3
+            r2_threshold_for_outliers: 0.98
+            # default: 50
+            # min_outlier_tracking_error: 200
+            min_outlier_tracking_error: 50
+            # default: 100
+            # neighbor_radius: 50
+            neighbor_radius: 100
+            split_paths: true
+            # default: 2000
+            theilsen_maxiter: 8000
+      plot_recons:
+        enable: true
+        resource_class: plot_unit
+        outputs:
+          amplitude_map:
+            write_png: true
+            relpath: maps/amplitude_map
+            invert_y_axis: true
+            panel_background_color: black
+            color_bar:
+              low_color: blue
+          circle_recon:
+            display:
+              # TODO: Since we typically focus in on branches here instead of the channels
+              # contributing to template, color bar needs to be adjusted so it dynamically
+              # adjusts based on values in the xy scope after zooming in on branches and nodes.
+              base: template_circles # which template plot to put branch morphology on top of; circles, amplitude_map, or latency_map.
+              #channel_scope: selected_channels # use channels that survive axon_velocity filtering, then overlay the chosen branch scope on top.
+              channel_scope: branch_nodes
+              zoom_to_branches: true # when true, crop the v2 recon plot to the bbox of reconstructed branch channels (plus zoom_padding_percent) and scale markers by the area zoom factor so diameters stay in proportion to channel pitch. When false (default), use the full unit footprint extent so marker pt² stays in proportion to channel pitch like the template plot.
+              zoom_padding_percent: 25 # extra padding (percent of span) around the branches bbox when zoom_to_branches is true; also used by the legacy v1 circle_recon viewport.
+              invert_y_axis: true
+              force_center_soma: true # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
+              branch_scope: raw # raw or clean; whether to plot all branches in branches_raw or only the cleaned branches in branches.
+              show_branch_labels: false # whether to draw branch ID labels on the plot, which can be useful for visually verifying branch correspondences between the plot and the branch data in the JSON outputs.
+              show_branch_legend: true # whether to show a legend mapping branch colors to branch IDs, which can be helpful for interpreting the plot when unique_color_per_branch is true and there are multiple branches.
+              branch_linewidth_pt: 1.5
+              node_inline_linewidth_pt: 1.0
+              node_outline_color: white
+              node_outline_linewidth: 0.5
+              branch_outline_color: white
+              branch_outline_linewidth: 0.25
+            output:
+              write_png: true
+              write_svg: false
+              relpath: circle_recon
+              #dpi: 420
+              dpi: 300
+      plot_branch_propagations:
+        enable: true
+        resource_class: plot_unit
+        branch_scope: raw
+        display:
+          figsize: [2.75, 6.0] # baseline per-branch column size [width, height] before any total-width modulation is applied.
+          total_width: 22.0 # keep the combined propagation figure width fixed and modulate per-branch column widths to fit it.
+          sort_templates: false # keep traces in branch channel order; true re-orders traces within each branch column by peak time.
+          show_title: true
+          invert_y_axis: false
+        output:
+          write_png: true
+          write_svg: false
+          relpath: branch_qc/propagations
+          manifest_relpath: reports/branch_propagations_manifest.json
+          dpi: 300
+      plot_branch_velocities:
+        enable: true
+        resource_class: plot_unit
+        branch_scope: raw
+        display:
+          figsize: [4.5, 6.5] # single combined branch-velocity plot size [width, height]; portrait so the plot area is taller than it is wide.
+          show_title: true
+          title_fontsize: 16
+          axis_label_fontsize: 13
+          tick_label_fontsize: 11
+          units_only_axis_labels: true # default to concise axis labels that show only units; set false to restore descriptive labels.
+          show_legend: true # legend entries use compact branch labels like b0/b1 and include velocity plus r^2; legend is placed outside the axes.
+          legend_fontsize: 17
+        output:
+          write_png: true
+          write_svg: false
+          relpath: branch_qc/velocities
+          manifest_relpath: reports/branch_velocities_manifest.json
+          dpi: 300
+      plot_unit_summary:
+        enable: true
+        resource_class: plot_unit
+        display:
+          show_title: false
+          show_summary_unit_label: true
+          summary_unit_label_fontsize: 26
+          summary_unit_label_x_frac: 0.015
+          summary_unit_label_y_frac: 0.985
+          recon_show_unit_label: false
+          recon_show_branch_legend: false
+          velocity_show_title: false
+          show_velocity_legend: true
+          reserve_velocity_legend_space: true # reserve an explicit top-row gutter so the summary velocity panel keeps the standalone legend treatment.
+          velocity_legend_width: 2.25 # width in inches reserved for the velocity legend when reserve_velocity_legend_space is true.
+          top_row_panel_gap_width: 1.15 # explicit horizontal gap between the circle-recon panel/colorbar and the velocity panel so the velocity plot keeps its standalone aspect and the colorbar ticks do not crowd the velocity y-axis.
+          top_row_height: 6.5 # total height in inches for the top row containing circle recon and combined velocity plot.
+          propagation_row_height: 6.0 # total height in inches for the bottom row containing branch propagation columns.
+          circle_panel_width: 6.5 # width in inches for the circle-recon panel inside the summary figure.
+          velocity_panel_width: 2.2 # width in inches for the embedded velocity axes area; narrower so the summary panel stays visually close to the standalone plot area while leaving room for the external legend gutter.
+          recon_x_offset_frac: 0.0
+          recon_y_offset_frac: 0.0
+          velocity_x_offset_frac: 0.0
+          velocity_y_offset_frac: 0.0
+          propagation_x_offset_frac: 0.0
+          propagation_y_offset_frac: 0.0
+      report_recons:
+        enable: true
+        resource_class: plot_report_grid
+        # Emit report-stage artifacts from persisted reconstruct plot outputs.
+        av_recons:
+          write_pdf: true
+          pdf_relpath: av_recons.pdf
+        summary_png:
+          write: false
+          relpath: summary.png
+        report_md:
+          write: false
+          relpath: report.md
+      report_recon_grid:
+        enable: true
+        resource_class: plot_report_grid
+        output:
+          write_pdf: false
+          pdf_relpath: reports/circle_recon_grid.pdf
+          write_png: true
+          png_relpath: reports/circle_recon_grid.png
+          write_svg: true
+          svg_relpath: reports/circle_recon_grid.svg
+          keep_temp_svg: false
+          temp_svg_relpath: reports/circle_recon_grid__temp.svg
+        display:
+          show_title: false
+        render:
+          dpi: 420
+      report_full_chip_layout:
+        enable: true
+        resource_class: plot_report_grid
+        # Aggregate all successfully reconstructed unit branches onto a single chip-level layout.
+        # raw|clean
+        branch_scope: raw
+        unit_colors:
+          # distinct_hsv|colormap
+          strategy: distinct_hsv
+          color_scheme: nipy_spectral
+        display:
+          invert_y_axis: true
+          figsize: [13.0, 7.0]
+          show_title: true
+          title: Full-chip reconstructed branch layout
+          alpha: 0.80
+          linewidth: 1.25
+          show_legend: false
+          legend_fontsize: 6
+          legend_ncols: 1
+          draw_chip_outline: true
+          chip_outline_color: "#666666"
+          chip_outline_linewidth: 1.0
+          background_color: white
+        output:
+          write_png: true
+          write_svg: true
+          relpath: reports/full_chip_layout
+          manifest_relpath: reports/full_chip_layout_manifest.json
+          dpi: 300
+      report_summaries:
+        enable: true
+        resource_class: plot_report_grid
+        write_pdf: true
+        pdf_relpath: reports/reconstruct_summary_deck.pdf
+      clear_templates_cache:
+        enabled: true  # set to true after verifying recon outputs are correct
+        resource_class: disk_cleanup
+        keep_merged_per_unit_outputs: false
+        keep_full_channels_templates: false
+
+  analysis:
+    enabled: true
+    output_rel_root: analysis_outputs
+    phase_sequence:
+      - compute_metrics
+    phases:
+      compute_metrics:
+        enabled: true
+        # The phase only reads small JSON artifacts and writes a manifest, so it
+        # piggybacks on the disk_cleanup budget (serial, 4 GB RAM).
+        resource_class: disk_cleanup

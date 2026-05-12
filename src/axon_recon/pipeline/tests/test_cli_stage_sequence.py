@@ -300,7 +300,7 @@ def test_run_stage_sequence_alloc_prints_preview_without_running_handlers(monkey
 
     args = argparse.Namespace(
         stages=["preprocess"],
-        config="debug/debug.runtime.yml",
+        config="default.runtime.yml",
         alloc=True,
         target_datasets=["0,2", "8"],
         unit_id=None,
@@ -340,7 +340,7 @@ def test_run_stage_sequence_alloc_skips_non_root_rank_for_mpi_override(monkeypat
 
     args = argparse.Namespace(
         stages=["preprocess"],
-        config="debug/debug.runtime.yml",
+        config="default.runtime.yml",
         alloc=True,
         target_datasets=["11,12"],
         unit_id=None,

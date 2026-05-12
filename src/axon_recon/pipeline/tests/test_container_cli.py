@@ -29,7 +29,7 @@ def test_container_wrapper_forwards_pipeline_args_without_stage_whitelist(tmp_pa
         "spikesort",
         "reconstruct.analyzers",
         "--config",
-        "debug/debug.runtime.yml",
+        "default.runtime.yml",
         "--limit-segments",
         "2",
         "--limit-datasets",
@@ -78,7 +78,7 @@ def test_container_wrapper_forwards_alloc_flag(tmp_path: Path) -> None:
         "stages",
         "reconstruct.report_templates",
         "--config",
-        "debug/debug.runtime.yml",
+        "default.runtime.yml",
         "--alloc",
     ]
     options = container_cli._parse_options(["--no-build", "--dry-run", "--no-config-mounts", *forwarded])
@@ -95,7 +95,7 @@ def test_container_wrapper_forwards_singular_target_dataset_flag(tmp_path: Path)
         "stages",
         "preprocess",
         "--config",
-        "debug/debug.runtime.yml",
+        "default.runtime.yml",
         "--target-dataset",
         "12",
         "--limit-wells",
@@ -127,7 +127,7 @@ def test_container_wrapper_gpus_option_is_forwarded_to_docker_run(tmp_path: Path
         "stages",
         "spikesort",
         "--config",
-        "debug/debug.runtime.yml",
+        "default.runtime.yml",
     ])
 
     cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
@@ -445,7 +445,7 @@ def test_container_wrapper_cpuset_cpus_is_forwarded_to_docker_run(tmp_path: Path
         "stages",
         "preprocess",
         "--config",
-        "debug/debug.runtime.yml",
+        "default.runtime.yml",
     ])
 
     assert options.cpuset_cpus == "0-7"

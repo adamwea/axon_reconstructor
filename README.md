@@ -15,9 +15,15 @@ The installed command is still named `axon-reconstructor`, but it now dispatches
 Useful development references:
 
 - Environment spec: [environment.yml](environment.yml)
-- Runtime config: [debug/debug.runtime.yml](debug/debug.runtime.yml)
-- Data config: [debug/debug.data.yml](debug/debug.data.yml)
-- Refinement notes: [debug/pipeline_refinement_commit_notes.md](debug/pipeline_refinement_commit_notes.md)
+- Default runtime config (hermetic template): [default.runtime.yml](default.runtime.yml)
+- Example data config (schema only): [example.data.yml](example.data.yml)
+- Lab-server runtime config: [debug_local/debug.runtime.yml](debug_local/debug.runtime.yml)
+- Lab-server data config: [debug_local/debug.data.yml](debug_local/debug.data.yml)
+- NERSC runtime config: [debug_NERSC/debug.runtime.yml](debug_NERSC/debug.runtime.yml)
+- NERSC data config: [debug_NERSC/debug.data.yml](debug_NERSC/debug.data.yml)
+- Example run/launch wrappers: [examples/](examples/)
+- Dev notes (plans, guardrails, trackers, commit log): [dev_notes/](dev_notes/)
+- Refinement notes: [dev_notes/ai_notes/pipeline_refinement_commit_notes.md](dev_notes/ai_notes/pipeline_refinement_commit_notes.md)
 
 ## Environment setup
 

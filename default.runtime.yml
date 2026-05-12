@@ -1,0 +1,213 @@
+# Default runtime configuration for axon_reconstructor.
+#
+# This is a hermetic template:
+#   - No real lab data paths.
+#   - One conservative resource profile ("default") sized for a laptop.
+#   - All stages disabled by default; opt in by flipping `enabled: true`
+#     and providing real datasets in your data config.
+#
+# To use:
+#   1. Copy this file (or use it directly) and adjust `output_root`,
+#      `scratch_root`, and the active resource profile to suit your machine.
+#   2. Point `data:` at a real data config (see example.data.yml for the
+#      schema; replace placeholder paths with real raw_data .h5 files).
+#   3. Run via `axon-recon --config default.runtime.yml stages ...`.
+#
+# For the production lab config see debug_local/debug.runtime.yml or
+# debug_NERSC/debug.runtime.yml.
+
+data: ./example.data.yml
+
+env:
+  python:
+    executable_path: ${HOME}/miniconda3/envs/axon_recon/bin/python
+    conda_env_name: axon_recon
+
+output_root: /tmp/axon_recon/outputs
+scratch_root: /tmp/axon_recon/scratch
+use_scratch_root: false
+publish_outputs: false
+wipe_scratch_roots: false
+
+resources:
+  active_profile: default
+  container_caps:
+    shm_size: 8g
+    memory: null
+    memory_reservation: null
+    memory_swap: null
+    ipc: null
+  profiles:
+    default:
+      capacity:
+        cpu_cores: 4
+        ram_gb: 8
+        gpu_sort_slots: 0
+        h5_read_slots: 1
+        disk_heavy_slots: 1
+        plot_slots: 1
+        analyzer_slots: 1
+      task_allocation:
+        enabled: true
+        backend: local_affinity
+        task_unit: well
+        cpus_per_task: 2
+        tasks_per_node: auto
+        bind: physical_cores
+        use_hyperthreads: false
+        reserve_cpus: 0
+        set_thread_env: true
+        nested_thread_policy: match_cpus_per_task
+        ram_gb_per_task: null
+        shm_gb_per_task: null
+      keyed_resource_limits:
+        source_h5_path:
+          description: Limit concurrent well-workers touching the same source H5 file.
+          max_concurrent: 1
+          applies_to:
+            - h5_metadata
+            - h5_to_binary
+            - preprocess_segments
+            - bootstrap_concat_binary
+            - spikeinterface_analyzer_segment
+  phase_budgets:
+    h5_metadata:
+      bottleneck: h5_read
+      ram_gb: 2
+      h5_read_slots: 1
+      nested_shape: serial
+      keyed_resources:
+        source_h5_path: 1
+    h5_to_binary:
+      bottleneck: h5_read_and_disk_write
+      ram_gb: 4
+      h5_read_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+      keyed_resources:
+        source_h5_path: 1
+    preprocess_segments:
+      bottleneck: h5_read_and_disk_io
+      ram_gb: 4
+      h5_read_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+      keyed_resources:
+        source_h5_path: 1
+    bootstrap_concat_binary:
+      bottleneck: disk_io
+      ram_gb: 4
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+      keyed_resources:
+        source_h5_path: 1
+    kilosort4:
+      bottleneck: gpu_and_disk_io
+      ram_gb: 4
+      gpu_sort_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    spikeinterface_analyzer_concat:
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 4
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    spikeinterface_analyzer_segment:
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 4
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+      keyed_resources:
+        source_h5_path: 1
+    bombcell_label:
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 4
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    merge_SLAy:
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 4
+      analyzer_slots: 1
+      disk_heavy_slots: 1
+      nested_shape: si_njobs
+    extract_partial_templates:
+      bottleneck: ram_cpu_disk_io
+      ram_gb: 4
+      analyzer_slots: 1
+      nested_shape: segment_workers
+    template_build:
+      bottleneck: cpu_memory_light
+      ram_gb: 2
+      nested_shape: unit_workers
+    axon_reconstruction:
+      bottleneck: cpu_memory_light
+      ram_gb: 2
+      nested_shape: unit_workers
+    plot_unit:
+      bottleneck: plotting_memory
+      ram_gb: 2
+      plot_slots: 1
+      nested_shape: unit_workers
+      cpus_per_task: 1
+    plot_report_grid:
+      bottleneck: plotting_memory_heavy
+      cpus_per_task: 1
+      ram_gb: 4
+      plot_slots: 1
+      nested_shape: serial
+    disk_cleanup:
+      bottleneck: disk_metadata_io
+      ram_gb: 2
+      disk_heavy_slots: 1
+      nested_shape: serial
+  defaults:
+    chunk_duration: 1s
+
+logging:
+  enabled: true
+  level: INFO
+  console:
+    enabled: true
+    rich: true
+    level: INFO
+  structured:
+    enabled: true
+    path: logs/pipeline.jsonl
+    level: INFO
+  run_log:
+    enabled: true
+    path: logs/pipeline.log
+    level: INFO
+  error_log:
+    enabled: true
+    path: logs/errors.log
+    level: WARNING
+  summary:
+    enabled: true
+    path: logs/summary.json
+
+# Stages are disabled by default. Flip `enabled: true` per stage and supply
+# real datasets in your data config to opt in.
+stages:
+  preprocess:
+    enabled: false
+    rel_output_root: preprocess_outputs
+    phase_sequence: []
+
+  spikesort:
+    enabled: false
+    rel_output_root: spikesort_outputs
+    phase_sequence: []
+
+  reconstruct:
+    enabled: false
+    output_rel_root: reconstruct_outputs
+    phase_sequence: []
+
+  analysis:
+    enabled: false
+    output_rel_root: analysis_outputs
+    phase_sequence: []

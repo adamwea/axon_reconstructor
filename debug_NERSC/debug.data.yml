@@ -1,0 +1,622 @@
+
+# NERSC paths. ben-shalom_nas is mounted via CFS, scratch lives on pscratch.
+# Mirrors the lab-server debug.data.yml; raw_data_h5_path entries below have
+# been path-translated from /mnt/ben-shalom_nas/... to the NERSC CFS mount.
+#
+# Note: Media_Density_T5_02182026_AR may not yet be staged on the NERSC NAS.
+# Sync from the lab server before running, or override
+# include_in_runtime: false for entries that are not yet available.
+output_root: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW
+scratch_root: /pscratch/sd/a/adammwea/scratch
+
+use_scratch_root: true
+
+publish_outputs: false # When false, stage outputs stay on scratch and are not copied back to output_root.
+wipe_scratch_roots: false # When true and publish_outputs is true, publish uses move semantics and deletes scratch outputs after sync.
+
+#
+analysis_name:
+
+Probe: # https://www.mxwbio.com/products/maxtwo
+  brand: maxwell
+  device: maxtwo_HDMEA
+  plate_format: 6-well
+  # Explicit chip dimensions used by location-report framing.
+  chip_dimensions_um:
+    x: 3850.0
+    y: 2100.0
+    z: null
+  # Per-well active sensing area (used for geometry-aware channel layout plotting).
+  active_sensing_area_mm:
+    x: 3.85
+    y: 2.10
+    z: null
+  electrodes_per_well: 26400
+  # Keep for future runtime checks and resampling defaults.
+  sampling_rate_hz: 10000
+  pitch_um: 17.5
+  electrode_size_um:
+    x: 12.0
+    y: 8.8
+    z: null
+
+datasets:
+  #- raw_data_h5_path: /home/adamm/dev/symlinks/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
+  #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T3_07012025_AR/Media_Density_T3_07012025_AR/250728/M07137/AxonTracking/000225/data.raw.h5
+    # include_in_runtime: false
+    # DIV:
+    # wells:
+    #   - well_id: well001
+    #     include_in_runtime: false
+
+    #     # attributes can be any desired characteristincs or metadata about the well, such as experimental conditions,
+    #     # plating density, media type, genotype, etc.
+    #     # These can be used for filtering and grouping wells during analysis.
+    #     # TODO: Implement a dynamic logic to create comparison plots based on these attributes, allowing for flexible and customizable analyses.
+    #     attributes:
+    #       plating_density:
+    #       media:
+    #       genotype: WT
+
+  #########################################
+  ## Media T5 Dataset:
+  #########################################
+
+  # Date/DIV check uses the sheet's plated date 2026-02-18.
+  # Included paths are ordered earliest to latest DIV. I comment only where the sheet date,
+  # filesystem date, or run number do not agree cleanly.
+
+  #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/data.raw.h5
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260224/M08073/AxonTracking/000031/data.raw.h5
+    include_in_runtime: true
+    DIV: 6
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260224/M06804/AxonTracking/000032/data.raw.h5
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260224/M06804/AxonTracking/000032/data.raw.h5
+    include_in_runtime: true
+    DIV: 6
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+
+  #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260226/M08073/AxonTracking/000057/data.raw.h5
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260226/M08073/AxonTracking/000057/data.raw.h5
+    include_in_runtime: true
+    DIV: 8
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  # Best guess: the sheet's 2026-03-02 M08073 Axon Tracking row is run 77 at DIV 12,
+  # but the matching on-disk AxonTracking folder is 000073. I kept this path because the
+  # date/DIV delta from 2026-02-18 lines up exactly and the chip/date/assay match cleanly.
+  # I treated the run-number mismatch as a sheet/filesystem inconsistency rather than a bad date.
+  #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260302/M08073/AxonTracking/000073/data.raw.h5
+    include_in_runtime: true
+    DIV: 12
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  # Not added: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M06804/AxonTracking/000077/data.raw.h5
+  # The path date also lines up with DIV 12, but there is no M06804 Axon Tracking row on the
+  # pasted 2026-03-02 sheet data, so I left this filesystem-only path out instead of inventing a row.
+
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260305/M08073/AxonTracking/000096/data.raw.h5
+    include_in_runtime: true
+    DIV: 15
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260305/M06804/AxonTracking/000099/data.raw.h5
+    include_in_runtime: true
+    DIV: 15
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260309/M08073/AxonTracking/000118/data.raw.h5
+    include_in_runtime: true
+    DIV: 19
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
+    include_in_runtime: true
+    DIV: 22
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  # Not added: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
+  # The sheet only mentions run 147 as Adam's test scan in the note on run 146. The filesystem
+  # date 2026-03-13 would imply DIV 23 from the plated date, not DIV 22, and the chip id also
+  # does not map to a normal Axon Tracking row in the pasted sheet, so I left this path out.
+
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260316/M08073/AxonTracking/000165/data.raw.h5
+    include_in_runtime: true
+    DIV: 26
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  # Sheet/date mismatch: the pasted sheet labels runs 170 and 174 as 2026-03-12, but 2026-03-12
+  # would be DIV 22 from the plated date, not DIV 29. I used the filesystem date 260319 because
+  # 2026-03-19 is exactly DIV 29 and the run numbers plus chip ids line up with those rows.
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260319/M08073/AxonTracking/000170/data.raw.h5
+    include_in_runtime: true
+    DIV: 29
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260319/M06804/AxonTracking/000174/data.raw.h5
+    include_in_runtime: true
+    DIV: 29
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+
+  # Kept both same-day M08073 runs because the sheet has two Axon Tracking rows on 2026-03-26
+  # at DIV 36: run 208 is the baseline-before-treatment scan and run 222 is the 2-hours-post-treatment scan.
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000208/data.raw.h5
+    include_in_runtime: true
+    DIV: 36
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+
+  - raw_data_h5_path: /global/cfs/cdirs/m2043/roybens/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000222/data.raw.h5
+    include_in_runtime: true
+    DIV: 36
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: DMEM
+          genotype: WT
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 80000
+          media: NBP
+          genotype: WT
