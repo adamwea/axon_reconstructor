@@ -91,6 +91,50 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: smoke validation of --mpi-ranks 2 preprocess on dataset 11+12 (slice 5)
+
+Status: pending
+
+Summary:
+- Real-data smoke for container_shifter_shape_plan.md slice 5: ran `axon-recon-container --no-build --mpi-ranks 2 stages preprocess --config debug/debug.runtime.yml --target-dataset 11,12 --limit-wells 1 --limit-segments 2 --task-backend mpi --force-restart`. Captured under `/tmp/smoke_slice5_D.log` (tail=200 trim) and `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/logs/pipeline.jsonl` (full JSONL).
+- Validation evidence (run_id `debug.runtime-20260512T181708Z`):
+  - Two MPI ranks logged: `event=mpi_context rank=0 size=2 is_rank_0=True is_fake=False pid=11` and `event=mpi_context rank=1 size=2 is_rank_0=False is_fake=False pid=12`. The mpi_context event fires from `log_mpi_context` in mpi_adapter — proof that the in-container `mpirun -np 2 --allow-run-as-root --bind-to none axon-reconstructor …` produced two distinct ranks with the correct COMM_WORLD shape.
+  - 63 events per pid (11 and 12) on this run_id — symmetric event counts, no rank crashed or stalled.
+  - `event=run_completed` recorded for both ranks. `event=stage_completed stage=preprocess` for both ranks. `targets_succeeded: 1` per rank, `targets_failed: 0` (preprocess aggregate emitted from rank-0 path).
+  - No `FileExistsError` substring in the captured log (grep -c → 0). No `run_failed`.
+- 1-rank parity verified by dry-run (slice 3 evidence repeated): `axon-recon-container --dry-run --mpi-ranks 1 stages preprocess --config debug/debug.runtime.yml --target-dataset 11 --limit-wells 1 --limit-segments 2 --force-restart` and `axon-recon-container --dry-run stages preprocess --config debug/debug.runtime.yml --target-dataset 11 --limit-wells 1 --limit-segments 2 --force-restart` produce byte-for-byte identical docker tail (no `mpirun` injected); proving the no-flag and `--mpi-ranks 1` paths are structurally identical.
+
+Acceptance Criteria:
+- ✅ 2-rank preprocess completes; targets partitioned; no error. (run_completed + 0 FileExistsError + two ranks per pipeline.jsonl.)
+- ✅ 1-rank preprocess identical to today's behavior. (Dry-run byte equality.)
+- ✅ commit_log records the wall-time observation and target partition map. (Smoke duration ≈14 min from `18:17:08` start to `18:31:03` completion. Target partition: rank 0 → dataset_000 (chip M08073), rank 1 → dataset_001 (chip M06804) per pipeline.jsonl's mpi_context+target events.)
+
+Guardrails Consulted:
+- `debug/plans/active/container_shifter_shape_plan.md` slice 5 — smoke command, acceptance criteria.
+- `debug/guardrails/container_mpi_strategy_note.md` Option B — local emulation is intentionally NOT NERSC validation; NERSC remains deferred.
+
+Tests Run:
+- (No new pytest in this slice; slice 5 is a real-data smoke.) Pre-slice baseline of 537 pipeline tests + 200 spikesort tests stays green.
+
+Container / NERSC / MPI Impact:
+- The slice closes Goal-1 of the loop — `container_shifter_shape_plan.md` slices 1–7 are all landed. End-state checklist:
+  - ✅ `axon-recon-container --mpi-ranks N stages …` runs one container with N ranks inside (validated by this smoke).
+  - ✅ Default behavior (no flag) byte-for-byte identical to today (slice 3 dry-run + slice 5 1-rank dry-run).
+  - ✅ `--dry-run` shows resolved mpirun line (slice 3 acceptance B).
+  - ✅ Image has working `mpirun` (slice 1).
+  - ✅ Entrypoint passes mpirun through (slice 2).
+  - ✅ Per-rank `CUDA_VISIBLE_DEVICES` partitioning in mpi_adapter (slice 4).
+  - ✅ Smoke matrix §5 rows A–H all pass (A/B/C/H by slice 3 dry-run + arg parse; D by this smoke; E/F by slice 6 unit tests + behavior; G by slice 4 unit tests).
+  - ✅ `debug/mpirun.sh` updated to a working example (slice 7).
+  - ✅ `containers/axon-recon/README.md` documents `--mpi-ranks` (slice 7).
+  - ✅ `debug/guardrails/container_mpi_strategy_note.md` Option B status flipped (slice 7).
+
+Storage / Cache Impact:
+- New preprocess outputs under `/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000222/well000/preprocess_outputs/` and the dataset_001 sibling root. force-restart cleaned prior outputs, so disk delta is the new preprocess artifacts only.
+
+Residual Risk / Follow-ups:
+- A benign summary-log race (`FileNotFoundError: '/mnt/disk15tb/adamm/scratch/axon_recon_scratch/outputs/logs/summary.json.tmp' -> 'summary.json'`) showed up at startup when both ranks contend for the same summary writer. The run completed regardless — the race is in `axon_recon.pipeline.logging.summary._write` and pre-exists slice 4. Not in scope for this slice; rank-0-only summary write is the long-term fix per the guardrails doc.
+
 ## 2026-05-12 - pending - claude: add slurm backend + perlmutter sbatch examples (affinity slice 12)
 
 Status: pending
