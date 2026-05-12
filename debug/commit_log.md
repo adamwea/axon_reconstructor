@@ -91,6 +91,41 @@ Rollback Notes:
 
 ## Commit Log
 
+## 2026-05-12 - pending - claude: add --mpi-ranks to axon-recon-container wrapper (slice 3)
+
+Status: pending
+
+Summary:
+- `src/axon_recon/pipeline/container_cli.py`:
+  - `WrapperOptions` gains `mpi_ranks: int = 1` (default = single rank, byte-for-byte parity with today).
+  - `_parse_options` recognises `--mpi-ranks N` and `-n N`. Missing value, non-integer, and `N<1` all raise a typed `SystemExit` with a clear message.
+  - `_build_docker_run_command` inserts `mpirun -np N --allow-run-as-root --bind-to none axon-reconstructor` between `options.image` and `options.container_args` only when `mpi_ranks > 1`.
+  - `usage()` documents `--mpi-ranks N` / `-n N` and explicitly states that host `mpirun -np N axon-recon-container …` is unsupported (wrapper owns the rank count).
+
+Acceptance Criteria:
+- ✅ Smoke A — `axon-recon-container --no-build --dry-run stages preprocess --config debug/debug.runtime.yml` tail is `axon-recon:local stages preprocess --config debug/debug.runtime.yml` (no mpirun, no change from today).
+- ✅ Smoke B — `axon-recon-container --no-build --dry-run --mpi-ranks 2 stages preprocess --config debug/debug.runtime.yml` tail is `axon-recon:local mpirun -np 2 --allow-run-as-root --bind-to none axon-reconstructor stages preprocess --config debug/debug.runtime.yml`.
+- ✅ Smoke H — `--mpi-ranks 0` SystemExits with `axon-recon-container: --mpi-ranks requires an integer >= 1, got 0`. `--mpi-ranks abc` and missing-value forms also error cleanly.
+- ✅ `-n 3` short alias produces `mpirun -np 3 --allow-run-as-root --bind-to none …`.
+
+Guardrails Consulted:
+- `debug/plans/active/container_shifter_shape_plan.md` slice 3 (§3) — flag spec, builder behaviour, error contract.
+- `debug/guardrails/container_mpi_strategy_note.md` Decision row "Host `mpirun -np N axon-recon-container …` → unsupported" — wrapper-owned rank count is the Option B contract.
+
+Tests Run:
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/test_container_cli.py src/axon_recon/pipeline/tests/test_mpi_adapter.py -q` → 42 passed.
+- `conda run -n axon_recon python -m pytest src/axon_recon/pipeline/tests/ -q -x --ignore=src/axon_recon/pipeline/tests/test_progress.py` → all green (537 tests, same as slice-1 baseline).
+
+CLI / Debug Flag Impact:
+- New surface: `--mpi-ranks N` (and `-n N`). No flag interactions, no removed flags.
+
+Container / NERSC / MPI Impact:
+- Wrapper-side only; no image change. The inner mpirun shape generalises to NERSC: `srun -n N shifter axon-reconstructor stages …` is the same CLI tail, with `srun` substituting for the wrapper's `docker run` + `mpirun -np`.
+
+Residual Risk / Follow-ups:
+- Slice 4 wires per-rank `CUDA_VISIBLE_DEVICES` partitioning in `mpi_adapter`; until that lands, `--mpi-ranks N --gpus all` would let every rank see every GPU. Documented as a slice-4 dependency.
+- The cli.py path inside the container still runs the existing `current_mpi_context` call site; the rank context is detected from `OMPI_COMM_WORLD_*` env which OpenMPI sets before each rank's `axon-reconstructor` exec.
+
 ## 2026-05-12 - pending - claude: entrypoint accepts mpirun as passthrough leader (slice 2)
 
 Status: pending

@@ -61,6 +61,7 @@ class WrapperOptions:
 	extra_mounts: list[str] = field(default_factory=list)
 	extra_env: list[str] = field(default_factory=list)
 	container_args: list[str] = field(default_factory=list)
+	mpi_ranks: int = 1
 
 
 def usage() -> str:
@@ -86,6 +87,11 @@ Wrapper options:
   --mount SPEC           Extra docker -v mount, repeatable (host:container[:mode])
   --env SPEC             Extra docker -e env var, repeatable (NAME=VALUE)
   --no-tty               Do not allocate an interactive TTY
+  --mpi-ranks N, -n N    Run mpirun -np N inside one container (default: 1, single rank).
+                         When N>1 the inner command becomes
+                         `mpirun -np N --allow-run-as-root --bind-to none axon-reconstructor ...`
+                         Host `mpirun -np N axon-recon-container ...` is unsupported; the
+                         wrapper owns the rank count.
   --wrapper-help         Show this help
 
 All remaining arguments are passed unchanged to axon-reconstructor inside the image.
@@ -292,6 +298,24 @@ def _parse_options(argv: list[str]) -> WrapperOptions:
 			continue
 		if arg == "--no-tty":
 			options.tty = False
+			idx += 1
+			continue
+		if arg in {"--mpi-ranks", "-n"}:
+			idx += 1
+			if idx >= len(argv):
+				raise SystemExit(f"axon-recon-container: {arg} requires a value")
+			raw = str(argv[idx]).strip()
+			try:
+				ranks = int(raw)
+			except Exception as exc:
+				raise SystemExit(
+					f"axon-recon-container: {arg} requires an integer >= 1, got {raw!r}"
+				) from exc
+			if ranks < 1:
+				raise SystemExit(
+					f"axon-recon-container: {arg} requires an integer >= 1, got {ranks}"
+				)
+			options.mpi_ranks = ranks
 			idx += 1
 			continue
 		if arg == "--wrapper-help":
@@ -832,7 +856,22 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 		cmd.extend(["-v", mount_spec])
 	for env_spec in options.extra_env:
 		cmd.extend(["-e", env_spec])
-	cmd.extend([options.image, *options.container_args])
+	if options.mpi_ranks > 1:
+		cmd.extend(
+			[
+				options.image,
+				"mpirun",
+				"-np",
+				str(options.mpi_ranks),
+				"--allow-run-as-root",
+				"--bind-to",
+				"none",
+				"axon-reconstructor",
+				*options.container_args,
+			]
+		)
+	else:
+		cmd.extend([options.image, *options.container_args])
 	return cmd
 
 
