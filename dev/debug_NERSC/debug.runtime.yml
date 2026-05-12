@@ -60,12 +60,6 @@ resources:
         source_h5_path:
           description: Limit concurrent well-workers touching the same source H5 file.
           max_concurrent: 1
-          applies_to:
-            - h5_metadata
-            - h5_to_binary
-            - preprocess_segments
-            - bootstrap_concat_binary
-            - spikeinterface_analyzer_segment
     perlmutter_cpu:
       capacity:
         cpu_cores: 128
@@ -87,6 +81,39 @@ resources:
         nested_thread_policy: match_cpus_per_task
       keyed_resource_limits:
         source_h5_path:
+          max_concurrent: 1
+    perlmutter_login:
+      # Login-node profile for light dev work: config validation, dry-runs (--alloc),
+      # quick plotting, single-unit smoke iterations. Login nodes are SHARED across
+      # all NERSC users -- per the NERSC AUP, do not run production-scale workloads
+      # here. Hardware probed on login28 (2026-05-12): 2x AMD EPYC 7713 (64c Milan,
+      # 244 visible CPUs), 527 GB total RAM (shared), 1x NVIDIA A100 40GB.
+      # Capacities below intentionally claim a small slice so concurrent dev users
+      # are not impacted.
+      capacity:
+        cpu_cores: 4
+        ram_gb: 16
+        gpu_sort_slots: 1
+        h5_read_slots: 1
+        disk_heavy_slots: 1
+        plot_slots: 1
+        analyzer_slots: 1
+      task_allocation:
+        enabled: true
+        backend: local_affinity # MPI is not appropriate on a shared login node.
+        task_unit: well
+        cpus_per_task: 2
+        tasks_per_node: auto
+        bind: physical_cores
+        use_hyperthreads: false
+        reserve_cpus: 0
+        set_thread_env: true
+        nested_thread_policy: match_cpus_per_task
+        ram_gb_per_task: null
+        shm_gb_per_task: null
+      keyed_resource_limits:
+        source_h5_path:
+          description: Limit concurrent well-workers touching the same source H5 file.
           max_concurrent: 1
   phase_budgets:
     h5_metadata:

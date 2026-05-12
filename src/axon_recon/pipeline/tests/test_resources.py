@@ -37,7 +37,6 @@ def _resource_payload() -> dict[str, object]:
 						"source_h5_path": {
 							"description": "Limit concurrent well-workers touching the same source H5 file.",
 							"max_concurrent": 1,
-							"applies_to": ["h5_metadata", "h5_to_binary", "preprocess_segments"],
 						},
 					},
 				},

@@ -64,12 +64,6 @@ resources:
         source_h5_path:
           description: Limit concurrent well-workers touching the same source H5 file.
           max_concurrent: 1
-          applies_to:
-            - h5_metadata
-            - h5_to_binary
-            - preprocess_segments
-            - bootstrap_concat_binary
-            - spikeinterface_analyzer_segment
   phase_budgets:
     h5_metadata:
       bottleneck: h5_read

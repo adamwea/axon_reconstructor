@@ -51,7 +51,6 @@ class ResourceProfileConfig:
 class KeyedResourceLimitConfig:
 	description: str | None = None
 	max_concurrent: int = 1
-	applies_to: tuple[str, ...] = ()
 
 
 _VALID_NESTED_SHAPES = {"si_njobs", "segment_workers", "unit_workers", "serial"}
@@ -274,7 +273,6 @@ def _parse_keyed_resource_limit(raw: Any) -> KeyedResourceLimitConfig:
 	return KeyedResourceLimitConfig(
 		description=_as_optional_name(block.get("description", block.get("note", None))),
 		max_concurrent=max(1, _as_int(block.get("max_concurrent", 1), 1)),
-		applies_to=_as_name_tuple(block.get("applies_to", ())),
 	)
 
 
