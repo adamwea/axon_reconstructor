@@ -115,6 +115,7 @@ def apply_filter_spec(df: pd.DataFrame, spec: dict[str, Any]) -> pd.DataFrame:
 	  - genotype: list[str] | None
 	  - media: list[str] | None
 	  - plating_density: list | None
+	  - treatment: list[str] | None
 	  - run_id: list[str] | None
 	  - div_lo / div_hi: numeric DIV range bounds
 	"""
@@ -124,7 +125,7 @@ def apply_filter_spec(df: pd.DataFrame, spec: dict[str, Any]) -> pd.DataFrame:
 	mask &= filter_min_numeric(df, "num_spikes", spec.get("min_num_spikes", None))
 	mask &= filter_min_numeric(df, "num_branches", spec.get("min_num_branches", None))
 	mask &= filter_min_numeric(df, "recon_quality_score", spec.get("min_recon_quality_score", None))
-	for column in ("project", "chip_id", "well_id", "scan_type", "genotype", "media", "plating_density", "run_id"):
+	for column in ("project", "chip_id", "well_id", "scan_type", "genotype", "media", "plating_density", "treatment", "run_id"):
 		mask &= filter_multiselect(df, column, spec.get(column, None))
 	mask &= filter_numeric_range(df, "DIV", lo=spec.get("div_lo", None), hi=spec.get("div_hi", None))
 	return df.loc[mask].reset_index(drop=True)

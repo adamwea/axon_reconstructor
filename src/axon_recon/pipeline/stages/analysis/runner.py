@@ -48,6 +48,7 @@ _UNITS_TABLE_COLUMNS: tuple[str, ...] = (
 	"genotype",
 	"media",
 	"plating_density",
+	"treatment",
 	# Filter columns (see plan §4)
 	"recon_status",
 	"bombcell_label",
@@ -80,6 +81,7 @@ _WELL_SUMMARY_IDENTITY_COLUMNS: tuple[str, ...] = (
 	"genotype",
 	"media",
 	"plating_density",
+	"treatment",
 )
 
 
@@ -246,6 +248,10 @@ def _build_identity_cols(
 		"genotype": well_attributes.get("genotype", None),
 		"media": well_attributes.get("media", None),
 		"plating_density": well_attributes.get("plating_density", None),
+		# Descriptive string for treatment condition; null/absent means no
+		# treatment context. Use specific strings like "drug_X_post_2h" when
+		# known, generic ones like "post_treatment_2h_unspecified" when not.
+		"treatment": well_attributes.get("treatment", None),
 	}
 
 

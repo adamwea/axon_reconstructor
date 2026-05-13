@@ -44,6 +44,24 @@ Probe:
 # wells on the plate; `attributes` records experimental conditions used for
 # downstream filtering and grouping.
 #
+# Supported attribute keys (well-level; the analysis stage promotes them to
+# parquet columns and the dashboard surfaces them as filter dropdowns):
+#   - plating_density: int            (cells/well at plating, or null)
+#   - media: str                      ("DMEM", "NBP", ...)
+#   - genotype: str                   ("WT", "KO", ...)
+#   - treatment: str | absent         (descriptive string; absent or null
+#                                      means no treatment context. Use
+#                                      specific names like "drug_X_post_2h"
+#                                      when known, generic names like
+#                                      "post_treatment_2h_unspecified" when
+#                                      the treatment isn't documented yet.
+#                                      Same value on every well of a chip
+#                                      when the treatment is chip-level.)
+#
+# Custom keys are silently preserved in well_attributes manifests but won't
+# be promoted to dashboard filters until they're added to runner.py's
+# _UNITS_TABLE_COLUMNS and dashboard/app.py's filter wiring.
+#
 # include_in_runtime gates inclusion at both the dataset and well level so
 # subsets can be re-run without editing dataset lists.
 datasets:
@@ -57,3 +75,4 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          # treatment: drug_X_post_2h    # omit/null = no treatment context

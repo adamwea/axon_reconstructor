@@ -34,6 +34,7 @@ ID_FILTER_SCAN_TYPE = "filter-scan-type"
 ID_FILTER_GENOTYPE = "filter-genotype"
 ID_FILTER_MEDIA = "filter-media"
 ID_FILTER_PLATING = "filter-plating"
+ID_FILTER_TREATMENT = "filter-treatment"
 ID_FILTER_DIV_RANGE = "filter-div-range"
 ID_FILTER_BOMBCELL = "filter-bombcell"
 ID_FILTER_MIN_NUM_SPIKES = "filter-min-num-spikes"
@@ -262,6 +263,12 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 			dcc.Dropdown(
 				id=ID_FILTER_PLATING,
 				options=_multiselect_options(units_df.get("plating_density", pd.Series(dtype=object))),
+				multi=True,
+			),
+			html.Label("Treatment"),
+			dcc.Dropdown(
+				id=ID_FILTER_TREATMENT,
+				options=_multiselect_options(units_df.get("treatment", pd.Series(dtype=object))),
 				multi=True,
 			),
 			html.Label("DIV range"),
@@ -552,6 +559,7 @@ def _build_filter_spec_from_state(
 	genotype: list[Any] | None,
 	media: list[Any] | None,
 	plating: list[Any] | None,
+	treatment: list[Any] | None,
 	div_range: list[float] | None,
 ) -> dict[str, Any]:
 	return {
@@ -567,6 +575,7 @@ def _build_filter_spec_from_state(
 		"genotype": genotype,
 		"media": media,
 		"plating_density": plating,
+		"treatment": treatment,
 		"div_lo": div_range[0] if div_range else None,
 		"div_hi": div_range[1] if div_range else None,
 	}
@@ -598,6 +607,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_FILTER_GENOTYPE, "value"),
 		Input(ID_FILTER_MEDIA, "value"),
 		Input(ID_FILTER_PLATING, "value"),
+		Input(ID_FILTER_TREATMENT, "value"),
 		Input(ID_FILTER_DIV_RANGE, "value"),
 		Input(ID_HIST_X_AXIS, "value"),
 		Input(ID_HIST_COLOR, "value"),
@@ -615,6 +625,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		genotype,
 		media,
 		plating,
+		treatment,
 		div_range,
 		hist_x,
 		hist_color,
@@ -632,6 +643,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			genotype=genotype,
 			media=media,
 			plating=plating,
+			treatment=treatment,
 			div_range=div_range,
 		)
 		filtered = filter_helpers.apply_filter_spec(units_df, spec)
@@ -655,6 +667,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_FILTER_GENOTYPE, "value"),
 		Input(ID_FILTER_MEDIA, "value"),
 		Input(ID_FILTER_PLATING, "value"),
+		Input(ID_FILTER_TREATMENT, "value"),
 		Input(ID_FILTER_DIV_RANGE, "value"),
 		Input(ID_BOX_VALUE_COL, "value"),
 		Input(ID_BOX_GROUP_COL, "value"),
@@ -677,6 +690,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		genotype,
 		media,
 		plating,
+		treatment,
 		div_range,
 		box_value_col,
 		box_group_col,
@@ -699,6 +713,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			genotype=genotype,
 			media=media,
 			plating=plating,
+			treatment=treatment,
 			div_range=div_range,
 		)
 		filtered = filter_helpers.apply_filter_spec(units_df, spec)
@@ -727,6 +742,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_FILTER_GENOTYPE, "value"),
 		Input(ID_FILTER_MEDIA, "value"),
 		Input(ID_FILTER_PLATING, "value"),
+		Input(ID_FILTER_TREATMENT, "value"),
 		Input(ID_FILTER_DIV_RANGE, "value"),
 		Input(ID_SCATTER_X, "value"),
 		Input(ID_SCATTER_Y, "value"),
@@ -748,6 +764,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		genotype,
 		media,
 		plating,
+		treatment,
 		div_range,
 		scatter_x,
 		scatter_y,
@@ -769,6 +786,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			genotype=genotype,
 			media=media,
 			plating=plating,
+			treatment=treatment,
 			div_range=div_range,
 		)
 		filtered = filter_helpers.apply_filter_spec(units_df, spec)
@@ -900,6 +918,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		State(ID_FILTER_GENOTYPE, "value"),
 		State(ID_FILTER_MEDIA, "value"),
 		State(ID_FILTER_PLATING, "value"),
+		State(ID_FILTER_TREATMENT, "value"),
 		State(ID_FILTER_DIV_RANGE, "value"),
 		prevent_initial_call=True,
 	)
@@ -917,6 +936,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		genotype,
 		media,
 		plating,
+		treatment,
 		div_range,
 	):
 		if not n_clicks:
@@ -934,6 +954,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			genotype=genotype,
 			media=media,
 			plating=plating,
+			treatment=treatment,
 			div_range=div_range,
 		)
 		filtered = filter_helpers.apply_filter_spec(units_df, spec)
@@ -954,6 +975,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		State(ID_FILTER_GENOTYPE, "value"),
 		State(ID_FILTER_MEDIA, "value"),
 		State(ID_FILTER_PLATING, "value"),
+		State(ID_FILTER_TREATMENT, "value"),
 		State(ID_FILTER_DIV_RANGE, "value"),
 		State(ID_HIST_X_AXIS, "value"),
 		State(ID_HIST_COLOR, "value"),
@@ -987,6 +1009,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		genotype,
 		media,
 		plating,
+		treatment,
 		div_range,
 		hist_x,
 		hist_color,
@@ -1020,6 +1043,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			genotype=genotype,
 			media=media,
 			plating=plating,
+			treatment=treatment,
 			div_range=div_range,
 		)
 		plot_spec = {

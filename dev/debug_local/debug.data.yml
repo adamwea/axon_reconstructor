@@ -549,36 +549,42 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: baseline_pre_treatment
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: baseline_pre_treatment
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: baseline_pre_treatment
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: baseline_pre_treatment
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: baseline_pre_treatment
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: baseline_pre_treatment
 
   - raw_data_h5_path: /mnt/ben-shalom_nas/raw_data/rbs_maxtwo_desktop/harddisk20tbV2/Ben-Shalom_Lab/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000222/data.raw.h5
     include_in_runtime: true
@@ -590,33 +596,39 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: post_treatment_2h_unspecified
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: post_treatment_2h_unspecified
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: post_treatment_2h_unspecified
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: post_treatment_2h_unspecified
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: post_treatment_2h_unspecified
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: post_treatment_2h_unspecified

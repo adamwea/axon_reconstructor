@@ -186,3 +186,55 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
 - **See also**: discussion 2026-05-12 (spikesort smoke on GPU node, last
   4 datasets). User noted GPU compute dominates the cost on Perlmutter so
   this is a polish item, not a blocker.
+
+
+### Validate `treatment` field end-to-end once analysis outputs land
+- **Status**: open (validation deferred — depends on real analysis stage runs)
+- **Tags**: analysis, dashboard, validation
+- **Context**: 2026-05-12. Added `treatment` as a descriptive-string well attribute
+  alongside `genotype`/`media`/`plating_density`. Promoted to a column in
+  `_UNITS_TABLE_COLUMNS` + `_WELL_SUMMARY_IDENTITY_COLUMNS` in
+  `src/axon_recon/pipeline/stages/analysis/runner.py`; emitted in
+  `_build_identity_cols`. Surfaced as a multi-select dropdown in the dashboard
+  (`ID_FILTER_TREATMENT`) and threaded through all 5 callbacks +
+  `_build_filter_spec_from_state` + `apply_filter_spec` (`dashboard/filters.py`).
+  Inferred values applied to the two same-day pre/post datasets in both
+  `dev/debug_NERSC/debug.data.yml` and `dev/debug_local/debug.data.yml`:
+  000208 → `baseline_pre_treatment`, 000222 → `post_treatment_2h_unspecified`.
+  User to refine the post-treatment label once the actual treatment is known.
+- **Validated so far** (static / synthetic):
+  - YAML parses, all 12 wells (6 baseline + 6 post) tagged in both data.ymls.
+  - `dashboard/filters.py:apply_filter_spec` correctly selects only the
+    baseline rows when `treatment: ["baseline_pre_treatment"]` is set
+    (verified with a 2-row synthetic DataFrame).
+  - All three changed modules compile (`py_compile`).
+  - Callback wiring inspected: 1 ID + 1 dropdown + 3 Input + 2 State + 5
+    function signatures + 5 `_build_filter_spec_from_state` calls all
+    threaded.
+- **Still to validate** (deferred — needs real outputs):
+  - End-to-end analysis stage run: `units.parquet` and `well_summary.parquet`
+    should each contain a `treatment` column populated with the configured
+    strings on the 000208 + 000222 wells and NaN/None on all other datasets.
+    Check via `pyarrow.parquet.read_table(...).column('treatment')`.
+  - Dashboard launches against the produced parquet without errors; the
+    Treatment dropdown lists `baseline_pre_treatment` and
+    `post_treatment_2h_unspecified` (plus the implicit unset bucket); each
+    selection narrows the units table + histogram + box + scatter views.
+  - `analysis/tests/test_runner.py` still passes after schema bump (column
+    tuple equality assertions should adapt automatically because the test
+    fixtures don't set treatment → column ends up NaN, and the assertion
+    is `list(df.columns) == list(_UNITS_TABLE_COLUMNS)`).
+  - `dashboard/tests/test_filters.py` and `test_app.py` still pass with the
+    new column threaded through.
+- **Suggested check sequence** when the user runs `pytest` in their env:
+  ```
+  pytest src/axon_recon/pipeline/stages/analysis/tests/ -q
+  pytest src/axon_recon/dashboard/tests/ -q
+  ```
+  Then after the first end-to-end analysis run on the 000208 + 000222 wells:
+  ```
+  python -c "import pyarrow.parquet as pq; \
+    t = pq.read_table('<output_root>/.../units.parquet'); \
+    print(t.column_names); print(t.column('treatment').to_pylist()[:6])"
+  ```
+- **See also**: commits adding the field (sibling commit on this branch).
