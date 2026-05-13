@@ -100,3 +100,27 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
   the preflight so unreachable `output_root` is a warning-and-skip rather than
   a hard failure when `publish_outputs: false` is set in the runtime config.
 - **See also**: workaround validated in conversation 2026-05-11.
+
+
+### Multi-rank stage summary shows per-rank slice only
+- **Status**: open
+- **Tags**: infra, logging, mpi
+- **Repro**: run any stage with backend `mpi` at `-n N > 1`. Each rank prints its
+  own `stage_aggregate_summary_lines(agg)` block at the end of the stage,
+  reflecting only that rank's ~1/N partition of targets (round-robin from
+  `partition_targets_by_mpi_rank` in `src/axon_recon/pipeline/mpi_adapter.py:177`).
+  No MPI gather of `target_results` happens before the printer fires.
+- **Impact**: misleading summary output in multi-rank runs. A user inspecting the
+  end-of-stage block sees `targets_total: M/N` from rank 0 and may think only
+  a fraction of work was attempted. Per-target listings that follow only show
+  the same rank's slice. The pipeline still does the full work — only the
+  summary is wrong.
+- **Workaround**: read the full stage log (pipeline.jsonl + per-well manifests)
+  instead of trusting the terminal summary in MPI mode.
+- **Suggested fix**: in `_distribute_runtime_targets` (or earlier, inside
+  `distribute_targets`), MPI-gather `target_results` to rank 0 after the
+  per-rank work finishes; build the canonical `MultiTargetStageResult` on rank
+  0 only; have non-root ranks return an empty result so their printers no-op.
+  Add a test that runs a synthetic 2-rank pipeline and asserts the rank-0 agg
+  contains both ranks' targets.
+- **See also**: `stage_aggregate_summary_lines` introduced in commit 90e17e3.
