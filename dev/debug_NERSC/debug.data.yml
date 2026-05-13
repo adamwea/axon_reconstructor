@@ -129,7 +129,11 @@ datasets:
           media: DMEM
           genotype: WT
       - well_id: well003
-        include_in_runtime: true
+        # 2026-05-13: bombcell labels all 63 sorted clusters as noise/mua → 0
+        # SLAy-qualifying units → SLAy short-circuits with no_qualifying_units.
+        # Excluded from runtime pending bombcell tuning for young cultures.
+        # See dev/debug_NERSC/excluded_wells.md.
+        include_in_runtime: false
         attributes:
           plating_density: 60000
           media: NBP
@@ -141,7 +145,10 @@ datasets:
           media: NBP
           genotype: WT
       - well_id: well005
-        include_in_runtime: true
+        # 2026-05-13: bombcell labels all 539 sorted clusters as noise/mua/
+        # non_soma_mua → 0 SLAy-qualifying units. Excluded from runtime
+        # pending bombcell tuning. See dev/debug_NERSC/excluded_wells.md.
+        include_in_runtime: false
         attributes:
           plating_density: 60000
           media: NBP
@@ -437,7 +444,13 @@ datasets:
           media: NBP
           genotype: WT
       - well_id: well004
-        include_in_runtime: true
+        # 2026-05-13: spikesort never completed for this well even after
+        # multi-rerun attempts (bootstrap_concat_binary present from a
+        # cancelled sbatch, no sort output). Suspected partial-cleanup
+        # interaction with --force-restart. Excluded from runtime so
+        # downstream stages can proceed on the rest of dataset 8.
+        # See dev/debug_NERSC/excluded_wells.md.
+        include_in_runtime: false
         attributes:
           plating_density: 80000
           media: NBP
