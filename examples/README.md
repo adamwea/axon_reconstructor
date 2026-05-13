@@ -37,6 +37,7 @@ What it does:
 3. Submits `perlmutter_reconstruct.sbatch` targeting `RECONSTRUCT_TARGETS` (default `0,1,2,3,4,5,6,7,8`, i.e. everything except the last 4 datasets), with `--dependency=afterok:<spikesort jobid>` if step 2 fired.
 
 Overrides:
+- `DRY_RUN=1` — print the per-dataset completeness table, the sbatch directives for both jobs, the resulting srun commands, and the dataset targets, without actually calling `sbatch`. Run this first to confirm the chain looks right.
 - `RECONSTRUCT_TARGETS="0-12"` — pass a different reconstruct dataset list (the script defaults to "all except last 4" because the last 4 are typically already reconstructed in interactive smoke runs).
 - `RUNTIME_CFG=dev/debug_local/debug.runtime.yml` — point at a different runtime yml. The data yml is resolved relative to the runtime yml as usual.
 
