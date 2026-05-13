@@ -13,7 +13,9 @@
 # physical GPU per node; neither is wired up here.
 #
 # Vocabulary mapping is the same as the CPU preprocess script
-# (perlmutter_preprocess.sbatch.example).
+# (perlmutter_preprocess.sbatch.example). See examples/README.md for the
+# Slurm × shifter × profile truth table that explains why
+# --threads-per-core=1 is required.
 #
 # Stage-split rationale: keep this script narrowly scoped to the GPU-bound
 # phase. CPU preprocess multi-rank → CPU reconstruct multi-rank should live in
@@ -28,6 +30,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=16
+#SBATCH --threads-per-core=1
 #SBATCH --image=<registry>/<image>:<tag>
 #SBATCH --module=gpu,cuda-mpich
 #SBATCH --volume="/global/cfs/<path/to/data>:/data:ro"
@@ -40,7 +43,7 @@ export MPICH_GPU_SUPPORT_ENABLED=1
 # at runtime means the partition gate hands the rank everything (it's the only
 # rank). The GPU contention check inside run_spikesort_stage stays inert because
 # ranks (1) <= visible GPU count (1).
-srun --cpu-bind=cores \
+srun --cpu-bind=cores --threads-per-core=1 \
   shifter axon-recon stages spikesort.sort \
     --config /data/debug.runtime.yml \
     --task-backend slurm \

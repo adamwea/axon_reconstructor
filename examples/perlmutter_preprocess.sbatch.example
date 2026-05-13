@@ -9,11 +9,21 @@
 #
 # Vocabulary mapping (resources.task_allocation ↔ Slurm directives):
 #   tasks_per_node       ↔ #SBATCH --ntasks-per-node
-#   cpus_per_task        ↔ #SBATCH --cpus-per-task
+#   cpus_per_task        ↔ #SBATCH --cpus-per-task   (interpreted as PHYSICAL
+#                          cores because --threads-per-core=1 is set below)
 #   bind: physical_cores ↔ --cpu-bind=cores (srun-side)
 #   backend: slurm       ↔ --task-backend slurm (axon-recon-side; same effect as
 #                          backend: mpi inside the pipeline — srun supplies the
 #                          SLURM_PROCID/SLURM_NTASKS env that mpi_adapter detects)
+#
+# Why --threads-per-core=1: Slurm's --cpus-per-task counts LOGICAL CPUs (i.e.,
+# SMT siblings each count) by default. Without this flag, --cpus-per-task=16
+# would give each rank an 8-physical-core cpuset, which the resource_budget +
+# detect_cpu_topology code (use_hyperthreads: false in perlmutter_cpu profile)
+# would then count as 8 workers — half the intended capacity. With
+# --threads-per-core=1, each rank's cgroup contains exactly N physical cores
+# and no SMT siblings, so --cpus-per-task=N gives N real workers. See
+# examples/README.md "Truth table" for the full matrix.
 #
 # Stage-split rationale: CPU stages benefit from many ranks per node; sort needs
 # its own GPU-bound job (see perlmutter_spikesort.sbatch.example).
@@ -24,8 +34,9 @@
 #SBATCH --qos=regular
 #SBATCH --time=02:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=6
-#SBATCH --cpus-per-task=4
+#SBATCH --ntasks-per-node=8
+#SBATCH --cpus-per-task=16
+#SBATCH --threads-per-core=1
 #SBATCH --image=<registry>/<image>:<tag>
 #SBATCH --volume="/global/cfs/<path/to/data>:/data:ro"
 #SBATCH --volume="/global/cfs/<path/to/scratch>:/scratch:rw"
@@ -36,7 +47,7 @@ set -euo pipefail
 # every CPU-only stage. The pipeline's task_allocation_plan returns no local
 # slots for backend: slurm — partitioning happens via SLURM_PROCID/SLURM_NTASKS
 # inside the same axon-recon-side rank context machinery used for `backend: mpi`.
-srun --cpu-bind=cores \
+srun --cpu-bind=cores --threads-per-core=1 \
   shifter axon-recon stages preprocess \
     --config /data/debug.runtime.yml \
     --task-backend slurm \

@@ -1,0 +1,88 @@
+# `examples/`
+
+Reference launch wrappers and sbatch templates for running axon-recon.
+
+## Files
+
+| File | Use case |
+|---|---|
+| `containrun.sh` | Lab-server Docker run (single host) |
+| `localrun.sh` | Lab-server bare-metal single-rank smoke |
+| `mpirun.sh` | Lab-server multi-rank via host OpenMPI `mpirun` |
+| `smoketest_sort_and_recon.sh` | Lab-server end-to-end sort + recon smoke (per-phase invocations) |
+| `perlmutter_preprocess.sbatch.example` | NERSC Perlmutter CPU sbatch template (preprocess, reconstruct, analysis) |
+| `perlmutter_spikesort.sbatch.example` | NERSC Perlmutter GPU sbatch template (spikesort) |
+| `example.data.yml` | Data config schema reference (placeholder paths only) |
+
+All four `*.sh` wrappers accept `RUNTIME_CFG=<path>` so the same script works against `dev/debug_local/`, `dev/debug_NERSC/`, or any custom config.
+
+## Slurm × Shifter × profile — how CPUs are counted
+
+NERSC compute nodes expose **logical CPUs** to Slurm by default (2 × physical on SMT-enabled hardware). The pipeline reads its worker count from the **cgroup cpuset** Slurm gave the rank, then filters by `use_hyperthreads` in the active resource profile. Three layers, two of them imposing limits:
+
+```
+salloc / sbatch ──┐
+                  │ allocation envelope (what the job can claim)
+srun -c / --threads-per-core ─→ cgroup cpuset (hard kernel limit per rank)
+                                       │ inherited via fork/exec
+                              shifter container
+                                       │ sched_getaffinity == cpuset
+                              detect_cpu_topology()
+                                       │ filtered by use_hyperthreads
+                          resolve_inner_worker_count → spikeinterface n_jobs
+```
+
+**Rule 1**: the cgroup cpuset is the outermost limit. Nothing inside the container can see more CPUs than Slurm put in the cgroup.
+
+**Rule 2**: `use_hyperthreads` filters within the cgroup. It can never expand beyond it.
+
+**Rule 3**: when `--threads-per-core=1` is on srun, SMT siblings aren't in the cgroup at all → `use_hyperthreads` becomes a no-op (true or false yields the same number).
+
+## Truth table — 4-rank spikesort on a Perlmutter GPU node (128 logical / 64 physical)
+
+| srun shape | profile `use_hyperthreads` | cgroup per rank | container counts | workers/rank | node use |
+|---|---|---|---|---|---|
+| `-c 16` | false | 16 logical (8 phys + 8 SMT) | 8 physical | **8** | 32/64 cores — ❌ half capacity |
+| `-c 16` | true | 16 logical | 16 logical | 16 | 32 phys with SMT contention — 🟡 ok-ish |
+| `-c 16 --threads-per-core=1` | false | 16 logical = 16 phys | 16 physical | **16** | 64/64 cores, SMT siblings reserved — ✅ |
+| `-c 16 --threads-per-core=1` | true | 16 logical = 16 phys | 16 (== phys) | **16** | identical to row above (profile no-ops) — ✅ |
+| `-c 32` | false | 32 logical (16 phys + 16 SMT) | 16 physical | **16** | 64 phys workers + SMT slack for BLAS — ✅ |
+| `-c 32` | true | 32 logical | 32 logical | 32 | 64 phys with SMT contention — 🟡 |
+| `-c 32 --threads-per-core=1` | either | doesn't fit on 64-core node | — | — | srun rejects ❌ |
+
+## Default for axon-recon on Perlmutter
+
+**`-c 16 --threads-per-core=1` with `use_hyperthreads: false`** (rows 3 and 4 — equivalent results, profile setting documents intent).
+
+Why this default:
+- **No silent capacity loss.** Row 1 (current pre-flag state) gave 8 workers when 16 were intended. The flag locks the cgroup to physical cores so srun's `-c N` and the profile's "I want N physical cores per task" mean the same thing.
+- **No SMT contention within a rank.** Rows 2 and 6 fit 16+ workers on N physical cores; the cache + execution-unit pressure costs more than it gains for axon-recon's I/O-and-memory-heavy passes.
+- **SMT siblings reserved on the node, not contended.** Row 3/4 keeps the SMT pairs in the kernel's idle list, available if the OS or library threading inside a worker needs a brief siblings-of-the-cache pop. No noisy-neighbor risk *between* ranks on the same socket.
+- **Intent declared at both layers.** Setting `use_hyperthreads: false` in the profile AND `--threads-per-core=1` on srun makes both the configuration file and the launcher tell the same story. Reading either in isolation produces the right mental model. (Row 5 is a legitimate alternative — slightly higher compute throughput from SMT slack — but the profile would then be technically inconsistent with the cgroup view, which makes debugging harder.)
+
+## How to apply
+
+**Inside an alloc, srun:**
+
+```bash
+srun --cpu-bind=cores --threads-per-core=1 --module=gpu -N 1 -n 4 -c 16 \
+  shifter --image=adammwea/axon-recon:pipeline-v2 \
+  axon-recon stages spikesort --config dev/debug_NERSC/debug.runtime.yml
+```
+
+`--hint=nomultithread` is the more readable Slurm-canonical alias for `--threads-per-core=1`. Identical effect.
+
+**In sbatch, both `#SBATCH` directives and the srun line need to agree:**
+
+```
+#SBATCH --threads-per-core=1
+#SBATCH --cpus-per-task=16
+
+srun --cpu-bind=cores --threads-per-core=1 -c ${SLURM_CPUS_PER_TASK} ...
+```
+
+See `perlmutter_preprocess.sbatch.example` and `perlmutter_spikesort.sbatch.example` for the canonical shapes.
+
+## Known gap (tracked separately)
+
+The pipeline does not currently warn when `srun -c N` produces a cgroup with fewer physical cores than the active profile's `cpus_per_task` implies. Row 1 (the pre-flag misconfiguration) is silent — only visible via tqdm's "workers: N" prints. Worth fixing with a startup-time consistency check.

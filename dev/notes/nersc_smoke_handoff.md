@@ -55,7 +55,7 @@ shifter --image=adammwea/axon-recon:pipeline-v2 \
 ### Multi-rank smoke (preprocess, 1 well, 2 segments, 1 dataset)
 
 ```bash
-srun --cpu-bind=cores -N 1 -n 6 -c 16 \
+srun --cpu-bind=cores --threads-per-core=1 -N 1 -n 6 -c 16 \
   shifter --image=adammwea/axon-recon:pipeline-v2 \
   axon-recon stages preprocess \
     --config dev/debug_NERSC/debug.runtime.yml \
@@ -64,7 +64,11 @@ srun --cpu-bind=cores -N 1 -n 6 -c 16 \
 ```
 
 Notes:
-- `-N 1 -n 6 -c 16` → 1 node, 6 ranks/node, 16 CPUs/rank → 96 cores used out of 128.
+- `-N 1 -n 6 -c 16 --threads-per-core=1` → 1 node, 6 ranks/node, 16 PHYSICAL
+  cores/rank → 96 of 128 physical cores used. The `--threads-per-core=1` flag
+  matches `perlmutter_cpu.use_hyperthreads: false` so the profile's
+  cpus_per_task=16 and Slurm's -c 16 mean the same thing (physical cores). See
+  `examples/README.md` "Truth table" for the full matrix.
 - `--task-backend mpi` is the pipeline-side backend; `mpi_adapter` detects
   `SLURM_PROCID`/`SLURM_NTASKS` and partitions work. `--task-backend slurm` is
   equivalent and matches what the sbatch examples document.

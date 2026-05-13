@@ -68,7 +68,7 @@ shifter --image=adammwea/axon-recon:pipeline-v2 \
 
 ```bash
 # Smoke: 1 dataset, 1 well, multi-rank via srun, 1 rank per GPU
-srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+srun --cpu-bind=cores --threads-per-core=1 --module=gpu -N 1 -n 4 -c 16 \
   shifter --image=adammwea/axon-recon:pipeline-v2 \
   axon-recon stages spikesort \
     --config dev/debug_NERSC/debug.runtime.yml \
@@ -77,7 +77,12 @@ srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
 ```
 
 Notes:
-- `-n 4 -c 16` → 4 ranks × 16 cpus = 64 cores (full GPU node).
+- `-n 4 -c 16 --threads-per-core=1` → 4 ranks × 16 physical cores = 64 physical
+  cores = full GPU node, with SMT siblings reserved (idle). The
+  `--threads-per-core=1` flag is mandatory — without it, Slurm's `-c 16` is
+  logical CPUs and `perlmutter_gpu.use_hyperthreads: false` would silently drop
+  worker count to 8 per rank (half capacity). See `examples/README.md`
+  "Truth table" for the full matrix.
 - The `sort` phase honors the oversubscription gate at `-n <= 4`.
 - All other phases also run at `-n 4`; that's fine since they're CPU-bound.
 
@@ -126,7 +131,7 @@ each step; debug+iterate before escalating. Capture stdout to
 4. **Single-phase isolation, sort only** — `bootstrap` then `sort`:
    ```bash
    # 4a: prep bootstrap cache
-   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+   srun --cpu-bind=cores --threads-per-core=1 --module=gpu -N 1 -n 4 -c 16 \
      shifter --image=adammwea/axon-recon:pipeline-v2 \
      axon-recon stages spikesort.bootstrap_concat_binary \
        --config dev/debug_NERSC/debug.runtime.yml \
@@ -134,7 +139,7 @@ each step; debug+iterate before escalating. Capture stdout to
        --task-backend mpi --force-restart
 
    # 4b: sort alone, GPU correctness check
-   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+   srun --cpu-bind=cores --threads-per-core=1 --module=gpu -N 1 -n 4 -c 16 \
      shifter --image=adammwea/axon-recon:pipeline-v2 \
      axon-recon stages spikesort.sort \
        --config dev/debug_NERSC/debug.runtime.yml \
@@ -146,7 +151,7 @@ each step; debug+iterate before escalating. Capture stdout to
    `limit_wells_per_dataset: 1` from `stages.spikesort.debug_mode` in the
    runtime yml (or pass `--limit-wells 6` on the CLI). Then:
    ```bash
-   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+   srun --cpu-bind=cores --threads-per-core=1 --module=gpu -N 1 -n 4 -c 16 \
      shifter --image=adammwea/axon-recon:pipeline-v2 \
      axon-recon stages spikesort \
        --config dev/debug_NERSC/debug.runtime.yml \
@@ -158,7 +163,7 @@ each step; debug+iterate before escalating. Capture stdout to
 7. **3 datasets, all wells** (`--limit-datasets 3`). Same caveat — verify
    debug_mode limits are off, then:
    ```bash
-   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+   srun --cpu-bind=cores --threads-per-core=1 --module=gpu -N 1 -n 4 -c 16 \
      shifter --image=adammwea/axon-recon:pipeline-v2 \
      axon-recon stages spikesort \
        --config dev/debug_NERSC/debug.runtime.yml \
@@ -168,7 +173,7 @@ each step; debug+iterate before escalating. Capture stdout to
    Expected ~3 h.
 8. **Full scope** — drop all `--limit-*`. Hand this command back to the user:
    ```bash
-   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+   srun --cpu-bind=cores --threads-per-core=1 --module=gpu -N 1 -n 4 -c 16 \
      shifter --image=adammwea/axon-recon:pipeline-v2 \
      axon-recon stages spikesort \
        --config dev/debug_NERSC/debug.runtime.yml \
