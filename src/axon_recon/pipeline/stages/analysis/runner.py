@@ -29,6 +29,7 @@ from .core.recon_io import (
 	read_unit_reconstruction_summary,
 	read_unit_templates_summary,
 )
+from .core.spikesort_metrics import SPIKESORT_AGG_COLUMNS, collect_spikesort_unit_counts
 from .models.results import AnalysisResult
 
 
@@ -94,6 +95,7 @@ _WELL_SUMMARY_AGG_COLUMNS: tuple[str, ...] = (
 	"unit_count_template_ok",
 	"unit_count_bombcell_good",
 	"unit_count_bombcell_non_soma_good",
+	*SPIKESORT_AGG_COLUMNS,
 	*(f"mean_{m}" for m in WELL_SUMMARY_METRIC_COLUMNS),
 	*(f"median_{m}" for m in WELL_SUMMARY_METRIC_COLUMNS),
 )
@@ -285,11 +287,26 @@ def _write_well_summary_parquet(
 	units_df: Any,
 	identity_cols: dict[str, Any],
 	parquet_path: Path,
+	well_out_dir: Path | None = None,
+	spikesort_output_rel_root: str = "spikesort_outputs",
 ) -> dict[str, Any]:
-	"""Aggregate units_df into a single-row well_summary table and persist it."""
+	"""Aggregate units_df into a single-row well_summary table and persist it.
+
+	When `well_out_dir` is provided, additionally read well-level spikesort
+	artifacts (pre/post-merge metadata, bombcell label histogram, SLAy
+	candidate / merge counts) and merge them into the summary row. Columns
+	come from `SPIKESORT_AGG_COLUMNS`; missing source files leave them None.
+	"""
 	import pandas as pd  # local import for symmetry with _write_units_parquet
 
 	summary_row = compute_well_summary(units_df=units_df, identity_cols=identity_cols)
+	if well_out_dir is not None:
+		summary_row.update(
+			collect_spikesort_unit_counts(
+				well_out_dir=well_out_dir,
+				output_rel_root=spikesort_output_rel_root,
+			)
+		)
 	parquet_path.parent.mkdir(parents=True, exist_ok=True)
 	df = pd.DataFrame([summary_row], columns=list(_WELL_SUMMARY_TABLE_COLUMNS))
 	df.to_parquet(parquet_path, engine="pyarrow", index=False)
@@ -386,6 +403,7 @@ def run_analysis_compute_metrics_stage(
 			units_df=units_df,
 			identity_cols=well_summary_identity,
 			parquet_path=well_summary_parquet_path,
+			well_out_dir=well_out_dir,
 		)
 		tables_section["well_summary"] = f"{tables_relpath}/well_summary.parquet"
 
