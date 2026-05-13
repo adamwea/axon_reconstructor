@@ -7929,6 +7929,69 @@ def _log_merge_summary_details(
 	)
 
 
+_SLAY_QUALIFYING_BOMBCELL_LABELS: frozenset[str] = frozenset({"good", "non_soma_good"})
+
+
+def _count_slay_eligible_bombcell_units(
+	*,
+	well_out_dir: Path,
+	output_rel_root: str,
+	stage_config: Any,
+) -> tuple[int | None, dict[str, int] | None, Path | None]:
+	"""Count bombcell-labeled units that are eligible for SLAy merging.
+
+	SLAy's autoencoder + cluster-similarity step trains on the "good" /
+	"non_soma_good" subset; with zero such units the step's
+	`train_test_split` collapses (n_samples=0). This helper reads the
+	bombcell_label_summary.json that the upstream `bombcell_label` phase
+	writes and returns the eligible count.
+
+	Returns ``(count, counts_by_label, summary_path)``. ``(None, None,
+	path)`` when the bombcell summary couldn't be read (file missing or
+	malformed) — caller should treat that as "don't skip" so the existing
+	failure mode surfaces normally.
+	"""
+	merge_output_rel_root = _compose_output_rel_root(
+		stage_output_rel_root=output_rel_root,
+		child_rel_root=getattr(stage_config, "merge_rel_output_root", None),
+	)
+	bombcell_out_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=merge_output_rel_root,
+		relpath=str(getattr(stage_config, "bombcell_label_relpath", "bombcell_label_outputs")),
+	)
+	summary_relpath = (
+		str(
+			getattr(stage_config, "bombcell_label_reports_summary_json_relpath", "bombcell_label_summary.json")
+			or "bombcell_label_summary.json"
+		)
+		.strip()
+		.lstrip("/")
+		or "bombcell_label_summary.json"
+	)
+	summary_path = (bombcell_out_dir / summary_relpath).resolve()
+	if not summary_path.is_file():
+		return None, None, summary_path
+	try:
+		with summary_path.open("r", encoding="utf-8") as fh:
+			payload = json.load(fh)
+	except (json.JSONDecodeError, OSError):
+		return None, None, summary_path
+	counts = payload.get("counts_by_label") if isinstance(payload, dict) else None
+	if not isinstance(counts, dict):
+		return None, None, summary_path
+	normalized_counts: dict[str, int] = {}
+	for label, value in counts.items():
+		try:
+			normalized_counts[str(label)] = int(value)
+		except (TypeError, ValueError):
+			continue
+	eligible = sum(
+		count for label, count in normalized_counts.items() if label in _SLAY_QUALIFYING_BOMBCELL_LABELS
+	)
+	return int(eligible), normalized_counts, summary_path
+
+
 def _run_slay_merge_method(
 	*,
 	well_out_dir: Path,
@@ -7980,6 +8043,53 @@ def _run_slay_merge_method(
 			},
 			"applied_merges": False,
 			"removed_on_force_restart": list(removed_on_force_restart),
+		}
+
+	# Early-skip: SLAy's autoencoder needs at least one bombcell-qualifying
+	# unit to operate. Zero good/non_soma_good units → SLAy's similarity step
+	# yields zero candidates → train_test_split crashes on n_samples=0.
+	# Detect that here and short-circuit cleanly so the well still gets a
+	# completion marker downstream and the user gets a clear "skipped" reason.
+	eligible_units, counts_by_label, bombcell_summary_path = _count_slay_eligible_bombcell_units(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+	)
+	if eligible_units == 0:
+		LOGGER.warning(
+			"SLAy short-circuit: no bombcell-qualifying units to merge "
+			"[stream=%s, counts_by_label=%s, bombcell_summary=%s, qualifying_labels=%s]",
+			str(stage_output_root_dir.parent.name),
+			counts_by_label,
+			str(bombcell_summary_path),
+			sorted(_SLAY_QUALIFYING_BOMBCELL_LABELS),
+		)
+		payload = {
+			"status": "skipped",
+			"reason": "no_qualifying_units",
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"merge_out_dir": str(merge_out_dir),
+			"force_restart": bool(force_restart),
+			"slay_delete_outputs_on_force_restart": bool(slay_delete_outputs_on_force_restart),
+			"removed_on_force_restart": list(removed_on_force_restart),
+			"bombcell_summary_path": str(bombcell_summary_path),
+			"bombcell_counts_by_label": dict(counts_by_label or {}),
+			"qualifying_bombcell_labels": sorted(_SLAY_QUALIFYING_BOMBCELL_LABELS),
+		}
+		_write_json(summary_json, payload)
+		return {
+			"name": "slay",
+			"status": "skipped",
+			"reason": "no_qualifying_units",
+			"out_dir": str(merge_out_dir),
+			"summary_json": str(summary_json),
+			"outputs": {
+				"slay.summary_json": str(summary_json),
+			},
+			"applied_merges": False,
+			"removed_on_force_restart": list(removed_on_force_restart),
+			"bombcell_counts_by_label": dict(counts_by_label or {}),
 		}
 
 	ks_dir = (
@@ -8296,6 +8406,31 @@ def run_spikesort_merge_stage(
 	# consulted for dispatch.
 	requested_sequence_raw: list[Any] = ["SLAy"]
 	slay_requested = bool(getattr(stage_config, "slay_enabled", False))
+	# Early bombcell-eligibility gate: when bombcell reports 0 qualifying units
+	# (good + non_soma_good), SLAy can't operate (its autoencoder needs at
+	# least one such unit). Treat this as `slay_requested=False` here so the
+	# preflight / replot workspace setup don't fire on a doomed run; the
+	# downstream `_run_slay_merge_method` call still happens and writes a
+	# `status=skipped, reason=no_qualifying_units` slay_method_summary.json,
+	# which propagates into the stage-level merge_stage_summary.json marker.
+	if slay_requested:
+		_eligible_units, _eligible_counts, _eligible_summary_path = (
+			_count_slay_eligible_bombcell_units(
+				well_out_dir=well_out_dir,
+				output_rel_root=output_rel_root,
+				stage_config=stage_config,
+			)
+		)
+		if _eligible_units == 0:
+			LOGGER.warning(
+				"Spikesort merge stage: bombcell reports 0 qualifying units; "
+				"SLAy will short-circuit [stream=%s, counts_by_label=%s, "
+				"bombcell_summary=%s]",
+				str(stream_id),
+				_eligible_counts,
+				str(_eligible_summary_path),
+			)
+			slay_requested = False
 	_log_phase_step_start(
 		"Spikesort merge stage start",
 		stream_id=str(stream_id),

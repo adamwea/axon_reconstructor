@@ -157,3 +157,39 @@ one-liner pointing at the plan doc.
   `axon-recon status` run. `containers/axon-recon/rebuild_shifter.sh`
   remains the canonical rebuild path; this entry is the fast-path
   alternative for the inner dev loop.
+
+
+### Bombcell tuning for young / sparse cultures
+- **Status**: idea
+- **Tags**: spikesort, bombcell, parameters
+- **Problem**: At DIV 6 on the Media_Density_T5_02182026_AR dataset,
+  bombcell labels every unit `noise` or `mua` even when there is real
+  activity. Concrete observation 2026-05-13: dataset 1 wells —
+  - well000 (1 good / 134 mua / 302 noise out of 438) — barely passes
+  - well003 (0 good / 4 mua / 59 noise out of 63) — all-noise, SLAy skips
+  - well005 (0 good / 5 mua / 530 noise out of 539) — all-noise with
+    1.5M spikes and 539 sorted clusters present, still 0 pass.
+  Mature cultures (DIV 26+) pass bombcell normally; the rejection is
+  specific to early-DIV.
+- **Approach sketch**: Either bombcell's default parameter set is too
+  strict for the waveform amplitudes / spike counts / refractory
+  violation rates seen in young cultures, or specific parameters
+  (`minWvDuration`, `minSomaticAmplitude`, `maxRPVviolations`,
+  `minSpatialDecaySlope`, `minPresenceRatio`, etc.) need to scale with
+  DIV / SNR / firing rate. Two paths:
+  1. **Manual sweep**: pick one DIV 6 well known to have real units
+     (visually verifiable from waveform plots), sweep bombcell params
+     to find a setting that passes a reasonable fraction. Capture
+     the parameter set in `dev/debug_NERSC/debug.runtime.yml` (and
+     `debug_local/`) under `stages.spikesort.phases.bombcell_label.parameters`.
+  2. **DIV-conditional parameter sets**: declare presets that
+     apply per-DIV bucket (`< 10 DIV`, `10-21 DIV`, `>= 21 DIV`).
+     Requires runtime-config plumbing for conditional param maps.
+- **Dependencies / blockers**: none for path (1); path (2) requires
+  decision on conditional-config syntax for stage parameters.
+- **See also**: discussed 2026-05-13 after the SLAy
+  `n_samples=0` crash on dataset 1 wells 003 + 005. SLAy now
+  short-circuits cleanly via the new `no_qualifying_units` skip path
+  (sibling commit), so this is no longer a hard crash — but the
+  wells still produce zero analysis-eligible units, which is data
+  loss until bombcell is retuned.
