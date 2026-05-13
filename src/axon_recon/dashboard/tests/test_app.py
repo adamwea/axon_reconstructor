@@ -379,6 +379,78 @@ def test_build_box_plot_numeric_group_uses_category_axis_in_numeric_order() -> N
 	assert categoryarray == [6, 22]
 
 
+def test_build_box_plot_secondary_grouping_renders_side_by_side_per_primary() -> None:
+	"""When color_col is set, every (primary, secondary) pair gets its own
+	box trace, all sharing the same primary-axis categories."""
+	df = pd.DataFrame(
+		{
+			"branch_count": [1, 2, 3, 4, 5, 6, 7, 8],
+			"DIV": [6, 6, 22, 22, 6, 6, 22, 22],
+			"plating_density": ["low", "low", "low", "low", "high", "high", "high", "high"],
+		}
+	)
+	fig = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="DIV",
+		color_col="plating_density",
+		show_significance=False,
+		points_mode="off",
+	)
+	box_traces = [t for t in fig.data if getattr(t, "type", None) == "box"]
+	# px.box with `color=` produces one trace per unique color value.
+	trace_names = {getattr(t, "name", None) for t in box_traces}
+	assert trace_names == {"low", "high"}
+	# Primary axis is forced categorical with numeric-sorted DIV order.
+	xaxis = fig.layout.xaxis
+	assert xaxis.type == "category"
+	assert list(xaxis.categoryarray or []) == [6, 22]
+
+
+def test_build_box_plot_secondary_grouping_sorts_numeric_categories_in_legend_order() -> None:
+	"""Numeric secondary values (e.g. plating density) should be sorted
+	ascending so legend / box order matches viewer expectations."""
+	df = pd.DataFrame(
+		{
+			"branch_count": [1, 2, 3, 4],
+			"DIV": [6, 6, 22, 22],
+			"plating_density": [40000, 20000, 40000, 20000],
+		}
+	)
+	fig = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="DIV",
+		color_col="plating_density",
+		show_significance=False,
+		points_mode="off",
+	)
+	box_traces = [t for t in fig.data if getattr(t, "type", None) == "box"]
+	# Trace names match the unique color values in legend order — plotly
+	# follows the category_orders we set, so 20000 comes before 40000.
+	trace_names = [getattr(t, "name", None) for t in box_traces]
+	assert trace_names == ["20000", "40000"]
+
+
+def test_build_box_plot_no_secondary_grouping_falls_back_to_single_color() -> None:
+	"""Sanity: when color_col is the explicit (none) sentinel, we get a
+	single box-trace-per-primary-category (no secondary)."""
+	from axon_recon.dashboard.app import _BOX_COLOR_NONE
+
+	df = pd.DataFrame({"branch_count": [1, 2, 3, 4], "DIV": [6, 6, 22, 22]})
+	fig = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="DIV",
+		color_col=_BOX_COLOR_NONE,
+		show_significance=False,
+		points_mode="off",
+	)
+	box_traces = [t for t in fig.data if getattr(t, "type", None) == "box"]
+	# Single trace, no color subdivision.
+	assert len(box_traces) == 1
+
+
 def test_build_box_plot_exclude_nulls_drops_nan_rows_before_plotting() -> None:
 	df = pd.DataFrame(
 		{

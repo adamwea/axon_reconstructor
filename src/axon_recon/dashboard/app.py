@@ -384,14 +384,14 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 							value=hist_axis_options[0]["value"] if hist_axis_options else None,
 							clearable=False,
 						),
-						html.Label("Group (categorical column)"),
+						html.Label("Primary x-axis (groups boxes left-to-right)"),
 						dcc.Dropdown(
 							id=ID_BOX_GROUP_COL,
 							options=box_group_options,
 							value=default_group,
 							clearable=False,
 						),
-						html.Label("Color (categorical or none)"),
+						html.Label("Secondary grouping (side-by-side within each x category, optional)"),
 						dcc.Dropdown(
 							id=ID_BOX_COLOR,
 							options=box_color_options,
@@ -1185,6 +1185,17 @@ def _build_histogram(df: pd.DataFrame, *, x_column: Any, color_column: Any) -> A
 	return px.histogram(df, x=x, color=color, barmode="overlay" if color else "relative")
 
 
+def _sorted_present_categories(df: pd.DataFrame, column: str) -> list[Any]:
+	"""Return the unique non-null values of `column` sorted numerically when
+	possible, falling back to string-order otherwise.
+	"""
+	present = list(df[column].dropna().unique())
+	try:
+		return sorted(present, key=lambda v: (float(v),))
+	except (TypeError, ValueError):
+		return sorted(present, key=lambda v: str(v))
+
+
 def build_box_plot(
 	df: pd.DataFrame,
 	*,
@@ -1202,6 +1213,17 @@ def build_box_plot(
 	Empty / missing-column inputs return an empty Plotly figure (rather than
 	raising) so the Dash callback can render something on every fired update.
 
+	`group_col` drives the primary x-axis (one cluster of boxes per unique
+	value). `color_col` is the *secondary grouping* — when set, Plotly draws
+	side-by-side boxes WITHIN each primary cluster, one per unique value of
+	`color_col`. Both axes are independent metadata fields, so any
+	combination of (primary, secondary) is valid:
+
+	  - primary=DIV, secondary=plating_density
+	  - primary=DIV, secondary=media
+	  - primary=media, secondary=plating_density
+	  - …
+
 	`points_mode` controls how individual observations are drawn:
 	- ``"off"`` (default): only outliers shown.
 	- ``"jittered_side"``: every observation as a jittered point offset to the
@@ -1213,10 +1235,18 @@ def build_box_plot(
 	dropped before grouping. This also keeps groups whose only values are
 	missing from contributing an empty box.
 
-	When the group column is numeric (e.g. DIV), the x-axis is forced to
-	categorical mode with categories sorted by numeric value, so significance
-	brackets — which expect integer-spaced category positions — align with
-	the boxes instead of landing far to the left on the numeric scale.
+	Both the primary axis and the secondary grouping get numeric-sorted
+	category orders when their values parse as numbers. This makes
+	`primary=DIV` (6, 8, 12, 15, …) and `secondary=plating_density`
+	(20000, 40000, …) render in ascending order.
+
+	Significance brackets compare PRIMARY groups only, regardless of
+	secondary grouping. Each primary group's data is pooled across all of
+	its secondary sub-groups for the test — this keeps the plot's stats
+	simple and aligned with the user's typical "is DIV 12 different from
+	DIV 22 overall?" question. To test secondary effects within a primary
+	level, narrow the filter to one primary value and switch the secondary
+	to be the primary instead.
 	"""
 	if df is None or df.empty or not value_col or not group_col:
 		return px.box(pd.DataFrame({"_": []}), y="_")
@@ -1237,14 +1267,10 @@ def build_box_plot(
 	else:
 		px_points = "all"
 
-	# Sort present categories numerically when possible so the x-axis renders
-	# DIV=6, DIV=8, DIV=12 in numeric order even though we force categorical
-	# axis below.
-	present = list(df[group].dropna().unique())
-	try:
-		sorted_present = sorted(present, key=lambda v: (float(v),))
-	except (TypeError, ValueError):
-		sorted_present = sorted(present, key=lambda v: str(v))
+	sorted_present = _sorted_present_categories(df, group)
+	category_orders: dict[str, list[Any]] = {group: sorted_present}
+	if color is not None:
+		category_orders[color] = _sorted_present_categories(df, color)
 
 	fig = px.box(
 		df,
@@ -1252,7 +1278,7 @@ def build_box_plot(
 		y=value,
 		color=color,
 		points=px_points,
-		category_orders={group: sorted_present},
+		category_orders=category_orders,
 	)
 	# Force category type so brackets at integer indices align with the boxes,
 	# even when the group column is numeric. Empty groups are absent from
