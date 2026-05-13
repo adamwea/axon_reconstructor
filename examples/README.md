@@ -10,11 +10,42 @@ Reference launch wrappers and sbatch templates for running axon-recon.
 | `localrun.sh` | Lab-server bare-metal single-rank smoke |
 | `mpirun.sh` | Lab-server multi-rank via host OpenMPI `mpirun` |
 | `smoketest_sort_and_recon.sh` | Lab-server end-to-end sort + recon smoke (per-phase invocations) |
-| `perlmutter_preprocess.sbatch.example` | NERSC Perlmutter CPU sbatch template (preprocess, reconstruct, analysis) |
-| `perlmutter_spikesort.sbatch.example` | NERSC Perlmutter GPU sbatch template (spikesort) |
+| `perlmutter_preprocess.sbatch.example` | NERSC Perlmutter CPU sbatch template (placeholders for account/image) |
+| `perlmutter_spikesort.sbatch.example` | NERSC Perlmutter GPU `sort`-only sbatch template (single rank for sort phase) |
+| `perlmutter_spikesort.sbatch` | Concrete NERSC sbatch: full spikesort stage, 4 GPU nodes, m2043_g, regular QoS |
+| `perlmutter_reconstruct.sbatch` | Concrete NERSC sbatch: reconstruct stage, 4 CPU nodes, m2043, regular QoS |
+| `perlmutter_pipeline_chain.sh` | Orchestrator: detects incomplete spikesort, submits spikesort + reconstruct with `--dependency=afterok` |
+| `detect_incomplete_spikesort.py` | Helper used by the orchestrator: scans data.yml for wells missing the spikesort completion marker |
 | `example.data.yml` | Data config schema reference (placeholder paths only) |
 
-All four `*.sh` wrappers accept `RUNTIME_CFG=<path>` so the same script works against `dev/debug_local/`, `dev/debug_NERSC/`, or any custom config.
+The four lab-server `*.sh` wrappers (`containrun.sh`, `localrun.sh`, `mpirun.sh`, `smoketest_sort_and_recon.sh`) accept `RUNTIME_CFG=<path>` so the same script works against `dev/debug_local/`, `dev/debug_NERSC/`, or any custom config.
+
+The two `*.sbatch.example` files are generic templates with `<NERSC_ACCOUNT>` / `<registry>` placeholders. The two `*.sbatch` files (no `.example`) are concrete shapes for adamm/m2043 that the chain script submits directly.
+
+## Spikesort → reconstruct chain
+
+`perlmutter_pipeline_chain.sh` is the recommended way to drive a multi-day NERSC run without babysitting interactive allocs:
+
+```bash
+cd /global/u2/a/adammwea/dev/pkgs/axon_recon
+examples/perlmutter_pipeline_chain.sh
+```
+
+What it does:
+1. Runs `detect_incomplete_spikesort.py` against `dev/debug_NERSC/debug.runtime.yml`. The detector walks every included `(dataset, well)` pair and checks for `<well>/spikesort_outputs/merge_SLAy/merge_stage_summary.json`. The merge_SLAy phase is the last enabled phase of the spikesort stage; if its summary exists, every upstream phase ran for that well too.
+2. If any datasets are missing one or more wells, submits `perlmutter_spikesort.sbatch` targeting just those indices (4 GPU nodes, regular QoS, 4 h wall).
+3. Submits `perlmutter_reconstruct.sbatch` targeting `RECONSTRUCT_TARGETS` (default `0,1,2,3,4,5,6,7,8`, i.e. everything except the last 4 datasets), with `--dependency=afterok:<spikesort jobid>` if step 2 fired.
+
+Overrides:
+- `RECONSTRUCT_TARGETS="0-12"` — pass a different reconstruct dataset list (the script defaults to "all except last 4" because the last 4 are typically already reconstructed in interactive smoke runs).
+- `RUNTIME_CFG=dev/debug_local/debug.runtime.yml` — point at a different runtime yml. The data yml is resolved relative to the runtime yml as usual.
+
+Monitor with:
+```bash
+squeue -u $USER -o '%.10i %.9P %.2t %.10M %.10L %.20R'
+```
+
+The dependent reconstruct job sits in `(Dependency)` state until spikesort completes with exit 0. If spikesort fails, the reconstruct is auto-cancelled.
 
 ## Slurm × Shifter × profile — how CPUs are counted
 
