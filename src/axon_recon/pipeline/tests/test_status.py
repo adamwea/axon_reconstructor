@@ -181,6 +181,109 @@ def test_format_default_tables_renders_each_stage(tmp_path: Path) -> None:
 		assert f"=== {stage_name} ===" in text
 
 
+def test_scan_status_records_acceptable_skip_from_well_marker(tmp_path: Path) -> None:
+	from axon_recon.pipeline.status import ACCEPTABLE_SKIP_REASONS
+
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+
+	# Write merge_stage_summary.json with status=skipped, reason=no_qualifying_units.
+	output_root = tmp_path / "out"
+	marker_path = output_root / rel_pattern / "well000"
+	for piece in STAGE_WELL_MARKER["spikesort"][:-1]:
+		marker_path = marker_path / piece
+	marker_path.mkdir(parents=True, exist_ok=True)
+	(marker_path / STAGE_WELL_MARKER["spikesort"][-1]).write_text(
+		'{"status": "skipped", "reason": "no_qualifying_units"}'
+	)
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	well = report.stages[0].datasets[0].wells[0]
+	# stage_done is True because the marker file exists.
+	assert well.stage_done is True
+	# But there's a skip record on it that classifies as acceptable.
+	assert well.has_skips is True
+	assert well.has_unacceptable_skip is False
+	skip = well.skip_records[0]
+	assert skip.reason == "no_qualifying_units"
+	assert skip.acceptable is True
+	assert "no_qualifying_units" in ACCEPTABLE_SKIP_REASONS
+
+
+def test_scan_status_flags_unacceptable_skip_from_well_marker(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+
+	output_root = tmp_path / "out"
+	marker_path = output_root / rel_pattern / "well000"
+	for piece in STAGE_WELL_MARKER["spikesort"][:-1]:
+		marker_path = marker_path / piece
+	marker_path.mkdir(parents=True, exist_ok=True)
+	# Reason not in the allowlist → flagged as unacceptable.
+	(marker_path / STAGE_WELL_MARKER["spikesort"][-1]).write_text(
+		'{"status": "skipped", "reason": "manual_block_for_review"}'
+	)
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	well = report.stages[0].datasets[0].wells[0]
+	assert well.has_skips is True
+	assert well.has_unacceptable_skip is True
+	assert well.skip_records[0].acceptable is False
+
+
+def test_scan_status_no_skips_when_marker_status_is_ok(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+
+	output_root = tmp_path / "out"
+	marker_path = output_root / rel_pattern / "well000"
+	for piece in STAGE_WELL_MARKER["spikesort"][:-1]:
+		marker_path = marker_path / piece
+	marker_path.mkdir(parents=True, exist_ok=True)
+	# Normal "ok" stage completion — no skip record should appear.
+	(marker_path / STAGE_WELL_MARKER["spikesort"][-1]).write_text('{"status": "ok"}')
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	well = report.stages[0].datasets[0].wells[0]
+	assert well.stage_done is True
+	assert well.has_skips is False
+
+
+def test_format_default_tables_surfaces_skip_reasons_with_acceptability_tag(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000", "well001"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+
+	output_root = tmp_path / "out"
+	# well000 → acceptable skip (no_qualifying_units)
+	# well001 → unacceptable skip (custom reason not in allowlist)
+	for well_id, reason in (("well000", "no_qualifying_units"), ("well001", "weird_failure")):
+		marker_path = output_root / rel_pattern / well_id
+		for piece in STAGE_WELL_MARKER["spikesort"][:-1]:
+			marker_path = marker_path / piece
+		marker_path.mkdir(parents=True, exist_ok=True)
+		(marker_path / STAGE_WELL_MARKER["spikesort"][-1]).write_text(
+			f'{{"status": "skipped", "reason": "{reason}"}}'
+		)
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	text = format_default_tables(report)
+
+	# Acceptable skip is tagged (ok).
+	assert "well000[spikesort=no_qualifying_units(ok)]" in text
+	# Unacceptable skip is tagged (!!).
+	assert "well001[spikesort=weird_failure(!!)]" in text
+	# Summary line mentions the skip counts.
+	assert "2 skipped-but-complete wells (1 flagged !!)" in text
+
+
 def test_format_verbose_tables_numbers_phase_legend(tmp_path: Path) -> None:
 	raw = "/d/p/M/X/0001/data.raw.h5"
 	datasets = [_build_dataset(raw, ["well000"])]

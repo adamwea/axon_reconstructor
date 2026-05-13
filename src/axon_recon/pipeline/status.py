@@ -10,6 +10,13 @@ file per stage (chosen as the natural "stage done" artifact each runner
 writes). Verbose mode additionally checks per-phase markers under each
 stage's per-well output dir.
 
+The scan also reads each existing marker's `status` / `reason` fields to
+detect *skipped-but-complete* wells (e.g. spikesort's merge_SLAy writing a
+stub with `reason="no_qualifying_units"` when bombcell rejected every
+unit). Known-benign skip reasons surface as "OK skips"; anything else
+shows as a flagged warning so the user can quickly spot wells that may
+warrant exclusion from downstream analysis.
+
 Marker paths reflect the on-disk conventions used by current runners
 (spikesort/runner.py, preprocess/runner.py, reconstruct/runner.py,
 analysis/runner.py). If a runtime config overrides ``summary_json_relpath``
@@ -19,11 +26,29 @@ is still the authoritative answer for "did the well finish this stage."
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
 import yaml
+
+
+# Skip reasons that represent normal-but-not-an-error outcomes. Wells with
+# only these reasons in their marker files are flagged as "OK skips" — the
+# pipeline did the right thing given the inputs. Anything outside this set
+# (or anything with status="error" / status="failed") is flagged as a
+# warning so the operator can decide whether to exclude the well.
+ACCEPTABLE_SKIP_REASONS: frozenset[str] = frozenset(
+	{
+		"no_qualifying_units",
+		"slay_disabled",
+		"merge_units_disabled",
+		"merge_disabled",
+		"phase_disabled",
+		"bombcell_label_not_invoked_by_merge_stage",
+	}
+)
 
 
 STAGE_ORDER: tuple[str, ...] = ("preprocess", "spikesort", "reconstruct", "analysis")
@@ -88,10 +113,27 @@ STAGE_PHASES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 
 
 @dataclass(frozen=True)
+class SkipRecord:
+	"""One skipped phase / well-marker entry."""
+	name: str  # phase name, or "<stage>" for a stage-level marker
+	reason: str | None
+	acceptable: bool
+
+
+@dataclass(frozen=True)
 class WellStatus:
 	well_id: str
 	stage_done: bool
 	phase_done: dict[str, bool] = field(default_factory=dict)
+	skip_records: tuple[SkipRecord, ...] = field(default_factory=tuple)
+
+	@property
+	def has_skips(self) -> bool:
+		return bool(self.skip_records)
+
+	@property
+	def has_unacceptable_skip(self) -> bool:
+		return any(not record.acceptable for record in self.skip_records)
 
 
 @dataclass(frozen=True)
@@ -149,6 +191,43 @@ def _iter_included_datasets(data_cfg: dict, target_datasets: set[int] | None) ->
 		if target_datasets is not None and i not in target_datasets:
 			continue
 		yield i, dataset
+
+
+def _classify_skip_reason(reason: str | None) -> bool:
+	"""True if a skip reason is in the known-acceptable set."""
+	if reason is None:
+		return False
+	return str(reason).strip() in ACCEPTABLE_SKIP_REASONS
+
+
+def _read_marker_skip(marker_path: Path, *, label: str) -> SkipRecord | None:
+	"""Return a SkipRecord if the marker file declares a non-ok status.
+
+	Returns None when:
+	  - the marker doesn't exist (caller already knows: stage_done=False),
+	  - the marker exists but the JSON has status missing or status="ok",
+	  - the JSON is malformed (treat as ok-status to avoid false positives).
+	"""
+	if not marker_path.is_file():
+		return None
+	try:
+		with marker_path.open("r", encoding="utf-8") as fh:
+			payload = json.load(fh)
+	except (json.JSONDecodeError, OSError):
+		return None
+	if not isinstance(payload, dict):
+		return None
+	status = payload.get("status")
+	if status is None or str(status).strip().lower() == "ok":
+		return None
+	reason_raw = payload.get("reason")
+	reason = str(reason_raw).strip() if reason_raw is not None else None
+	# status=="error" / "failed" / anything else non-"ok" non-"skipped" → not acceptable.
+	if str(status).strip().lower() == "skipped":
+		acceptable = _classify_skip_reason(reason)
+	else:
+		acceptable = False
+	return SkipRecord(name=label, reason=reason, acceptable=acceptable)
 
 
 def _included_wells(dataset: dict, target_wells: set[str] | None = None) -> list[str]:
@@ -210,11 +289,31 @@ def scan_status(
 			wells_out: list[WellStatus] = []
 			for well_id in _included_wells(dataset, target_wells_set):
 				well_root = output_root / rel_pattern / well_id
-				stage_done = (well_root.joinpath(*well_marker)).is_file()
+				well_marker_path = well_root.joinpath(*well_marker)
+				stage_done = well_marker_path.is_file()
 				phase_done: dict[str, bool] = {}
+				skip_records: list[SkipRecord] = []
+
+				# Stage-level skip (status="skipped" inside the well marker, with a reason).
+				stage_skip = _read_marker_skip(well_marker_path, label=stage_name)
+				if stage_skip is not None:
+					skip_records.append(stage_skip)
+
+				# Per-phase skip (only checked in verbose mode where we already walk the phase markers).
 				for phase_name, relparts in phase_markers:
-					phase_done[phase_name] = (well_root.joinpath(*relparts)).is_file()
-				wells_out.append(WellStatus(well_id=well_id, stage_done=stage_done, phase_done=phase_done))
+					phase_marker_path = well_root.joinpath(*relparts)
+					phase_done[phase_name] = phase_marker_path.is_file()
+					phase_skip = _read_marker_skip(phase_marker_path, label=phase_name)
+					if phase_skip is not None:
+						skip_records.append(phase_skip)
+				wells_out.append(
+					WellStatus(
+						well_id=well_id,
+						stage_done=stage_done,
+						phase_done=phase_done,
+						skip_records=tuple(skip_records),
+					)
+				)
 			datasets_out.append(
 				DatasetStatus(
 					index=int(i),
@@ -234,38 +333,91 @@ def scan_status(
 	)
 
 
+def _format_skip_annotation(well: WellStatus) -> str:
+	"""Compact skip annotation for default-mode tables.
+
+	Examples:
+	  - "merge_SLAy=no_qualifying_units(ok)"
+	  - "merge_SLAy=manual_block(!!)"      # unacceptable skip → !!
+	"""
+	if not well.skip_records:
+		return ""
+	parts: list[str] = []
+	for record in well.skip_records:
+		reason = record.reason if record.reason else "(no reason)"
+		tag = "ok" if record.acceptable else "!!"
+		parts.append(f"{record.name}={reason}({tag})")
+	return "; ".join(parts)
+
+
 def format_default_tables(report: StatusReport) -> str:
-	"""Per-stage table: dataset × wells (ok/total + missing well list)."""
+	"""Per-stage table: dataset × wells (ok/total + missing well list + skip flags).
+
+	The trailing `skipped_wells` column lists wells whose marker file says
+	`status="skipped"`. An `(ok)` tag follows known-acceptable reasons
+	(e.g. `no_qualifying_units`); `(!!)` flags reasons outside the
+	allowlist so the operator can decide whether to exclude the well.
+	"""
 	lines: list[str] = []
 	lines.append(f"# status scan vs {report.output_root}")
 	lines.append(f"# runtime: {report.runtime_yml}")
 	lines.append(f"# data:    {report.data_yml}")
+	lines.append(f"# acceptable skip reasons: {', '.join(sorted(ACCEPTABLE_SKIP_REASONS))}")
 
 	for stage in report.stages:
 		lines.append("")
 		marker_path = "/".join(STAGE_WELL_MARKER[stage.stage])
 		lines.append(f"=== {stage.stage} ===")
 		lines.append(f"# marker: <well>/{marker_path}")
-		lines.append(f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'wells (ok/total)':<18}  missing_wells")
-		lines.append(f"{'---':>3}  {'---':>3}  {'-'*30:<30}  {'-'*18:<18}  -------------")
+		lines.append(
+			f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'wells (ok/total)':<18}  "
+			f"{'missing_wells':<28}  skipped_wells"
+		)
+		lines.append(
+			f"{'---':>3}  {'---':>3}  {'-'*30:<30}  {'-'*18:<18}  {'-'*28:<28}  -------------"
+		)
 		total_ok = 0
 		total_wells = 0
 		incomplete_count = 0
+		skip_count = 0
+		unacceptable_skip_count = 0
 		for dataset in stage.datasets:
 			total = len(dataset.wells)
 			ok = sum(1 for well in dataset.wells if well.stage_done)
 			missing = [well.well_id for well in dataset.wells if not well.stage_done]
+			skipped_wells = [well for well in dataset.wells if well.has_skips]
 			div_str = str(dataset.div) if dataset.div is not None and dataset.div >= 0 else "-"
 			missing_str = ",".join(missing) if missing else "-"
-			tag = "  COMPLETE" if not missing else ""
+			if skipped_wells:
+				skip_parts = [
+					f"{well.well_id}[{_format_skip_annotation(well)}]" for well in skipped_wells
+				]
+				skip_str = "; ".join(skip_parts)
+				skip_count += len(skipped_wells)
+				unacceptable_skip_count += sum(
+					1 for well in skipped_wells if well.has_unacceptable_skip
+				)
+			else:
+				skip_str = "-"
+			complete_tag = "" if missing else "  COMPLETE"
 			lines.append(
-				f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  {ok}/{total:<16}  {missing_str}{tag}"
+				f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  "
+				f"{ok}/{total:<16}  {missing_str:<28}  {skip_str}{complete_tag}"
 			)
 			total_ok += ok
 			total_wells += total
 			if missing:
 				incomplete_count += 1
-		lines.append(f"# {incomplete_count} of {len(stage.datasets)} datasets incomplete · {total_ok}/{total_wells} wells done")
+		summary = (
+			f"# {incomplete_count} of {len(stage.datasets)} datasets incomplete · "
+			f"{total_ok}/{total_wells} wells done"
+		)
+		if skip_count:
+			summary += (
+				f" · {skip_count} skipped-but-complete wells "
+				f"({unacceptable_skip_count} flagged !!)"
+			)
+		lines.append(summary)
 	return "\n".join(lines)
 
 
@@ -291,8 +443,14 @@ def format_verbose_tables(report: StatusReport) -> str:
 		for idx, phase_name in enumerate(phase_names, start=1):
 			lines.append(f"#   {idx:>2}. {phase_name}")
 		lines.append("# glyphs: ✓ = marker exists  · = marker missing  (left-to-right matches legend order)")
+		lines.append(
+			"# skips column: '<phase>=<reason>(ok|!!)' for each phase whose marker has status=skipped"
+		)
 		phases_header = "".join(f"{i % 10}" for i in range(1, len(phase_names) + 1))
-		header = f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'well':<8}  done  phases({phases_header})"
+		header = (
+			f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'well':<8}  done  "
+			f"phases({phases_header})  skips"
+		)
 		lines.append(header)
 		lines.append("-" * min(len(header), 200))
 		for dataset in stage.datasets:
@@ -302,8 +460,10 @@ def format_verbose_tables(report: StatusReport) -> str:
 				phase_glyphs = "".join(
 					("✓" if well.phase_done.get(name, False) else "·") for name in phase_names
 				)
+				skip_str = _format_skip_annotation(well) if well.has_skips else "-"
 				lines.append(
-					f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  {well.well_id:<8}  {done_glyph:>4}  {phase_glyphs}"
+					f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  "
+					f"{well.well_id:<8}  {done_glyph:>4}  {phase_glyphs}  {skip_str}"
 				)
 	return "\n".join(lines)
 
