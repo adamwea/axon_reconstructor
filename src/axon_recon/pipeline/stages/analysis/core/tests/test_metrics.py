@@ -7,6 +7,7 @@ from ..metrics import (
 	branch_count,
 	compute_unit_metrics,
 	compute_well_summary,
+	mean_branch_length_um,
 	passthrough_grid_sort_metric,
 	recon_density,
 	template_density,
@@ -72,6 +73,37 @@ def test_total_branch_length_empty_branches_returns_nan() -> None:
 
 def test_total_branch_length_missing_payload_returns_nan() -> None:
 	assert _isnan(total_branch_length_um(None))
+
+
+# ---------- mean_branch_length_um ----------
+
+
+def test_mean_branch_length_uses_distances_when_present() -> None:
+	payload = {
+		"branches": [
+			{"distances": [1.0, 2.0, 3.0]},  # sum = 6
+			{"distances": [4.0]},             # sum = 4
+		]
+	}
+	assert mean_branch_length_um(payload) == 5.0  # (6 + 4) / 2
+
+
+def test_mean_branch_length_falls_back_to_polyline_when_distances_missing() -> None:
+	payload = {
+		"branches": [
+			{"polyline_xy": [[0.0, 0.0], [3.0, 0.0], [3.0, 4.0]]},  # 3 + 4 = 7
+			{"polyline_xy": [[0.0, 0.0], [3.0, 0.0]]},               # 3
+		]
+	}
+	assert math.isclose(mean_branch_length_um(payload), 5.0, rel_tol=1e-6)
+
+
+def test_mean_branch_length_empty_branches_returns_nan() -> None:
+	assert _isnan(mean_branch_length_um({"branches": []}))
+
+
+def test_mean_branch_length_missing_payload_returns_nan() -> None:
+	assert _isnan(mean_branch_length_um(None))
 
 
 # ---------- template_density ----------
@@ -202,34 +234,43 @@ def _make_units_df():
 		[
 			{
 				"recon_status": "ok",
+				"template_status": "ok",
 				"bombcell_label": "good",
 				"branch_count": 1.0,
 				"total_branch_length_um": 100.0,
+				"mean_branch_length_um": 100.0,
 				"template_density": 0.4,
 				"recon_density": 0.2,
 			},
 			{
 				"recon_status": "ok",
+				"template_status": "ok",
 				"bombcell_label": "non_soma_good",
 				"branch_count": 3.0,
 				"total_branch_length_um": 300.0,
+				"mean_branch_length_um": 100.0,
 				"template_density": 0.6,
 				"recon_density": 0.4,
 			},
 			{
 				"recon_status": "ok",
+				"template_status": "ok",
 				"bombcell_label": "mua",
 				"branch_count": 5.0,
 				"total_branch_length_um": 500.0,
+				"mean_branch_length_um": 100.0,
 				"template_density": 0.8,
 				"recon_density": 0.6,
 			},
-			# error row — must not contribute to the metric aggregates.
+			# error row — must not contribute to the metric aggregates;
+			# template_status="ok" here proves the count is independent of recon_status.
 			{
 				"recon_status": "error",
+				"template_status": "ok",
 				"bombcell_label": None,
 				"branch_count": float("nan"),
 				"total_branch_length_um": float("nan"),
+				"mean_branch_length_um": float("nan"),
 				"template_density": float("nan"),
 				"recon_density": float("nan"),
 			},
@@ -256,6 +297,9 @@ def test_compute_well_summary_counts_and_aggregates() -> None:
 	# Counts cover the whole table; the recon_ok count excludes the error row.
 	assert summary["unit_count_total"] == 4
 	assert summary["unit_count_recon_ok"] == 3
+	# template_ok counts every row whose template_status == "ok", independent
+	# of recon_status — all 4 fixture rows satisfy this.
+	assert summary["unit_count_template_ok"] == 4
 	assert summary["unit_count_bombcell_good"] == 1
 	assert summary["unit_count_bombcell_non_soma_good"] == 1
 
@@ -264,6 +308,8 @@ def test_compute_well_summary_counts_and_aggregates() -> None:
 	assert math.isclose(summary["median_branch_count"], 3.0, rel_tol=1e-9)
 	assert math.isclose(summary["mean_total_branch_length_um"], 300.0, rel_tol=1e-9)
 	assert math.isclose(summary["median_total_branch_length_um"], 300.0, rel_tol=1e-9)
+	assert math.isclose(summary["mean_mean_branch_length_um"], 100.0, rel_tol=1e-9)
+	assert math.isclose(summary["median_mean_branch_length_um"], 100.0, rel_tol=1e-9)
 	assert math.isclose(summary["mean_template_density"], 0.6, rel_tol=1e-9)
 	assert math.isclose(summary["median_template_density"], 0.6, rel_tol=1e-9)
 	assert math.isclose(summary["mean_recon_density"], 0.4, rel_tol=1e-9)
@@ -278,6 +324,7 @@ def test_compute_well_summary_empty_df_returns_zero_counts_and_nan_metrics() -> 
 	assert summary["well_id"] == "well000"
 	assert summary["unit_count_total"] == 0
 	assert summary["unit_count_recon_ok"] == 0
+	assert summary["unit_count_template_ok"] == 0
 	assert summary["unit_count_bombcell_good"] == 0
 	assert summary["unit_count_bombcell_non_soma_good"] == 0
 	for metric in WELL_SUMMARY_METRIC_COLUMNS:

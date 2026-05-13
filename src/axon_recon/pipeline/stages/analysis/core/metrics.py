@@ -46,6 +46,25 @@ def total_branch_length_um(branches_payload: dict[str, Any] | None) -> float:
 	return float(total)
 
 
+def mean_branch_length_um(branches_payload: dict[str, Any] | None) -> float:
+	"""Mean of per-branch path lengths within a single unit.
+
+	Same per-branch metric as `total_branch_length_um` divided by the branch
+	count. NaN if the payload is missing or the branches list is empty.
+	"""
+	if not branches_payload:
+		return _nan()
+	branches = branches_payload.get("branches", None)
+	if not isinstance(branches, list) or not branches:
+		return _nan()
+	per_branch = [
+		_branch_path_length_um(branch) for branch in branches if isinstance(branch, dict)
+	]
+	if not per_branch:
+		return _nan()
+	return float(sum(per_branch) / len(per_branch))
+
+
 def _branch_path_length_um(branch: dict[str, Any]) -> float:
 	distances = branch.get("distances", None)
 	if isinstance(distances, list) and distances:
@@ -171,6 +190,7 @@ def compute_unit_metrics(
 	return {
 		"branch_count": branch_count(branches_payload),
 		"total_branch_length_um": total_branch_length_um(branches_payload),
+		"mean_branch_length_um": mean_branch_length_um(branches_payload),
 		"template_density": template_density(unit_summary_payload),
 		"recon_density": recon_density(merged_payload, branches_payload),
 		"max_amplitude_uv": passthrough_grid_sort_metric(unit_summary_payload, key="max_amplitude"),
@@ -184,6 +204,7 @@ def compute_unit_metrics(
 WELL_SUMMARY_METRIC_COLUMNS: tuple[str, ...] = (
 	"branch_count",
 	"total_branch_length_um",
+	"mean_branch_length_um",
 	"template_density",
 	"recon_density",
 )
@@ -211,6 +232,7 @@ def compute_well_summary(
 	if units_df is None or len(units_df) == 0:
 		row["unit_count_total"] = 0
 		row["unit_count_recon_ok"] = 0
+		row["unit_count_template_ok"] = 0
 		row["unit_count_bombcell_good"] = 0
 		row["unit_count_bombcell_non_soma_good"] = 0
 		for metric in WELL_SUMMARY_METRIC_COLUMNS:
@@ -223,6 +245,9 @@ def compute_well_summary(
 	recon_status = units_df.get("recon_status", pd.Series(dtype=object))
 	ok_mask = recon_status.astype(object) == "ok"
 	row["unit_count_recon_ok"] = int(ok_mask.sum())
+
+	template_status = units_df.get("template_status", pd.Series(dtype=object))
+	row["unit_count_template_ok"] = int((template_status.astype(object) == "ok").sum())
 
 	bombcell = units_df.get("bombcell_label", pd.Series(dtype=object))
 	row["unit_count_bombcell_good"] = int((bombcell.astype(object) == "good").sum())

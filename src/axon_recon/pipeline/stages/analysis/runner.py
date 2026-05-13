@@ -21,6 +21,7 @@ from .core.metrics import (
 )
 from .core.recon_io import (
 	get_recon_status,
+	get_template_status,
 	get_unit_id_from_branches,
 	iter_unit_dirs,
 	read_branches,
@@ -51,6 +52,7 @@ _UNITS_TABLE_COLUMNS: tuple[str, ...] = (
 	"treatment",
 	# Filter columns (see plan §4)
 	"recon_status",
+	"template_status",
 	"bombcell_label",
 	"num_spikes",
 	"num_branches",
@@ -58,6 +60,7 @@ _UNITS_TABLE_COLUMNS: tuple[str, ...] = (
 	# Starter metrics
 	"branch_count",
 	"total_branch_length_um",
+	"mean_branch_length_um",
 	"template_density",
 	"recon_density",
 	# Handy passthroughs
@@ -88,6 +91,7 @@ _WELL_SUMMARY_IDENTITY_COLUMNS: tuple[str, ...] = (
 _WELL_SUMMARY_AGG_COLUMNS: tuple[str, ...] = (
 	"unit_count_total",
 	"unit_count_recon_ok",
+	"unit_count_template_ok",
 	"unit_count_bombcell_good",
 	"unit_count_bombcell_non_soma_good",
 	*(f"mean_{m}" for m in WELL_SUMMARY_METRIC_COLUMNS),
@@ -175,6 +179,7 @@ def _row_for_unit(
 	templates_payload = read_unit_templates_summary(unit_dir)
 
 	recon_status = get_recon_status(unit_summary)
+	template_status = get_template_status(templates_payload)
 	unit_id = get_unit_id_from_branches(branches_payload)
 	if unit_id is None:
 		unit_id = _unit_id_from_dir_name(unit_dir)
@@ -203,6 +208,7 @@ def _row_for_unit(
 		**identity_cols,
 		"unit_id": int(unit_id) if unit_id is not None else None,
 		"recon_status": str(recon_status),
+		"template_status": str(template_status),
 		"bombcell_label": bombcell_label,
 		"num_spikes": int(num_spikes) if num_spikes is not None else None,
 		"num_branches": int(metrics["branch_count"])
@@ -211,6 +217,7 @@ def _row_for_unit(
 		"recon_quality_score": None,
 		"branch_count": metrics["branch_count"],
 		"total_branch_length_um": metrics["total_branch_length_um"],
+		"mean_branch_length_um": metrics["mean_branch_length_um"],
 		"template_density": metrics["template_density"],
 		"recon_density": metrics["recon_density"],
 		"max_amplitude_uv": metrics["max_amplitude_uv"],

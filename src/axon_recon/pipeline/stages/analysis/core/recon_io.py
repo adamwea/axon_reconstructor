@@ -55,6 +55,18 @@ def get_recon_status(unit_summary: dict[str, Any] | None) -> str:
 	return str(status) if status is not None else "missing"
 
 
+def get_template_status(templates_payload: dict[str, Any] | None) -> str:
+	"""Return a coarse "ok" / "missing" template status for a unit.
+
+	The `build_templates` recon phase writes `unit_templates_summary.json`
+	only for units whose merged template build succeeded — file presence is
+	the success signal. If callers have already loaded the payload via
+	`read_unit_templates_summary`, pass it here; otherwise pass `None` and
+	the result is "missing".
+	"""
+	return "ok" if templates_payload else "missing"
+
+
 def get_unit_id_from_branches(branches_payload: dict[str, Any] | None) -> int | None:
 	if not branches_payload:
 		return None
