@@ -93,7 +93,8 @@ resources:
         enabled: true
         backend: mpi
         task_unit: well
-        tasks_per_node: 8        # 8 tasks × 16 cores = 128 physical cores (full node)
+        # rank count is controlled by srun -n / sbatch --ntasks-per-node, not pinned here.
+        # Recommended full-node usage: srun -n 8 -c 16 --threads-per-core=1 = 128 physical cores.
         cpus_per_task: 16        # 2 CCX per task; counts as PHYSICAL when --threads-per-core=1 on srun
         bind: physical_cores
         use_hyperthreads: false
@@ -138,7 +139,10 @@ resources:
         enabled: true
         backend: mpi
         task_unit: well
-        tasks_per_node: 4        # 4 tasks × 16 cores = 64 physical cores; one task per A100
+        # rank count is controlled by srun -n / sbatch --ntasks-per-node, not pinned here.
+        # Recommended full-node usage: srun -n 4 -c 16 --threads-per-core=1 = 64 physical
+        # cores, one task per A100 (spikesort.sort enforces -n <= 4 via the
+        # SpikesortGpuOversubscriptionError gate).
         cpus_per_task: 16        # 2 CCX per task; counts as PHYSICAL when --threads-per-core=1 on srun
         bind: physical_cores
         use_hyperthreads: false
