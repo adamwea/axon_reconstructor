@@ -39,32 +39,32 @@ COPY containers/axon-recon/install_maxwell_hdf5_plugin.py /opt/axon_recon/contai
 
 RUN rm -rf /tmp/axon-recon-cache \
   && apt-get update \
-  && if [[ -n "${AXON_RECON_OBSERVABILITY_APT_PACKAGES}" ]]; then DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${AXON_RECON_OBSERVABILITY_APT_PACKAGES}; fi \
-  && if [[ -n "${AXON_RECON_MPI_APT_PACKAGES}" ]]; then DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${AXON_RECON_MPI_APT_PACKAGES}; fi \
+  && if [ -n "${AXON_RECON_OBSERVABILITY_APT_PACKAGES}" ]; then DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${AXON_RECON_OBSERVABILITY_APT_PACKAGES}; fi \
+  && if [ -n "${AXON_RECON_MPI_APT_PACKAGES}" ]; then DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${AXON_RECON_MPI_APT_PACKAGES}; fi \
   && rm -rf /var/lib/apt/lists/* \
   && python containers/axon-recon/install_maxwell_hdf5_plugin.py --url "${MAXWELL_HDF5_PLUGIN_URL}" --plugin-dir "${MAXWELL_HDF5_PLUGIN_DIR}" \
   && python -m pip install --upgrade pip setuptools wheel \
-  && if [[ -n "${AXON_RECON_RUNTIME_SPEC}" ]]; then python -m pip install ${AXON_RECON_RUNTIME_SPEC}; fi \
-  && if [[ -n "${AXON_VELOCITY_SPEC}" ]]; then python -m pip install "${AXON_VELOCITY_SPEC}"; fi \
-  && if [[ -n "${SPIKEINTERFACE_SPEC}" ]]; then python -m pip install "${SPIKEINTERFACE_SPEC}"; fi \
-  && if [[ -n "${UNITMATCH_SPEC}" ]]; then \
-  if [[ -n "${UNITMATCH_RUNTIME_SPEC}" ]]; then python -m pip install ${UNITMATCH_RUNTIME_SPEC}; fi; \
+  && if [ -n "${AXON_RECON_RUNTIME_SPEC}" ]; then python -m pip install ${AXON_RECON_RUNTIME_SPEC}; fi \
+  && if [ -n "${AXON_VELOCITY_SPEC}" ]; then python -m pip install "${AXON_VELOCITY_SPEC}"; fi \
+  && if [ -n "${SPIKEINTERFACE_SPEC}" ]; then python -m pip install "${SPIKEINTERFACE_SPEC}"; fi \
+  && if [ -n "${UNITMATCH_SPEC}" ]; then \
+  if [ -n "${UNITMATCH_RUNTIME_SPEC}" ]; then python -m pip install ${UNITMATCH_RUNTIME_SPEC}; fi; \
   fi \
-  && if [[ -n "${SLAY_SPEC}" ]]; then \
-  if [[ -n "${SLAY_RUNTIME_SPEC}" ]]; then python -m pip install ${SLAY_RUNTIME_SPEC}; fi; \
+  && if [ -n "${SLAY_SPEC}" ]; then \
+  if [ -n "${SLAY_RUNTIME_SPEC}" ]; then python -m pip install ${SLAY_RUNTIME_SPEC}; fi; \
   fi \
-  && if [[ -n "${MPI4PY_SPEC}" ]]; then python -m pip install "${MPI4PY_SPEC}"; fi \
+  && if [ -n "${MPI4PY_SPEC}" ]; then python -m pip install "${MPI4PY_SPEC}"; fi \
   && rm -rf /root/.cache/pip /tmp/axon-recon-cache /tmp/pip-* /tmp/build-*
 
 COPY . /opt/axon_recon
 
-RUN if [[ -n "${AXON_RECON_INSTALL_EXTRAS}" ]]; then \
+RUN if [ -n "${AXON_RECON_INSTALL_EXTRAS}" ]; then \
   python -m pip install ".[${AXON_RECON_INSTALL_EXTRAS}]"; \
   else \
   python -m pip install .; \
   fi \
-  && if [[ -n "${UNITMATCH_SPEC}" ]]; then python -m pip install ${UNITMATCH_INSTALL_ARGS} "${UNITMATCH_SPEC}"; fi \
-  && if [[ -n "${SLAY_SPEC}" ]]; then python -m pip install ${SLAY_INSTALL_ARGS} "${SLAY_SPEC}"; fi \
+  && if [ -n "${UNITMATCH_SPEC}" ]; then python -m pip install ${UNITMATCH_INSTALL_ARGS} "${UNITMATCH_SPEC}"; fi \
+  && if [ -n "${SLAY_SPEC}" ]; then python -m pip install ${SLAY_INSTALL_ARGS} "${SLAY_SPEC}"; fi \
   && chmod +x /opt/axon_recon/containers/axon-recon/entrypoint.sh \
   && chmod +x /opt/axon_recon/containers/axon-recon/smoke_cli.sh \
   && ln -sf /opt/axon_recon/containers/axon-recon/entrypoint.sh /usr/local/bin/axon-recon-entrypoint \
