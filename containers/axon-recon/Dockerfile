@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM spikeinterface/kilosort4-base:4.0.38_cuda-12.0.0
+# Fully-qualified registry path so podman/podman-hpc (no default registry)
+# resolves to Docker Hub. Docker accepts the qualified form unchanged.
+FROM docker.io/spikeinterface/kilosort4-base:4.0.38_cuda-12.0.0
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 

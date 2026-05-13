@@ -166,6 +166,27 @@ adammwea/axon-recon:20260512-pipeline-v2
 
 If this repo has moved beyond the digest behind those tags, rebuild and push a fresh tag before relying on newer in-image CLI behavior in Shifter/NERSC.
 
+## Rebuild + redeploy after code changes (NERSC one-liner)
+
+After editing code in this repo, refresh the Shifter image used by sbatch jobs with:
+
+```bash
+containers/axon-recon/rebuild_shifter.sh
+```
+
+That wrapper picks the best container CLI on this host (`podman-hpc` on NERSC, `podman` or `docker` elsewhere), builds via `build_local_image.sh`, pushes to Docker Hub, then asks `shifterimg` to refresh the cached image so the next `shifter --image=...` invocation picks up the new digest. Pass a tag override as the first positional arg to publish under a different name (e.g. `containers/axon-recon/rebuild_shifter.sh adammwea/axon-recon:20260513-pipeline-v2`).
+
+Prereqs (one-time):
+
+```bash
+podman-hpc login docker.io      # or `podman login docker.io` / `docker login`
+```
+
+Env overrides:
+- `AXON_RECON_CONTAINER_CLI=podman` (or similar) — force a specific CLI.
+- `AXON_RECON_REBUILD_SKIP_PUSH=1` — build only, no push / shifterimg refresh. Useful for iteration before you're ready to ship.
+- `AXON_RECON_REBUILD_SKIP_SHIFTERIMG=1` — skip the `shifterimg pull` step (e.g. on the lab server).
+
 ## Wrapper Details
 
 The wrapper mounts the repo at the same absolute path and sets writable cache locations under `/tmp/axon-recon-cache`. When the forwarded CLI args include `--config`, the wrapper inspects that runtime config and its `data:` YAML with a lightweight scanner, then mounts configured output roots and scratch roots read-write and the common raw H5 root read-only. Disable this with `--no-config-mounts` and add manual mounts with repeated `--mount host_path:container_path[:mode]` flags when needed.
