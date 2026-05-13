@@ -54,4 +54,5 @@ srun --cpu-bind=cores --threads-per-core=1 \
     --config "${RUNTIME_CFG}" \
     --task-profile perlmutter_gpu \
     --target-dataset "${TARGET_DATASETS}" \
-    --task-backend mpi
+    --task-backend mpi \
+    --force-restart
