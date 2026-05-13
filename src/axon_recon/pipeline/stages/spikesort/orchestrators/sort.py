@@ -81,12 +81,9 @@ def _debug_outputs_enabled_for_config(config_path: str) -> bool:
 
 
 def _emit_spikesort_aggregate(agg: object, *, debug_outputs: bool) -> int:
-	lines = [
-		f"stage: {agg.stage}",
-		f"targets_total: {agg.total_targets}",
-		f"targets_succeeded: {agg.succeeded_targets}",
-		f"targets_failed: {agg.failed_targets}",
-	]
+	from ....execution.results import stage_aggregate_summary_lines
+
+	lines = list(stage_aggregate_summary_lines(agg))
 	for item in agg.target_results:
 		target = item.target
 		if item.status == "ok" and item.result is not None:

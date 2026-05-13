@@ -78,17 +78,10 @@ def run_preprocess_phase_from_runtime(
 
 
 def print_preprocess_aggregate(agg: object) -> int:
-	print(f"stage: {agg.stage}")
-	print(f"targets_total: {agg.total_targets}")
-	print(f"targets_succeeded: {agg.succeeded_targets}")
-	print(f"targets_failed: {agg.failed_targets}")
-	# Each preprocess target is one (dataset, well) pair; surface dataset and
-	# well counts so the summary reads as "X datasets, N wells" without parsing
-	# the per-target lines below.
-	ok_datasets = {item.target.dataset_index for item in agg.target_results if item.status == "ok"}
-	all_datasets = {item.target.dataset_index for item in agg.target_results}
-	print(f"datasets_succeeded: {len(ok_datasets)}/{len(all_datasets)}")
-	print(f"wells_succeeded: {agg.succeeded_targets}/{agg.total_targets}")
+	from ....execution.results import stage_aggregate_summary_lines
+
+	for line in stage_aggregate_summary_lines(agg):
+		print(line)
 	for item in agg.target_results:
 		target = item.target
 		if item.status != "ok" or item.result is None:

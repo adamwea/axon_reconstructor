@@ -31,10 +31,10 @@ LOGGER = logging.getLogger("axon_recon.reconstruct.cli")
 
 
 def _emit_reconstruct_aggregate(agg: object) -> int:
-	LOGGER.info("stage: %s", agg.stage)
-	LOGGER.info("targets_total: %s", agg.total_targets)
-	LOGGER.info("targets_succeeded: %s", agg.succeeded_targets)
-	LOGGER.info("targets_failed: %s", agg.failed_targets)
+	from ...execution.results import stage_aggregate_summary_lines
+
+	for line in stage_aggregate_summary_lines(agg):
+		LOGGER.info(line)
 	for item in agg.target_results:
 		target = item.target
 		if item.status != "ok" or item.result is None:
@@ -285,10 +285,10 @@ def _run_clear_templates_cache_from_args(args: argparse.Namespace) -> int:
 
 
 def _print_reconstruct_aggregate(agg: object) -> int:
-	print(f"stage: {agg.stage}")
-	print(f"targets_total: {agg.total_targets}")
-	print(f"targets_succeeded: {agg.succeeded_targets}")
-	print(f"targets_failed: {agg.failed_targets}")
+	from ...execution.results import stage_aggregate_summary_lines
+
+	for line in stage_aggregate_summary_lines(agg):
+		print(line)
 	for item in agg.target_results:
 		t = item.target
 		if item.status != "ok" or item.result is None:

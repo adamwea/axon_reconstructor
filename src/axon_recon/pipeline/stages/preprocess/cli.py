@@ -27,10 +27,10 @@ LOGGER = logging.getLogger("axon_recon.preprocess.cli")
 
 
 def _emit_preprocess_aggregate(agg: object) -> int:
-	LOGGER.info("stage: %s", agg.stage)
-	LOGGER.info("targets_total: %s", agg.total_targets)
-	LOGGER.info("targets_succeeded: %s", agg.succeeded_targets)
-	LOGGER.info("targets_failed: %s", agg.failed_targets)
+	from ...execution.results import stage_aggregate_summary_lines
+
+	for line in stage_aggregate_summary_lines(agg):
+		LOGGER.info(line)
 	for item in agg.target_results:
 		target = item.target
 		if item.status != "ok" or item.result is None:

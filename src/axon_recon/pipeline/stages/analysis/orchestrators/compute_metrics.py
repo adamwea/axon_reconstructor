@@ -85,11 +85,11 @@ def _target_datasets_override_from_args(args: argparse.Namespace) -> list[int] |
 def _print_analysis_aggregate(agg: MultiTargetStageResult) -> int:
 	import logging
 
+	from ....execution.results import stage_aggregate_summary_lines
+
 	LOGGER = logging.getLogger("axon_recon.analysis.cli")
-	LOGGER.info("stage: %s", agg.stage)
-	LOGGER.info("targets_total: %s", agg.total_targets)
-	LOGGER.info("targets_succeeded: %s", agg.succeeded_targets)
-	LOGGER.info("targets_failed: %s", agg.failed_targets)
+	for line in stage_aggregate_summary_lines(agg):
+		LOGGER.info(line)
 	for item in agg.target_results:
 		target = item.target
 		if item.status != "ok" or item.result is None:

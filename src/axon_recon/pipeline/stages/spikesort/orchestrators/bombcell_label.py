@@ -57,10 +57,10 @@ def run_spikesort_bombcell_label_from_runtime(
 
 
 def _print_spikesort_bombcell_aggregate(agg: object) -> int:
-	print(f"stage: {agg.stage}")
-	print(f"targets_total: {agg.total_targets}")
-	print(f"targets_succeeded: {agg.succeeded_targets}")
-	print(f"targets_failed: {agg.failed_targets}")
+	from ....execution.results import stage_aggregate_summary_lines
+
+	for line in stage_aggregate_summary_lines(agg):
+		print(line)
 	for item in agg.target_results:
 		target = item.target
 		if item.status == "ok" and item.result is not None:
