@@ -522,6 +522,9 @@ def test_run_spikesort_stage_fails_fast_when_mpi_ranks_exceed_gpus(monkeypatch, 
     monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
     monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
     monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+    for var in ("SLURM_NTASKS_PER_NODE", "SLURM_TASKS_PER_NODE", "SLURM_NNODES",
+                "OMPI_COMM_WORLD_LOCAL_SIZE", "PMI_LOCAL_SIZE", "MPI_LOCALNRANKS"):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(spikesort_runner, "_detect_physical_gpu_count", lambda: 1)
 
     inputs = SpikesortInputs(
@@ -532,7 +535,7 @@ def test_run_spikesort_stage_fails_fast_when_mpi_ranks_exceed_gpus(monkeypatch, 
         local_spikeinterface_enabled=True,
     )
 
-    with pytest.raises(SpikesortGpuOversubscriptionError, match=r"MPI size N=2 exceeds visible GPU count G=1"):
+    with pytest.raises(SpikesortGpuOversubscriptionError, match=r"ranks-per-node N=2 exceeds visible GPU count G=1"):
         run_spikesort_stage(inputs)
 
 
@@ -563,6 +566,9 @@ def test_run_spikesort_stage_passes_when_mpi_ranks_within_gpu_capacity(monkeypat
     monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
     monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
     monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "2")
+    for var in ("SLURM_NTASKS_PER_NODE", "SLURM_TASKS_PER_NODE", "SLURM_NNODES",
+                "OMPI_COMM_WORLD_LOCAL_SIZE", "PMI_LOCAL_SIZE", "MPI_LOCALNRANKS"):
+        monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(spikesort_runner, "_detect_physical_gpu_count", lambda: 2)
 
     inputs = SpikesortInputs(
@@ -575,6 +581,84 @@ def test_run_spikesort_stage_passes_when_mpi_ranks_within_gpu_capacity(monkeypat
 
     result = run_spikesort_stage(inputs)
     assert result.outputs["local_spikeinterface.spikesort_out_dir"].endswith("spikesort_outputs")
+
+
+def test_run_spikesort_stage_passes_multi_node_when_local_ranks_fit_gpus(monkeypatch, tmp_path: Path) -> None:
+    """Multi-node alloc: 16 ranks across 4 nodes = 4 ranks/node should pass when each node has 4 GPUs."""
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.core.local_spikeinterface import LocalSpikeInterfaceSortOutputs
+
+    well_out_dir = tmp_path / "well001"
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+    def _fake_local_run(**kwargs):
+        stage_output_root_dir = Path(kwargs["stage_output_root_dir"])
+        sorter_output_dir = stage_output_root_dir / "sorter_output"
+        analyzer_dir = stage_output_root_dir / "analyzer_output"
+        sorter_output_dir.mkdir(parents=True, exist_ok=True)
+        analyzer_dir.mkdir(parents=True, exist_ok=True)
+        return LocalSpikeInterfaceSortOutputs(
+            recording_dir=well_out_dir / "preprocess_outputs/preprocessed_recording",
+            sorter_output_dir=sorter_output_dir,
+            output_dir=stage_output_root_dir,
+            analyzer_dir=analyzer_dir,
+        )
+
+    monkeypatch.setattr(spikesort_runner, "run_local_spikeinterface_sort_stage", _fake_local_run)
+
+    import axon_recon.pipeline.mpi_adapter as mpi_adapter
+
+    monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
+    monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+    monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "16")
+    monkeypatch.setenv("SLURM_NTASKS_PER_NODE", "4")
+    monkeypatch.setenv("SLURM_NNODES", "4")
+    monkeypatch.setattr(spikesort_runner, "_detect_physical_gpu_count", lambda: 4)
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        sort_engine="local_spikeinterface",
+        local_spikeinterface_enabled=True,
+    )
+
+    result = run_spikesort_stage(inputs)
+    assert result.outputs["local_spikeinterface.spikesort_out_dir"].endswith("spikesort_outputs")
+
+
+def test_run_spikesort_stage_fails_when_local_ranks_exceed_per_node_gpus(monkeypatch, tmp_path: Path) -> None:
+    """Multi-node alloc with too-dense per-node packing (8 ranks/node, 4 GPUs/node) still fails."""
+    from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
+    from axon_recon.pipeline.stages.spikesort.runner import SpikesortGpuOversubscriptionError
+
+    well_out_dir = tmp_path / "well001"
+    monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
+
+    def _fail_local_run(**kwargs):
+        raise AssertionError("local sort must not run when per-node ranks exceed GPUs")
+
+    monkeypatch.setattr(spikesort_runner, "run_local_spikeinterface_sort_stage", _fail_local_run)
+
+    import axon_recon.pipeline.mpi_adapter as mpi_adapter
+
+    monkeypatch.setattr(mpi_adapter, "_CURRENT_MPI_CONTEXT", None)
+    monkeypatch.setenv("OMPI_COMM_WORLD_RANK", "0")
+    monkeypatch.setenv("OMPI_COMM_WORLD_SIZE", "16")
+    monkeypatch.setenv("SLURM_NTASKS_PER_NODE", "8")
+    monkeypatch.setenv("SLURM_NNODES", "2")
+    monkeypatch.setattr(spikesort_runner, "_detect_physical_gpu_count", lambda: 4)
+
+    inputs = SpikesortInputs(
+        h5_path=tmp_path / "test.h5",
+        stream_id="well001",
+        mea_output_root=tmp_path,
+        sort_engine="local_spikeinterface",
+        local_spikeinterface_enabled=True,
+    )
+
+    with pytest.raises(SpikesortGpuOversubscriptionError, match=r"ranks-per-node N=8 exceeds visible GPU count G=4"):
+        run_spikesort_stage(inputs)
 
 
 def test_run_spikesort_stage_passes_when_single_rank_regardless_of_gpus(monkeypatch, tmp_path: Path) -> None:

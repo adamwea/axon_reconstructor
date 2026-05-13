@@ -16,7 +16,11 @@ from types import ModuleType, SimpleNamespace
 from typing import Any, Callable
 
 from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
-from axon_recon.pipeline.mpi_adapter import _detect_physical_gpu_count, current_mpi_context
+from axon_recon.pipeline.mpi_adapter import (
+	_detect_local_rank_count_per_node,
+	_detect_physical_gpu_count,
+	current_mpi_context,
+)
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.stages.spikesort.legacy_runner import (
 	SpikeSortingInputs as LegacySpikeSortingInputs,
@@ -44,12 +48,17 @@ class SpikesortGpuOversubscriptionError(RuntimeError):
 
 
 def _assert_mpi_ranks_within_gpu_capacity_for_sort() -> None:
-	"""Fail fast if MPI ranks would oversubscribe physical GPUs for CUDA-backed sort.
+	"""Fail fast if local MPI ranks would oversubscribe this node's physical GPUs.
 
-	No-op when MPI is not active or running a single rank. When NVML cannot report a
-	physical GPU count, defers to runtime (the partition logic in mpi_adapter has
-	already constrained per-rank visibility). The check exists to catch the obvious
-	"2 ranks, 1 GPU" lab-server case before kilosort initializes CUDA.
+	The comparison is per-node: ranks scheduled on *this* node vs GPUs visible
+	on *this* node. ``apply_per_rank_cuda_visible_devices`` already partitions
+	CUDA devices round-robin within a node, so a 4-node job with 4 ranks/node
+	and 4 GPUs/node is safe (1 rank per GPU) even though global size is 16.
+
+	No-op when MPI is inactive or single-rank. When NVML cannot report a GPU
+	count, defers to runtime — the partition logic in mpi_adapter has already
+	constrained per-rank visibility. When local-rank count cannot be detected,
+	falls back to comparing global size (safe for the single-node case).
 	"""
 	ctx = current_mpi_context()
 	if ctx is None or int(ctx.size) <= 1:
@@ -57,13 +66,17 @@ def _assert_mpi_ranks_within_gpu_capacity_for_sort() -> None:
 	physical_gpus = _detect_physical_gpu_count()
 	if physical_gpus is None:
 		return
-	if int(ctx.size) <= int(physical_gpus):
+	local_ranks = _detect_local_rank_count_per_node(global_size=int(ctx.size))
+	effective_local = int(local_ranks) if local_ranks is not None else int(ctx.size)
+	if effective_local <= int(physical_gpus):
 		return
 	raise SpikesortGpuOversubscriptionError(
-		f"spikesort.sort: MPI size N={int(ctx.size)} exceeds visible GPU count G={int(physical_gpus)}. "
-		"Kilosort4 cannot safely share a single GPU across ranks. Re-run with --mpi-ranks 1 "
-		"for the sort stage, or use stage-split jobs (CPU preprocess multi-rank, GPU sort "
-		"single-rank, CPU reconstruct multi-rank). See container_shifter_shape_plan.md §4."
+		f"spikesort.sort: ranks-per-node N={effective_local} exceeds visible GPU count "
+		f"G={int(physical_gpus)} on this node (MPI world size={int(ctx.size)}). "
+		"Kilosort4 cannot safely share a single GPU across ranks. Reduce "
+		"--ntasks-per-node to <= GPUs-per-node, or use stage-split jobs (CPU "
+		"preprocess multi-rank, GPU sort single-rank-per-node, CPU reconstruct "
+		"multi-rank). See container_shifter_shape_plan.md §4."
 	)
 
 

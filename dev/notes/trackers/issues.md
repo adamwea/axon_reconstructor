@@ -238,3 +238,33 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
     print(t.column_names); print(t.column('treatment').to_pylist()[:6])"
   ```
 - **See also**: commits adding the field (sibling commit on this branch).
+
+
+### Stage exits 0 when all targets fail — breaks `afterok` chains
+- **Status**: open
+- **Tags**: infra, mpi, scheduling, exit_code
+- **Repro**: NERSC run 52897375 (axon-spikesort, 2026-05-13). All 36 spikesort
+  targets failed with `SpikesortGpuOversubscriptionError` (the per-node guard bug
+  fixed in a sibling commit). Each rank logged `targets_succeeded: 0`,
+  `targets_failed: N`, then `event=stage_completed` and `event=run_completed`,
+  and the process exited 0. The dependent reconstruct job (52897376) submitted
+  with `--dependency=afterok:52897375` saw the zero exit and proceeded against
+  empty spikesort outputs, burning 35 minutes producing partial reconstruct
+  artifacts before being noticed.
+- **Impact**: `afterok` chains do not catch upstream all-targets-fail conditions.
+  Whole chained pipelines silently waste downstream compute. Logs say "stage
+  completed" even when nothing useful was produced.
+- **Workaround**: monitor `run_logs/<stage>/*.out` for `targets_succeeded: 0`
+  manually; cancel downstream jobs by hand. Or have orchestrator scripts
+  re-check on-disk markers before declaring spikesort done (which is what the
+  `detect_incomplete_spikesort.py` helper does, but the chain script trusts
+  exit codes rather than re-running detection between jobs).
+- **Suggested fix**: in the stage runner's MultiTargetStageResult finalization
+  (after the gathered agg is built — depends on the multi-rank summary fix
+  above), exit with non-zero (e.g. 2) when `succeeded_targets == 0 and
+  total_targets > 0`. Threshold could be configurable per stage; default
+  "any failure" is too strict for partial-progress runs, so "all failed"
+  is a reasonable starting line. Document the exit code contract in
+  `examples/README.md` next to the chain script.
+- **See also**: GPU guard fix (sibling commit); chain script
+  `examples/perlmutter_pipeline_chain.sh`.

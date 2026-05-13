@@ -184,6 +184,40 @@ def partition_targets_by_mpi_rank(*, targets: list[Any], mpi_context: MPIContext
 	return [targets[i] for i in range(len(targets)) if i % int(mpi_context.size) == int(mpi_context.rank)]
 
 
+def _detect_local_rank_count_per_node(*, global_size: int | None = None) -> int | None:
+	"""Return the number of MPI ranks scheduled on this node.
+
+	Prefers ``SLURM_NTASKS_PER_NODE`` (uniform jobs), then ``SLURM_TASKS_PER_NODE``
+	(first segment, e.g. ``"4(x4)"`` → 4), then ``OMPI_COMM_WORLD_LOCAL_SIZE`` /
+	``PMI_LOCAL_SIZE`` / ``MPI_LOCALNRANKS``. As a last resort, divides the
+	provided ``global_size`` by ``SLURM_NNODES`` (or ``SLURM_JOB_NUM_NODES``).
+	Returns ``None`` if nothing is detectable so callers can fall back to
+	whatever single-node-safe behavior they prefer.
+	"""
+	ntasks_per_node = _parse_int_env("SLURM_NTASKS_PER_NODE")
+	if ntasks_per_node is not None and ntasks_per_node > 0:
+		return int(ntasks_per_node)
+	tasks_per_node_raw = os.environ.get("SLURM_TASKS_PER_NODE", "").strip()
+	if tasks_per_node_raw:
+		first = tasks_per_node_raw.split(",", 1)[0].strip()
+		head = first.split("(", 1)[0].strip()
+		try:
+			value = int(head)
+			if value > 0:
+				return value
+		except Exception:
+			pass
+	for var in ("OMPI_COMM_WORLD_LOCAL_SIZE", "PMI_LOCAL_SIZE", "MPI_LOCALNRANKS"):
+		value = _parse_int_env(var)
+		if value is not None and value > 0:
+			return int(value)
+	if global_size is not None and int(global_size) > 0:
+		nnodes = _parse_int_env("SLURM_NNODES") or _parse_int_env("SLURM_JOB_NUM_NODES")
+		if nnodes is not None and nnodes > 0:
+			return max(1, int(global_size) // int(nnodes))
+	return None
+
+
 def _detect_physical_gpu_count() -> int | None:
 	"""Return total NVML-visible GPU count, ignoring ``CUDA_VISIBLE_DEVICES``.
 
