@@ -601,6 +601,63 @@ def _register_system_topology_parser(
 	parser.set_defaults(handler=_run_system_topology_from_args)
 
 
+def _run_status_from_args(args: argparse.Namespace) -> int:
+	from . import status as status_module
+
+	target_datasets = _parse_target_dataset_indices_from_args(args)
+	stages = getattr(args, "status_stages", None)
+	verbose = bool(getattr(args, "verbose", False))
+	report = status_module.scan_status(
+		Path(str(args.config)).expanduser().resolve(),
+		target_datasets=target_datasets,
+		stages=stages,
+		collect_phases=verbose,
+	)
+	if verbose:
+		print(status_module.format_verbose_tables(report))
+	else:
+		print(status_module.format_default_tables(report))
+	return 0
+
+
+def _register_status_parser(
+	*,
+	subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> None:
+	parser = subparsers.add_parser(
+		"status",
+		help=(
+			"Summarize per-stage processing completeness for every (dataset, well) "
+			"in the active data config. Use -v for per-phase detail."
+		),
+	)
+	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
+	parser.add_argument(
+		"--target-dataset",
+		"--target-datasets",
+		nargs="+",
+		default=None,
+		dest="target_datasets",
+		help="0-based dataset indices to scan (default: all included datasets)",
+	)
+	parser.add_argument(
+		"--stage",
+		"--stages",
+		nargs="+",
+		default=None,
+		dest="status_stages",
+		choices=list(_CANONICAL_STAGE_ORDER),
+		help="Restrict scan to specific stages (default: preprocess spikesort reconstruct analysis)",
+	)
+	parser.add_argument(
+		"-v",
+		"--verbose",
+		action="store_true",
+		help="Show per-phase markers per well in addition to the per-dataset rollup",
+	)
+	parser.set_defaults(handler=_run_status_from_args)
+
+
 def _parse_stage_list_tokens(raw_tokens: list[str]) -> list[str]:
 	text = " ".join(str(token) for token in list(raw_tokens or [])).strip()
 	if not text:
@@ -908,6 +965,7 @@ def build_parser() -> argparse.ArgumentParser:
 		help_text="Alias for stages",
 	)
 	_register_system_topology_parser(subparsers=subparsers)
+	_register_status_parser(subparsers=subparsers)
 	_register_dashboard_parser(subparsers=subparsers)
 
 	return parser

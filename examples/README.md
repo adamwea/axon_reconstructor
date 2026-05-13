@@ -15,8 +15,26 @@ Reference launch wrappers and sbatch templates for running axon-recon.
 | `perlmutter_spikesort.sbatch` | Concrete NERSC sbatch: full spikesort stage, 4 GPU nodes, m2043_g, regular QoS |
 | `perlmutter_reconstruct.sbatch` | Concrete NERSC sbatch: reconstruct stage, 4 CPU nodes, m2043, regular QoS |
 | `perlmutter_pipeline_chain.sh` | Orchestrator: detects incomplete spikesort, submits spikesort + reconstruct with `--dependency=afterok` |
-| `detect_incomplete_spikesort.py` | Helper used by the orchestrator: scans data.yml for wells missing the spikesort completion marker |
+| `detect_incomplete_spikesort.py` | Thin wrapper over `axon_recon.pipeline.status` that prints incomplete-spikesort dataset indices as CSV (kept for the chain script — for general per-stage status use `axon-recon status` instead) |
 | `example.data.yml` | Data config schema reference (placeholder paths only) |
+
+## Where the pipeline is
+
+For a quick per-stage / per-dataset / per-well completeness rollup, run:
+
+```bash
+axon-recon status --config dev/debug_NERSC/debug.runtime.yml
+```
+
+The default output is one table per stage (preprocess, spikesort, reconstruct, analysis) showing how many wells in each dataset have the stage's well-level "done" marker on disk, plus the list of missing wells per dataset.
+
+For per-phase detail within each stage (which phase's summary json is present for each well), add `-v`:
+
+```bash
+axon-recon status --config dev/debug_NERSC/debug.runtime.yml -v
+```
+
+Filter scope with `--target-dataset 0 2 8` (or `0,2,8`) and `--stage spikesort reconstruct`.
 
 The four lab-server `*.sh` wrappers (`containrun.sh`, `localrun.sh`, `mpirun.sh`, `smoketest_sort_and_recon.sh`) accept `RUNTIME_CFG=<path>` so the same script works against `dev/debug_local/`, `dev/debug_NERSC/`, or any custom config.
 

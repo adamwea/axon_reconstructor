@@ -57,9 +57,34 @@ echo "reconstruct targets:   ${RECONSTRUCT_TARGETS}"
 echo "dry-run:               ${DRY_RUN}"
 echo
 
-# --verbose sends a per-dataset status table to stderr; stdout captures the
+# Find a python3 that supports `from __future__ import annotations` (3.7+).
+# NERSC's default /usr/bin/python3 is 3.6, which can't run the detector.
+find_python_37plus() {
+    local candidates=()
+    if [[ -n "${AXON_RECON_PYTHON:-}" ]]; then candidates+=("${AXON_RECON_PYTHON}"); fi
+    if command -v python >/dev/null 2>&1; then candidates+=("python"); fi
+    if command -v python3 >/dev/null 2>&1; then candidates+=("python3"); fi
+    candidates+=("/global/homes/a/adammwea/.conda/envs/axon_recon/bin/python")
+    for candidate in "${candidates[@]}"; do
+        if "$candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 7) else 1)' 2>/dev/null; then
+            echo "$candidate"
+            return 0
+        fi
+    done
+    return 1
+}
+
+if ! PYTHON_BIN="$(find_python_37plus)"; then
+    echo "ERROR: could not find a python >= 3.7 to run examples/detect_incomplete_spikesort.py" >&2
+    echo "Set AXON_RECON_PYTHON to a 3.7+ interpreter, or activate the axon_recon conda env, then re-run." >&2
+    exit 2
+fi
+echo "using python:         ${PYTHON_BIN}"
+echo
+
+# --verbose sends a per-stage status table to stderr; stdout captures the
 # incomplete-index CSV.
-INCOMPLETE="$(python3 examples/detect_incomplete_spikesort.py --verbose "$RUNTIME_CFG")"
+INCOMPLETE="$("${PYTHON_BIN}" examples/detect_incomplete_spikesort.py --verbose "$RUNTIME_CFG")"
 echo
 
 if [[ -n "${INCOMPLETE}" ]]; then
