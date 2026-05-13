@@ -515,20 +515,21 @@ datasets:
           plating_density: 60000
           media: DMEM
           genotype: WT
+      # H5 file 000174 only contains streams for well000/001/002 — disabling 003/004/005.
       - well_id: well003
-        include_in_runtime: true
+        include_in_runtime: false
         attributes:
           plating_density: 60000
           media: NBP
           genotype: WT
       - well_id: well004
-        include_in_runtime: true
+        include_in_runtime: false
         attributes:
           plating_density: 60000
           media: NBP
           genotype: WT
       - well_id: well005
-        include_in_runtime: true
+        include_in_runtime: false
         attributes:
           plating_density: 60000
           media: NBP

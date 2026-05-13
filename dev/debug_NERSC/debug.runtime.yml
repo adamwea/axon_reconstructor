@@ -23,7 +23,8 @@ env:
     conda_env_name: axon_recon
 
 resources:
-  active_profile: perlmutter_cpu
+  #active_profile: perlmutter_cpu
+  active_profile: perlmutter_gpu
   container_caps:
     #shm_size: 8g # Docker /dev/shm cap for axon-recon-container; raise this for parallel analyzer runs, or set to null to stop forcing --shm-size.
     shm_size: 24g # increase Docker /dev/shm cap for axon-recon-container to 16 GB to support more parallel analyzer runs and reduce the likelihood of out-of-shm errors during memory-intensive analysis phases; adjust as needed based on the expected memory usage of your analyzers and the degree of parallelism you want to enable, or set to null to stop forcing --shm-size.
@@ -357,7 +358,8 @@ stages:
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
     #phase_sequence: [copy_src_to_scratch, save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
     phase_sequence:
-    - copy_src_to_scratch
+    # copy_src_to_scratch dropped: raw data already on pscratch and use_scratch_root=false.
+    #- copy_src_to_scratch
     - save_rec_metadata
     - preprocess_segments
     #- plot_segment_traces
@@ -380,8 +382,8 @@ stages:
         enabled: true
         resource_class: h5_metadata
         verbose: true
-        #metadata_source: source_h5
-        metadata_source: scratch_h5 # use scratch H5 metadata as the source of truth for recording metadata during debugging iterations to validate the integrity of copied recordings and their metadata in scratch space; can be set to source_h5 to use source H5 metadata instead, which is faster to access and can be used when copy_src_to_scratch is false or not the focus of debugging iterations.
+        #metadata_source: scratch_h5
+        metadata_source: source_h5 # raw data is on pscratch and copy_src_to_scratch is disabled — read metadata directly from source H5.
         summary_json_relpath: context/recording_metadata_summary.json
         segment_epochs_relpath: segment_epochs.json # start/stop timestamps for each segment; relative to preprocess output dir
         contiguous_epochs_relpath: contiguous_epochs.json # start/stop timestamps for contiguous data within each segment; relative to preprocess output dir
@@ -404,8 +406,8 @@ stages:
         enabled: true
         resource_class: preprocess_segments
         output_mode: lazy # lazy | binary; lazy mode saves per-segment preprocessed outputs in a way that supports lazy loading for downstream phases, while binary mode saves concatenated preprocessed outputs directly as memory-mapped binaries without intermediate per-segment files; keep lazy by default for debugging iterations to allow more granular inspection of per-segment preprocessing outputs, but can be set to binary to skip intermediate file saving and speed up iterations when segment-level inspection is not the focus.
-        #lazy_source: src # src | scratch
-        lazy_source: scratch # use scratch as the default lazy source for preprocess_segments to test lazy loading from scratch outputs during debugging iterations; can be set to src to test lazy loading directly from source recordings instead.
+        #lazy_source: scratch # src | scratch
+        lazy_source: src # raw data is on pscratch and copy_src_to_scratch is disabled — read segments directly from source H5.
         rel_output_root: preprocessed_segments
         summary_json_relpath: context/segment_recordings_summary.json
         outputs:
