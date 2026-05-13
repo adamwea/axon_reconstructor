@@ -52,8 +52,9 @@ ID_BOX_COLOR = "box-color"
 ID_BOX_TEST = "box-test"
 ID_BOX_CORRECTION = "box-correction"
 ID_BOX_SHOW_SIGNIFICANCE = "box-show-significance"
-ID_BOX_SHOW_POINTS = "box-show-points"
+ID_BOX_POINTS_MODE = "box-points-mode"
 ID_BOX_PLOT = "box-plot-graph"
+ID_EXCLUDE_NULLS = "filter-exclude-nulls"
 ID_SCATTER_X = "scatter-x"
 ID_SCATTER_Y = "scatter-y"
 ID_SCATTER_COLOR = "scatter-color"
@@ -299,6 +300,11 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 				options=[{"label": "Require recon_status='ok'", "value": "on"}],
 				value=["on"],
 			),
+			dcc.Checklist(
+				id=ID_EXCLUDE_NULLS,
+				options=[{"label": "Exclude null values from plots", "value": "on"}],
+				value=[],
+			),
 		],
 		style={
 			"width": "280px",
@@ -426,10 +432,16 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 							options=[{"label": "Show significance brackets", "value": "on"}],
 							value=["on"],
 						),
-						dcc.Checklist(
-							id=ID_BOX_SHOW_POINTS,
-							options=[{"label": "Overlay individual points (jittered)", "value": "on"}],
-							value=[],
+						html.Label("Individual points overlay"),
+						dcc.RadioItems(
+							id=ID_BOX_POINTS_MODE,
+							options=[
+								{"label": "Off (outliers only)", "value": "off"},
+								{"label": "Jittered, beside box", "value": "jittered_side"},
+								{"label": "Jittered, over box", "value": "over_box"},
+							],
+							value="off",
+							inline=True,
 						),
 					],
 					style={"display": "flex", "flexDirection": "column", "gap": "0.5rem", "marginTop": "0.5rem"},
@@ -609,6 +621,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_FILTER_PLATING, "value"),
 		Input(ID_FILTER_TREATMENT, "value"),
 		Input(ID_FILTER_DIV_RANGE, "value"),
+		Input(ID_EXCLUDE_NULLS, "value"),
 		Input(ID_HIST_X_AXIS, "value"),
 		Input(ID_HIST_COLOR, "value"),
 	)
@@ -627,6 +640,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		plating,
 		treatment,
 		div_range,
+		exclude_nulls,
 		hist_x,
 		hist_color,
 	):
@@ -647,7 +661,9 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			div_range=div_range,
 		)
 		filtered = filter_helpers.apply_filter_spec(units_df, spec)
-		fig = _build_histogram(filtered, x_column=hist_x, color_column=hist_color)
+		drop_nulls = bool(exclude_nulls and "on" in exclude_nulls)
+		hist_df = filtered.dropna(subset=[str(hist_x)]) if (drop_nulls and hist_x in filtered.columns) else filtered
+		fig = _build_histogram(hist_df, x_column=hist_x, color_column=hist_color)
 		column_defs = [{"field": c, "headerName": c} for c in filtered.columns]
 		# AgGrid rowData must be records (list[dict]).
 		row_data = filtered.to_dict("records") if not filtered.empty else []
@@ -669,13 +685,14 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_FILTER_PLATING, "value"),
 		Input(ID_FILTER_TREATMENT, "value"),
 		Input(ID_FILTER_DIV_RANGE, "value"),
+		Input(ID_EXCLUDE_NULLS, "value"),
 		Input(ID_BOX_VALUE_COL, "value"),
 		Input(ID_BOX_GROUP_COL, "value"),
 		Input(ID_BOX_COLOR, "value"),
 		Input(ID_BOX_TEST, "value"),
 		Input(ID_BOX_CORRECTION, "value"),
 		Input(ID_BOX_SHOW_SIGNIFICANCE, "value"),
-		Input(ID_BOX_SHOW_POINTS, "value"),
+		Input(ID_BOX_POINTS_MODE, "value"),
 	)
 	def _update_box(
 		require_recon_ok,
@@ -692,13 +709,14 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		plating,
 		treatment,
 		div_range,
+		exclude_nulls,
 		box_value_col,
 		box_group_col,
 		box_color,
 		box_test,
 		box_correction,
 		show_significance,
-		show_points,
+		points_mode,
 	):
 		spec = _build_filter_spec_from_state(
 			require_recon_ok=require_recon_ok,
@@ -725,7 +743,8 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			test=box_test,
 			correction=box_correction,
 			show_significance=bool(show_significance and "on" in show_significance),
-			show_points=bool(show_points and "on" in show_points),
+			points_mode=str(points_mode or "off"),
+			exclude_nulls=bool(exclude_nulls and "on" in exclude_nulls),
 		)
 
 	@app.callback(
@@ -744,6 +763,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_FILTER_PLATING, "value"),
 		Input(ID_FILTER_TREATMENT, "value"),
 		Input(ID_FILTER_DIV_RANGE, "value"),
+		Input(ID_EXCLUDE_NULLS, "value"),
 		Input(ID_SCATTER_X, "value"),
 		Input(ID_SCATTER_Y, "value"),
 		Input(ID_SCATTER_COLOR, "value"),
@@ -766,6 +786,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		plating,
 		treatment,
 		div_range,
+		exclude_nulls,
 		scatter_x,
 		scatter_y,
 		scatter_color,
@@ -790,6 +811,10 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			div_range=div_range,
 		)
 		filtered = filter_helpers.apply_filter_spec(units_df, spec)
+		if bool(exclude_nulls and "on" in exclude_nulls):
+			subset = [c for c in (str(scatter_x), str(scatter_y)) if c in filtered.columns]
+			if subset:
+				filtered = filtered.dropna(subset=subset)
 		return build_scatter(
 			filtered,
 			x_col=scatter_x,
@@ -832,7 +857,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 	)
 
 	def _build_box_from_state(filtered, *args):
-		value_col, group_col, color_col, test, correction, show_sig, show_pts = args
+		value_col, group_col, color_col, test, correction, show_sig, pts_mode = args
 		return build_box_plot(
 			filtered,
 			value_col=value_col,
@@ -841,7 +866,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			test=test,
 			correction=correction,
 			show_significance=bool(show_sig and "on" in show_sig),
-			show_points=bool(show_pts and "on" in show_pts),
+			points_mode=str(pts_mode or "off"),
 		)
 
 	for fmt, btn_id, target_id in (
@@ -862,7 +887,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 				ID_BOX_TEST,
 				ID_BOX_CORRECTION,
 				ID_BOX_SHOW_SIGNIFICANCE,
-				ID_BOX_SHOW_POINTS,
+				ID_BOX_POINTS_MODE,
 			),
 			fig_builder=_build_box_from_state,
 			units_df=units_df,
@@ -985,7 +1010,8 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		State(ID_BOX_TEST, "value"),
 		State(ID_BOX_CORRECTION, "value"),
 		State(ID_BOX_SHOW_SIGNIFICANCE, "value"),
-		State(ID_BOX_SHOW_POINTS, "value"),
+		State(ID_BOX_POINTS_MODE, "value"),
+		State(ID_EXCLUDE_NULLS, "value"),
 		State(ID_SCATTER_X, "value"),
 		State(ID_SCATTER_Y, "value"),
 		State(ID_SCATTER_COLOR, "value"),
@@ -1019,7 +1045,8 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		box_test,
 		box_correction,
 		show_significance,
-		show_points,
+		points_mode,
+		exclude_nulls,
 		scatter_x,
 		scatter_y,
 		scatter_color,
@@ -1048,6 +1075,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		)
 		plot_spec = {
 			"active_tab": active_tab,
+			"exclude_nulls": bool(exclude_nulls and "on" in exclude_nulls),
 			"histogram": {"x_axis": hist_x, "color": hist_color},
 			"box": {
 				"value_col": box_value_col,
@@ -1056,7 +1084,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 				"test": box_test,
 				"correction": box_correction,
 				"show_significance": bool(show_significance and "on" in show_significance),
-				"show_points": bool(show_points and "on" in show_points),
+				"points_mode": str(points_mode or "off"),
 			},
 			"scatter": {
 				"x": scatter_x,
@@ -1166,14 +1194,29 @@ def build_box_plot(
 	test: Any = _BOX_TEST_DEFAULT,
 	correction: Any = _BOX_CORRECTION_DEFAULT,
 	show_significance: bool = True,
-	show_points: bool = False,
+	points_mode: str = "off",
+	exclude_nulls: bool = False,
 ) -> Any:
 	"""Build a Plotly box-plot figure with optional significance brackets.
 
 	Empty / missing-column inputs return an empty Plotly figure (rather than
 	raising) so the Dash callback can render something on every fired update.
-	When `show_points` is True, every observation is overlaid on the box as
-	a jittered point (Plotly's `points="all"` mode).
+
+	`points_mode` controls how individual observations are drawn:
+	- ``"off"`` (default): only outliers shown.
+	- ``"jittered_side"``: every observation as a jittered point offset to the
+	  left of the box (Plotly's default ``points="all"`` look, ``pointpos<0``).
+	- ``"over_box"``: every observation centered over the box itself
+	  (``pointpos=0`` with a small jitter for visibility).
+
+	When `exclude_nulls` is True, rows with a NaN value in `value_col` are
+	dropped before grouping. This also keeps groups whose only values are
+	missing from contributing an empty box.
+
+	When the group column is numeric (e.g. DIV), the x-axis is forced to
+	categorical mode with categories sorted by numeric value, so significance
+	brackets — which expect integer-spaced category positions — align with
+	the boxes instead of landing far to the left on the numeric scale.
 	"""
 	if df is None or df.empty or not value_col or not group_col:
 		return px.box(pd.DataFrame({"_": []}), y="_")
@@ -1181,11 +1224,50 @@ def build_box_plot(
 	group = str(group_col)
 	if value not in df.columns or group not in df.columns:
 		return px.box(pd.DataFrame({"_": []}), y="_")
+	if exclude_nulls:
+		df = df.dropna(subset=[value])
+		if df.empty:
+			return px.box(pd.DataFrame({"_": []}), y="_")
 	color = None
 	if color_col and color_col != _BOX_COLOR_NONE and str(color_col) in df.columns:
 		color = str(color_col)
-	points_mode = "all" if show_points else "outliers"
-	fig = px.box(df, x=group, y=value, color=color, points=points_mode)
+	mode_key = str(points_mode or "off").strip().lower()
+	if mode_key in {"off", ""}:
+		px_points = "outliers"
+	else:
+		px_points = "all"
+
+	# Sort present categories numerically when possible so the x-axis renders
+	# DIV=6, DIV=8, DIV=12 in numeric order even though we force categorical
+	# axis below.
+	present = list(df[group].dropna().unique())
+	try:
+		sorted_present = sorted(present, key=lambda v: (float(v),))
+	except (TypeError, ValueError):
+		sorted_present = sorted(present, key=lambda v: str(v))
+
+	fig = px.box(
+		df,
+		x=group,
+		y=value,
+		color=color,
+		points=px_points,
+		category_orders={group: sorted_present},
+	)
+	# Force category type so brackets at integer indices align with the boxes,
+	# even when the group column is numeric. Empty groups are absent from
+	# `sorted_present` so they don't render.
+	fig.update_xaxes(
+		type="category",
+		categoryorder="array",
+		categoryarray=sorted_present,
+	)
+	if mode_key == "over_box":
+		fig.update_traces(pointpos=0, jitter=0.3, selector={"type": "box"})
+	elif mode_key == "jittered_side":
+		# Restore plotly's default offset-to-the-left look explicitly so the
+		# caller's intent is recoverable from the figure.
+		fig.update_traces(pointpos=-1.8, jitter=0.3, selector={"type": "box"})
 	if not show_significance:
 		return fig
 	test_key = str(test or _BOX_TEST_DEFAULT).strip().lower()

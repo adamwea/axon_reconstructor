@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import dash
 import numpy as np
 import pandas as pd
@@ -305,29 +307,114 @@ def test_build_scatter_missing_columns_returns_empty_figure() -> None:
 	assert fig is not None
 
 
-def test_build_box_plot_show_points_uses_all_points_mode() -> None:
-	"""Overlaying points adds extra scatter traces alongside the box trace."""
+def test_build_box_plot_points_mode_off_keeps_outliers_only() -> None:
 	df = _two_group_units_df()
-	fig_off = build_box_plot(
+	fig = build_box_plot(
 		df,
 		value_col="branch_count",
 		group_col="genotype",
 		show_significance=False,
-		show_points=False,
+		points_mode="off",
 	)
-	fig_on = build_box_plot(
+	modes = {getattr(t, "boxpoints", None) for t in fig.data}
+	assert "all" not in modes
+
+
+def test_build_box_plot_points_mode_jittered_side_uses_negative_pointpos() -> None:
+	df = _two_group_units_df()
+	fig = build_box_plot(
 		df,
 		value_col="branch_count",
 		group_col="genotype",
 		show_significance=False,
-		show_points=True,
+		points_mode="jittered_side",
 	)
-	# Box traces stash the `boxpoints` attribute; "all" when overlay is on,
-	# "outliers" (or unset → defaults to "outliers") when off.
-	on_modes = {getattr(t, "boxpoints", None) for t in fig_on.data}
-	off_modes = {getattr(t, "boxpoints", None) for t in fig_off.data}
-	assert "all" in on_modes
-	assert "all" not in off_modes
+	box_traces = [t for t in fig.data if getattr(t, "type", None) == "box"]
+	assert box_traces, "expected at least one box trace"
+	assert any(getattr(t, "boxpoints", None) == "all" for t in box_traces)
+	# `points="all"` plus negative pointpos = classic offset-to-the-left look.
+	pos_vals = [getattr(t, "pointpos", None) for t in box_traces]
+	assert any(pos is not None and float(pos) < 0 for pos in pos_vals)
+
+
+def test_build_box_plot_points_mode_over_box_centers_points() -> None:
+	df = _two_group_units_df()
+	fig = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="genotype",
+		show_significance=False,
+		points_mode="over_box",
+	)
+	box_traces = [t for t in fig.data if getattr(t, "type", None) == "box"]
+	assert box_traces
+	assert all(float(getattr(t, "pointpos", 0)) == 0.0 for t in box_traces)
+
+
+def test_build_box_plot_numeric_group_uses_category_axis_in_numeric_order() -> None:
+	"""Brackets line up with boxes only when numeric DIV is treated as category.
+
+	With type='category' + numeric category_orders, DIV values appear in
+	numeric order rather than at their numeric positions on the axis. Empty
+	groups (none in the df) don't render.
+	"""
+	df = pd.DataFrame(
+		{
+			"branch_count": [1, 2, 3, 4, 10, 11, 12, 13],
+			"DIV": [22, 22, 22, 22, 6, 6, 6, 6],
+		}
+	)
+	fig = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="DIV",
+		show_significance=False,
+		points_mode="off",
+	)
+	xaxis = fig.layout.xaxis
+	assert xaxis.type == "category"
+	# Category order is numeric ascending — 6 comes before 22 even though
+	# 22 appears first in the dataframe.
+	categoryarray = list(xaxis.categoryarray or [])
+	assert categoryarray == [6, 22]
+
+
+def test_build_box_plot_exclude_nulls_drops_nan_rows_before_plotting() -> None:
+	df = pd.DataFrame(
+		{
+			"branch_count": [1.0, float("nan"), 3.0, float("nan")],
+			"genotype": ["A", "A", "B", "B"],
+		}
+	)
+	fig_with_nulls = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="genotype",
+		show_significance=False,
+		points_mode="off",
+		exclude_nulls=False,
+	)
+	fig_without_nulls = build_box_plot(
+		df,
+		value_col="branch_count",
+		group_col="genotype",
+		show_significance=False,
+		points_mode="off",
+		exclude_nulls=True,
+	)
+	# Both figures should render two groups (A and B each have a non-NaN value).
+	# We don't get a precise row count back, but the y-array on each trace
+	# loses NaN entries when exclude_nulls=True.
+	def _yvals(fig: Any) -> list[float]:
+		out: list[float] = []
+		for trace in fig.data:
+			y = getattr(trace, "y", None)
+			if y is None:
+				continue
+			out.extend([v for v in list(y) if v is not None])
+		return out
+	assert any(v != v for v in _yvals(fig_with_nulls))  # NaN present
+	assert all(v == v for v in _yvals(fig_without_nulls))  # all finite
 
 
 def test_build_scatter_jitter_perturbs_numeric_axes() -> None:

@@ -285,11 +285,19 @@ def _figure_x_positions(fig: Any) -> dict[Any, float]:
 	"""Map category labels to integer index positions on the plot's x axis.
 
 	Plotly places each unique category at consecutive integer positions
-	starting at 0 along a categorical x axis. We accumulate categories in
-	their plot order (first appearance across the figure's traces) so the
-	index matches what's rendered — that's what `add_shape` and
-	`add_annotation` expect when you want to position by category midpoint.
+	starting at 0 along a categorical x axis. When the caller has set
+	`fig.layout.xaxis.categoryarray` (e.g. to force numeric DIV values
+	into category order), we honor that explicit order — this is what
+	keeps brackets aligned with the boxes after we convert a numeric
+	group column to a categorical axis. Otherwise we fall back to
+	first-appearance order across the figure's traces.
 	"""
+	layout = getattr(fig, "layout", None)
+	xaxis = getattr(layout, "xaxis", None) if layout is not None else None
+	categoryarray = getattr(xaxis, "categoryarray", None) if xaxis is not None else None
+	if categoryarray:
+		return {value: float(idx) for idx, value in enumerate(categoryarray)}
+
 	categories: list[Any] = []
 	for trace in getattr(fig, "data", []) or []:
 		x = getattr(trace, "x", None)
