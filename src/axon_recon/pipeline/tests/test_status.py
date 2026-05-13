@@ -67,6 +67,21 @@ def test_scan_status_detects_per_stage_completion(tmp_path: Path) -> None:
 	assert all(not w.stage_done for w in recon.wells)
 
 
+def test_scan_status_respects_target_wells_filter(tmp_path: Path) -> None:
+	raw = "/data/proj/260224/M08073/AxonTracking/000031/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000", "well001", "well002"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+
+	report = scan_status(runtime_yml, target_wells=["well001"])
+
+	# Every stage row in the single dataset should now show just one well.
+	for stage_status in report.stages:
+		ds = stage_status.datasets[0]
+		well_ids = [w.well_id for w in ds.wells]
+		assert well_ids == ["well001"], f"stage {stage_status.stage}: {well_ids}"
+
+
 def test_scan_status_respects_target_datasets_filter(tmp_path: Path) -> None:
 	datasets = [
 		_build_dataset("/data/a/A/X/0001/data.raw.h5", ["well000"], div=5),

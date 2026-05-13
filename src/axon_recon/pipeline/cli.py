@@ -475,6 +475,32 @@ def _parse_target_dataset_indices_from_args(args: argparse.Namespace) -> list[in
 	return parsed
 
 
+def _parse_target_well_ids_from_args(args: argparse.Namespace) -> list[str] | None:
+	"""Parse `--target-wells well003 well005` (or comma-separated) into a list.
+
+	Returns `None` if the flag was not provided. Well IDs are kept verbatim
+	(no case folding) so they match `wells[*].well_id` in data.yml.
+	"""
+	raw = getattr(args, "target_wells", None)
+	if raw is None:
+		return None
+	items = list(raw) if isinstance(raw, (list, tuple, set)) else [raw]
+	parsed: list[str] = []
+	seen: set[str] = set()
+	for item in items:
+		for token in str(item).split(","):
+			text = str(token).strip()
+			if not text:
+				continue
+			if text in seen:
+				continue
+			seen.add(text)
+			parsed.append(text)
+	if not parsed:
+		raise SystemExit("--target-wells requires at least one well id (e.g. well003)")
+	return parsed
+
+
 def _parse_positive_int(raw: str) -> int:
 	try:
 		value = int(str(raw).strip())
@@ -507,6 +533,18 @@ def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
 		help=(
 			"Target specific 0-based dataset indices, for example --target-dataset 0 or "
 			"--target-datasets 0,2,8"
+		),
+	)
+	parser.add_argument(
+		"--target-well",
+		"--target-wells",
+		nargs="+",
+		default=None,
+		dest="target_wells",
+		help=(
+			"Target specific well IDs (applied across all selected datasets), "
+			"for example --target-well well003 or --target-wells well003,well005. "
+			"Well IDs are case-sensitive and must match wells[*].well_id strings in the data config."
 		),
 	)
 	parser.add_argument(
@@ -605,11 +643,13 @@ def _run_status_from_args(args: argparse.Namespace) -> int:
 	from . import status as status_module
 
 	target_datasets = _parse_target_dataset_indices_from_args(args)
+	target_wells = _parse_target_well_ids_from_args(args)
 	stages = getattr(args, "status_stages", None)
 	verbose = bool(getattr(args, "verbose", False))
 	report = status_module.scan_status(
 		Path(str(args.config)).expanduser().resolve(),
 		target_datasets=target_datasets,
+		target_wells=target_wells,
 		stages=stages,
 		collect_phases=verbose,
 	)
@@ -639,6 +679,14 @@ def _register_status_parser(
 		default=None,
 		dest="target_datasets",
 		help="0-based dataset indices to scan (default: all included datasets)",
+	)
+	parser.add_argument(
+		"--target-well",
+		"--target-wells",
+		nargs="+",
+		default=None,
+		dest="target_wells",
+		help="Specific well IDs to scan (applied across all selected datasets).",
 	)
 	parser.add_argument(
 		"--stage",
@@ -1083,6 +1131,16 @@ def main(argv: list[str] | None = None) -> int:
 	install_maxwell_hdf5_plugin_message_filter()
 	_configure_runtime_logging_from_args(args)
 	_configure_phase_tuning_monitoring_from_args(args)
+
+	# Activate the process-wide --target-wells override before any stage handler
+	# fires. select_execution_targets honors it at the leaf, so we don't need to
+	# plumb a target_wells_override parameter through every runner helper.
+	from .config import set_target_wells_override
+
+	target_wells_filter = _parse_target_well_ids_from_args(args)
+	if target_wells_filter is not None:
+		set_target_wells_override(target_wells_filter)
+
 	handler = getattr(args, "handler", None)
 	if handler is None:
 		parser.print_help()
@@ -1103,6 +1161,7 @@ def main(argv: list[str] | None = None) -> int:
 		raise
 	finally:
 		finalize_pipeline_logging(status=status)
+		set_target_wells_override(None)
 		try:
 			from .resource_usage import configure_phase_tuning_monitoring
 

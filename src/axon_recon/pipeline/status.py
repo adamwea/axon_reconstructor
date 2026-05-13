@@ -151,14 +151,17 @@ def _iter_included_datasets(data_cfg: dict, target_datasets: set[int] | None) ->
 		yield i, dataset
 
 
-def _included_wells(dataset: dict) -> list[str]:
+def _included_wells(dataset: dict, target_wells: set[str] | None = None) -> list[str]:
 	out: list[str] = []
 	for well in dataset.get("wells", []) or []:
 		if not isinstance(well, dict):
 			continue
 		if not well.get("include_in_runtime", True):
 			continue
-		out.append(str(well["well_id"]))
+		well_id = str(well["well_id"])
+		if target_wells is not None and well_id not in target_wells:
+			continue
+		out.append(well_id)
 	return out
 
 
@@ -166,6 +169,7 @@ def scan_status(
 	runtime_yml: Path,
 	*,
 	target_datasets: Iterable[int] | None = None,
+	target_wells: Iterable[str] | None = None,
 	stages: Iterable[str] | None = None,
 	collect_phases: bool = False,
 ) -> StatusReport:
@@ -179,6 +183,9 @@ def scan_status(
 	target_set: set[int] | None = None
 	if target_datasets is not None:
 		target_set = {int(value) for value in target_datasets}
+	target_wells_set: set[str] | None = None
+	if target_wells is not None:
+		target_wells_set = {str(w) for w in target_wells if str(w).strip()}
 
 	stage_list = list(stages) if stages is not None else list(STAGE_ORDER)
 	for stage_name in stage_list:
@@ -201,7 +208,7 @@ def scan_status(
 			except Exception:
 				div = None
 			wells_out: list[WellStatus] = []
-			for well_id in _included_wells(dataset):
+			for well_id in _included_wells(dataset, target_wells_set):
 				well_root = output_root / rel_pattern / well_id
 				stage_done = (well_root.joinpath(*well_marker)).is_file()
 				phase_done: dict[str, bool] = {}

@@ -22,6 +22,36 @@ from .stages.preprocess.core.copy_src_to_scratch import resolve_copy_src_to_scra
 LOGGER = logging.getLogger("axon_recon.pipeline.config")
 
 
+# Process-wide --target-wells override. Set once at CLI entry; honored by
+# select_execution_targets when no explicit `target_wells=` is passed in.
+# This avoids threading a `target_wells_override` parameter through ~80 runner
+# helpers the same way `target_datasets_override` already is — the well filter
+# can apply at the leaf (`select_execution_targets`) without touching every
+# intermediate.
+_TARGET_WELLS_OVERRIDE: list[str] | None = None
+
+
+def set_target_wells_override(wells: list[str] | None) -> None:
+	"""Set the process-wide well-id allowlist for execution-target selection.
+
+	Pass an empty list or `None` to clear. Normally called once by the CLI
+	main() based on `--target-wells`. Reset to `None` at process exit by
+	whoever sets it.
+	"""
+	global _TARGET_WELLS_OVERRIDE
+	if wells is None:
+		_TARGET_WELLS_OVERRIDE = None
+		return
+	_TARGET_WELLS_OVERRIDE = [str(w).strip() for w in wells if str(w).strip()]
+	if not _TARGET_WELLS_OVERRIDE:
+		_TARGET_WELLS_OVERRIDE = None
+
+
+def get_target_wells_override() -> list[str] | None:
+	"""Return a copy of the current process-wide well-id allowlist, or None."""
+	return list(_TARGET_WELLS_OVERRIDE) if _TARGET_WELLS_OVERRIDE else None
+
+
 def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
 	LOGGER.warning(
 		"Legacy scratch input keys detected for %s; scratch_input_root/use_scratch_input_root are deprecated. "
@@ -145,6 +175,7 @@ def select_execution_targets(
 	target_datasets: list[int] | None = None,
 	limit_wells: int | None = None,
 	limit_wells_per_dataset: int | None = None,
+	target_wells: list[str] | None = None,
 ) -> list[ExecutionTarget]:
 	datasets = bundle.data_config.get("datasets", [])
 	if not isinstance(datasets, list) or not datasets:
@@ -199,6 +230,13 @@ def select_execution_targets(
 			enabled = enabled[:dataset_limit]
 	global_well_limit = max(1, int(limit_wells)) if limit_wells is not None else None
 	well_limit_per_dataset = max(1, int(limit_wells_per_dataset)) if limit_wells_per_dataset is not None else None
+
+	effective_target_wells = target_wells if target_wells is not None else get_target_wells_override()
+	target_wells_set: set[str] | None = None
+	if effective_target_wells is not None:
+		normalized = [str(w).strip() for w in effective_target_wells if str(w).strip()]
+		if normalized:
+			target_wells_set = set(normalized)
 
 	output_root_raw = bundle.data_config.get("output_root", None)
 	if not output_root_raw:
@@ -276,6 +314,7 @@ def select_execution_targets(
 			wells = [{"well_id": "well000"}]
 
 		selected_stream_ids: list[str] = []
+		excluded_by_target_wells: list[str] = []
 		for well_item in wells:
 			if well_limit_per_dataset is not None and len(selected_stream_ids) >= int(well_limit_per_dataset):
 				break
@@ -289,7 +328,20 @@ def select_execution_targets(
 					stream_id = str(well_item.get("well_id"))
 			if not well_enabled:
 				continue
+			if target_wells_set is not None and str(stream_id) not in target_wells_set:
+				excluded_by_target_wells.append(str(stream_id))
+				continue
 			selected_stream_ids.append(str(stream_id))
+
+		if target_wells_set is not None and (selected_stream_ids or excluded_by_target_wells):
+			LOGGER.info(
+				"Applying target_wells filter to dataset %s: kept %d of %d enabled well(s) requested=%s kept=%s",
+				str(dataset_id),
+				len(selected_stream_ids),
+				len(selected_stream_ids) + len(excluded_by_target_wells),
+				sorted(target_wells_set),
+				selected_stream_ids,
+			)
 
 		if not selected_stream_ids:
 			continue
@@ -317,6 +369,12 @@ def select_execution_targets(
 			)
 
 	if not targets:
+		if target_wells_set is not None:
+			raise ValueError(
+				f"No execution targets were produced after applying target_wells="
+				f"{sorted(target_wells_set)}. Verify the well IDs match the wells[*].well_id "
+				f"strings in your data config (well IDs are case-sensitive)."
+			)
 		raise ValueError(
 			"No execution targets were produced. Ensure both datasets[*].include_in_runtime=true "
 			"and wells[*].include_in_runtime=true for each well to run."
