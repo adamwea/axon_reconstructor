@@ -62,10 +62,25 @@ resources:
           description: Limit concurrent well-workers touching the same source H5 file.
           max_concurrent: 1
     perlmutter_cpu:
-      # Perlmutter CPU compute node (2x AMD EPYC 7763 Milan, 128 physical cores,
-      # 256 SMT threads, 512 GB RAM, no GPU). Intended for preprocess + reconstruct
-      # stages launched via srun -N <N> -n <N*tasks_per_node>; multi-node fanout
-      # comes from -N, not from inflating capacity here.
+      # Perlmutter CPU compute node: 2x AMD EPYC 7763 Milan (Zen 3), 128 physical
+      # cores, 256 SMT threads, 512 GB RAM, no GPU. Multi-node fanout comes from
+      # srun -N, not from inflating capacity here.
+      #
+      # Cache topology: each socket has 8 CCX (Compute Complex) units of 8
+      # physical cores. L1/L2 are private per physical core (32 KB / 512 KB).
+      # L3 is 32 MB shared per CCX (NOT per socket — Zen 3 changed this from
+      # earlier intuition). Crossing CCX boundaries goes through Infinity Fabric.
+      #
+      # Sizing: 16 cores per task = 2 CCX per task = 64 MB of L3 within a task.
+      # 8 tasks per node (4 per socket). A task's nested workers can cross one
+      # IF hop within the task. Alternative is 1 task per CCX (8 cores, 32 MB
+      # L3, 16 tasks/node) when nested worker pools are small and cache
+      # locality matters more than per-task throughput.
+      #
+      # CRITICAL: srun must include --threads-per-core=1 (or
+      # --hint=nomultithread). Without it, Slurm's -c 16 is 16 LOGICAL CPUs =
+      # 8 physical cores per task, and use_hyperthreads: false then halves the
+      # worker count. See examples/README.md "Truth table" for the full matrix.
       capacity:
         cpu_cores: 128
         ram_gb: 480 # leave ~32 GB headroom for OS, shifter, kernel buffers
@@ -78,7 +93,8 @@ resources:
         enabled: true
         backend: mpi
         task_unit: well
-        cpus_per_task: 16
+        tasks_per_node: 8        # 8 tasks × 16 cores = 128 physical cores (full node)
+        cpus_per_task: 16        # 2 CCX per task; counts as PHYSICAL when --threads-per-core=1 on srun
         bind: physical_cores
         use_hyperthreads: false
         reserve_cpus: 0
@@ -88,10 +104,28 @@ resources:
         source_h5_path:
           max_concurrent: 1
     perlmutter_gpu:
-      # Perlmutter GPU compute node (1x AMD EPYC 7763 Milan, 64 physical cores,
-      # 128 SMT threads, 256 GB RAM, 4x NVIDIA A100 40GB). Use for spikesort.sort
-      # (Kilosort4 GPU) and any GPU-bound recon phases. cpus_per_task=16 puts 4
-      # ranks on the node, one rank per A100 (mpi_adapter partitions CUDA_VISIBLE_DEVICES).
+      # Perlmutter GPU compute node: 1x AMD EPYC 7763 Milan (Zen 3), 64 physical
+      # cores, 128 SMT threads, 256 GB RAM, 4x NVIDIA A100 40GB. Used for
+      # spikesort.sort (Kilosort4) and any GPU-bound recon phases.
+      #
+      # Cache topology: same as perlmutter_cpu but one socket only — 8 CCX of
+      # 8 physical cores each, L3 32 MB per CCX, L1/L2 private per physical core.
+      #
+      # Sizing: 16 cores per task = 2 CCX per task = 64 MB of L3 within a task.
+      # 4 tasks per node, one task per A100. mpi_adapter partitions
+      # CUDA_VISIBLE_DEVICES so each rank gets exactly one GPU.
+      # spikesort.sort enforces the 1-task-per-GPU rule at runtime via
+      # SpikesortGpuOversubscriptionError.
+      #
+      # Per-task envelope matches perlmutter_cpu's 16-core sizing so phase
+      # budgets transfer cleanly between profiles. If we ever want strict
+      # 1-task-per-CCX cache locality on this node, we'd need to support
+      # 2 ranks per A100 (NCCL/MPS) which isn't wired up — keep 4 tasks/node
+      # for now.
+      #
+      # CRITICAL: srun must include --threads-per-core=1 (or
+      # --hint=nomultithread). Without it, -c 16 is logical and worker count
+      # is halved. See examples/README.md "Truth table".
       capacity:
         cpu_cores: 64
         ram_gb: 224 # leave ~32 GB headroom
@@ -104,7 +138,8 @@ resources:
         enabled: true
         backend: mpi
         task_unit: well
-        cpus_per_task: 16
+        tasks_per_node: 4        # 4 tasks × 16 cores = 64 physical cores; one task per A100
+        cpus_per_task: 16        # 2 CCX per task; counts as PHYSICAL when --threads-per-core=1 on srun
         bind: physical_cores
         use_hyperthreads: false
         reserve_cpus: 0

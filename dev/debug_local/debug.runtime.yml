@@ -55,9 +55,12 @@ resources:
           description: Limit concurrent well-workers touching the same source H5 file.
           max_concurrent: 1
     perlmutter_cpu:
+      # Perlmutter CPU compute node profile mirrored from dev/debug_NERSC/
+      # debug.runtime.yml so configs stay in sync across sites. See the NERSC
+      # variant for the full topology + --threads-per-core=1 explanation.
       capacity:
         cpu_cores: 128
-        ram_gb: 256
+        ram_gb: 480 # leave ~32 GB headroom for OS, shifter, kernel buffers
         gpu_sort_slots: 0
         h5_read_slots: 8
         disk_heavy_slots: 16
@@ -67,7 +70,8 @@ resources:
         enabled: true
         backend: mpi
         task_unit: well
-        cpus_per_task: 16
+        tasks_per_node: 8        # 8 tasks × 16 cores = 128 physical cores (full node)
+        cpus_per_task: 16        # 2 CCX per task; counts as PHYSICAL when --threads-per-core=1 on srun
         bind: physical_cores
         use_hyperthreads: false
         reserve_cpus: 0
