@@ -124,3 +124,65 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
   Add a test that runs a synthetic 2-rank pipeline and asserts the rank-0 agg
   contains both ranks' targets.
 - **See also**: `stage_aggregate_summary_lines` introduced in commit 90e17e3.
+
+
+### `keyed_resource_limits.source_h5_path` does not gate across MPI ranks
+- **Status**: open, low priority (GPU node is fast enough that the contention
+  is not currently noticeable in real runs)
+- **Tags**: infra, mpi, resource_budget, scheduling
+- **Repro**: run any stage that reads source H5 (preprocess, spikesort) under
+  `--task-backend mpi` with `-n N > 1` and a config that includes multiple
+  datasets. With 4 ranks × 4 datasets, observe the first scheduling slot:
+  all 4 ranks open well000–well003 of the **same** earliest dataset's H5,
+  rather than well000 of each of the 4 datasets. Confirmed empirically on
+  Perlmutter GPU node, 2026-05-12, spikesort.bootstrap_concat_binary phase.
+- **Impact**: concurrent reads of the same `data.raw.h5` across ranks create
+  filesystem contention (Lustre metadata + per-file bandwidth) and partially
+  defeat the purpose of `max_concurrent: 1`. Currently low impact on Perlmutter
+  because pscratch + A100 throughput dominate the cost. Higher impact on
+  slower storage or when scaling to many ranks/datasets.
+- **Workaround**: none clean. Manually narrow `--target-dataset` to one dataset
+  at a time, or accept the contention.
+- **Root cause** (two layers):
+  1. **Partition is index-blind.** `partition_targets_by_mpi_rank` in
+     `src/axon_recon/pipeline/mpi_adapter.py:177-184` slices the target list
+     by `i % size`. The target list is ordered (dataset, well), so ranks 0..3
+     all start on the first dataset. A partition strategy that strides by
+     dataset first (rank `r` starts at dataset `r mod ndatasets`) would
+     spread the initial fan-out without any runtime coordination.
+  2. **Runtime gate is per-process.** The keyed-resource counter in
+     `src/axon_recon/pipeline/resource_budget.py:117-132` lives inside one
+     process's resource-budget manager. Each MPI rank instantiates its own
+     manager with its own counter, so `max_concurrent: 1` reads as
+     "1 concurrent per process" rather than "1 concurrent globally". Even
+     with a smarter partition, later scheduling moments can still re-collide
+     (rank 0 finishes dataset0/well000 and walks to dataset0/well001 while
+     rank 2 is still on dataset0/well002).
+- **Suggested fix shape**:
+  - **Cheap, partition-only**: rewrite `partition_targets_by_mpi_rank` to be
+    h5-key-aware. Group targets by `source_h5_path`, then deal them out
+    round-robin across ranks so no rank gets two same-h5 targets adjacent in
+    its queue and ranks start on distinct h5 keys whenever possible. Pure
+    scheduling change; no IPC. Doesn't fully solve later-scheduling-step
+    overlaps but eliminates the worst case (first slot collision) cheaply.
+  - **Robust, backend-agnostic gate** (user's stated preference): replace the
+    in-process counter with a filesystem-level lock keyed on
+    `sha1(source_h5_path)`. The gate code already runs per-rank inside each
+    process; instead of incrementing an in-memory counter, take an exclusive
+    `flock` on `<scratch_root>/locks/h5/<sha1>.lock` (or per-stage-output
+    lock dir) for the duration of the read context. flock works across
+    processes on the same node and across nodes on shared filesystems
+    (Lustre/pscratch supports it). This gives one mechanism that enforces
+    the rule for `local_affinity`, `mpi`, and `slurm` backends uniformly,
+    which matches the "ideally global" goal.
+  - **Combine both**: smart partition for the common case, flock-based gate
+    for correctness when partition can't help. The gate also covers the
+    case where two separate `axon-recon` invocations from different shells
+    happen to target overlapping wells — currently undefined behavior.
+- **Test idea**: synthetic 4-rank pipeline against 4 fixture h5 files;
+  assert from the structured log that no two ranks issued an h5_metadata or
+  preprocess_segments phase for the same `source_h5_path` within the same
+  time window > a few ms.
+- **See also**: discussion 2026-05-12 (spikesort smoke on GPU node, last
+  4 datasets). User noted GPU compute dominates the cost on Perlmutter so
+  this is a polish item, not a blocker.

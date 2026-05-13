@@ -84,14 +84,56 @@ Notes:
 ## Smoke escalation (spikesort)
 
 Mirror the preprocess escalation but with `spikesort` as the stage. Run
-each step; debug+iterate before escalating.
+each step; debug+iterate before escalating. Capture stdout to
+`/pscratch/sd/a/adammwea/smoke_logs/spikesort/stepN_*.log`.
+
+### Status as of 2026-05-12 (alloc 52882061, GPU node nid001773)
+
+- **Steps 1–5 green.** Logs in `/pscratch/sd/a/adammwea/smoke_logs/spikesort/`.
+- **Sort isolation has a prereq:** `spikesort.sort` needs the
+  `bootstrap_concat_binary` cache, which only `preprocess` does NOT generate
+  (preprocess writes `preprocessed_segments/manifest.json`; bootstrap consumes
+  that to build `cache/bootstrap_concat_binary/recording`). So Step 4 has
+  two sub-steps: 4a runs `spikesort.bootstrap_concat_binary` with
+  `--force-restart`, then 4b runs `spikesort.sort`. See log
+  `step4a_bootstrap.log` (target_succeeded: 1, ~2 min) and
+  `step4_sort_isolation.log` (sort 545s wall, GPU peak 2.08 GB, util 92%).
+- **Step 5 single-well full chain:** ~36 min total (sort 9 min,
+  merge_SLAy 20 min). Bombcell on well000 produced `good=65, mua=124,
+  noise=123, non_soma_good=2, non_soma_mua=10`.
+- **Step 6 redo required.** The first attempt only processed `well000`
+  because `stages.spikesort.debug_mode.limit_wells_per_dataset: 1` is
+  hard-coded in `dev/debug_NERSC/debug.runtime.yml` (line ~533) AND the CLI
+  flag `--limit-wells` defaults to that config value (it doesn't unset it).
+  To actually run all 6 wells you must EITHER (a) edit the yml to comment
+  out `limit_wells_per_dataset: 1` (the user prefers this — they will
+  remove the debug-mode limits before re-running) OR (b) pass
+  `--limit-wells 6` explicitly. Same gotcha applies to `limit_datasets`
+  for Steps 7/8.
+- **Cleanup phases are disabled in this config.** `cleanup_concat_binary`
+  and `cleanup_analyzers` both have `enabled: false` (lines 953-971), so
+  they appear in `phase_sequence` but no-op. The handoff DoD line
+  "cleanup_* successfully deleted intermediate caches" is moot — caches
+  remain under `<well>/spikesort_outputs/cache/bootstrap_concat_binary`
+  and `<well>/spikesort_outputs/concat_analyzer` after a successful run.
+  Do not treat their presence as failure.
+
+### Steps
 
 1. **CUDA sanity** — `torch.cuda.is_available()` returns True, 4 devices.
 2. **Image smoke** — `axon-recon-smoke-cli` inside the GPU alloc.
 3. **Allocation preview** — `--alloc` with 1 dataset, 1 well.
-4. **Single-phase isolation, sort only** — run `spikesort.sort` alone first
-   to verify GPU correctness before chaining:
+4. **Single-phase isolation, sort only** — `bootstrap` then `sort`:
    ```bash
+   # 4a: prep bootstrap cache
+   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+     shifter --image=adammwea/axon-recon:pipeline-v2 \
+     axon-recon stages spikesort.bootstrap_concat_binary \
+       --config dev/debug_NERSC/debug.runtime.yml \
+       --target-dataset 0 --limit-wells 1 \
+       --task-backend mpi --force-restart
+
+   # 4b: sort alone, GPU correctness check
    srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
      shifter --image=adammwea/axon-recon:pipeline-v2 \
      axon-recon stages spikesort.sort \
@@ -100,9 +142,40 @@ each step; debug+iterate before escalating.
        --task-backend mpi --force-restart
    ```
 5. **Phase chain, 1 well** — full `spikesort` stage, 1 dataset, 1 well.
-6. **All 6 wells, 1 dataset**.
-7. **3 datasets, all wells** (`--limit-datasets 3`).
-8. **Full scope** — drop all `--limit-*`. Hand this command back to the user.
+6. **All 6 wells, 1 dataset.** First remove
+   `limit_wells_per_dataset: 1` from `stages.spikesort.debug_mode` in the
+   runtime yml (or pass `--limit-wells 6` on the CLI). Then:
+   ```bash
+   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+     shifter --image=adammwea/axon-recon:pipeline-v2 \
+     axon-recon stages spikesort \
+       --config dev/debug_NERSC/debug.runtime.yml \
+       --target-dataset 0 \
+       --task-backend mpi --force-restart
+   ```
+   Expected wall time ~60-90 min (4 ranks across 6 wells; slowest rank
+   processes 2 wells × ~36 min each).
+7. **3 datasets, all wells** (`--limit-datasets 3`). Same caveat — verify
+   debug_mode limits are off, then:
+   ```bash
+   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+     shifter --image=adammwea/axon-recon:pipeline-v2 \
+     axon-recon stages spikesort \
+       --config dev/debug_NERSC/debug.runtime.yml \
+       --limit-datasets 3 \
+       --task-backend mpi --force-restart
+   ```
+   Expected ~3 h.
+8. **Full scope** — drop all `--limit-*`. Hand this command back to the user:
+   ```bash
+   srun --cpu-bind=cores --module=gpu -N 1 -n 4 -c 16 \
+     shifter --image=adammwea/axon-recon:pipeline-v2 \
+     axon-recon stages spikesort \
+       --config dev/debug_NERSC/debug.runtime.yml \
+       --task-backend mpi --force-restart
+   ```
+   13 datasets × 6 wells = 78 wells across 4 ranks → ~12 h. Provision the
+   alloc accordingly (`-t 14:00:00 -q regular` not interactive).
 
 ## Debug surfaces
 
@@ -140,7 +213,10 @@ each step; debug+iterate before escalating.
 - Step 8 produces spikesort outputs for every included well.
 - Each well shows: `sorter_output/` populated, `concat_analyzer/` written,
   `bombcell_label_summary.json` with non-zero unit counts, `merge_SLAy/run-output.json`
-  present. `cleanup_*` phases successfully deleted intermediate caches.
+  present. (Note: `cleanup_concat_binary` and `cleanup_analyzers` are
+  `enabled: false` in the current config, so intermediate caches under
+  `cache/bootstrap_concat_binary/` and `concat_analyzer/` are expected to
+  remain after the run — that is not a failure mode.)
 - Final shareable command for the user is the step-8 invocation.
 
 ## After spikesort: reconstruct (back to CPU node)

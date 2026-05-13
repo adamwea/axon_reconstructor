@@ -333,7 +333,7 @@ stages:
       suppress_h5_plugin_messages: true
       # Emit high-visibility phase divider lines in terminal and preprocess log.
       phase_dividers: true
-    debug_mode:
+    #debug_mode:
       # Optional debug overrides for preprocess execution and outputs.
       #limit_wells: null # int or null for no limit
       #limit_segments_per_well: 2 # int or null for no limit
@@ -525,16 +525,16 @@ stages:
       enabled: true
       verbose: true
       file_relpath: logs/spikesort_pipeline.log
-    debug_mode:
-      enabled: true
-      #limit_datasets: 2
-      #limit_wells: 2
-      #limit_wells: null
-      limit_wells_per_dataset: 1
+    # debug_mode:
+    #   enabled: true
+    #   #limit_datasets: 2
+    #   #limit_wells: 2
+    #   #limit_wells: null
+    #   limit_wells_per_dataset: 1
 
-      # This option limits segments included in phases for quicker smoke testing.
-      # - limit number of segments cocatenated in bootstrap_concat_binary.
-      #limit_segments: null
+    #   # This option limits segments included in phases for quicker smoke testing.
+    #   # - limit number of segments cocatenated in bootstrap_concat_binary.
+    #   #limit_segments: null
 
     execution:
       force_restart: false
