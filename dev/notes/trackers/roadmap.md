@@ -116,3 +116,44 @@ one-liner pointing at the plan doc.
   whether classification happens in the reconstruct stage as a per-branch label
   or in the analysis stage as a per-row column.
 - **See also**: placeholder — populate when user provides details.
+
+
+### Editable / mount-based source for fast container iteration
+- **Status**: idea
+- **Tags**: infra, container, dx
+- **Problem**: Every code edit to `axon_recon` or its sibling packages
+  (UnitMatchPy, SLAy, axon_velocity, eventually mea_analysis) currently
+  requires a full Shifter image rebuild + push + `shifterimg pull` cycle.
+  On a NERSC head node this is ~15–30 min for a small Python change, which
+  kills the inner-loop dev cadence when iterating on, e.g., a new CLI
+  subcommand, a phase-runner tweak, or a SLAy parameter change. We want a
+  way to point the running container at a host-mounted source tree so
+  Python edits are picked up without rebuilding.
+- **Approach sketch**: Three candidates discussed 2026-05-13:
+  - **A (mount over site-packages)**: `--volume=<repo>/src/axon_recon:
+    /home/miniconda3/lib/python3.11/site-packages/axon_recon:ro`. Direct
+    shadow of the installed copy; works today with no Dockerfile changes
+    but pins the site-packages path.
+  - **B (`pip install -e` in the image + mount /opt/axon_recon at runtime)**:
+    image has only an `.egg-link` / `.pth`; host source mounted at
+    `/opt/axon_recon` is the canonical import path. Cleaner for new
+    sub-package additions; slightly more dependent on pip-version behavior.
+  - **C (PYTHONPATH prepend via env var)**: `--env=PYTHONPATH=/host_repo/src
+    --volume=<repo>:/host_repo:ro`. Opt-in, portable across base images,
+    needs no Dockerfile change. Works today as A's lazy cousin.
+  Likely shape: A or B for axon_recon + UnitMatchPy + SLAy (frequently
+  edited, stable entry points), C as escape hatch for one-off cases.
+  Wrapping into `examples/perlmutter_*.sbatch` and the
+  `axon-recon-container` lab-server wrapper would be the shipping form.
+- **Dependencies / blockers**: decide which siblings actually need this
+  (axon_velocity is a PyPI pin and would need to be added as a sibling
+  checkout first; mea_analysis is currently blocked inside the container
+  via `AXON_RECON_IN_CONTAINER=1` and would need that guard loosened
+  intentionally per-run). Caveats to document: `.pyc` cache pollution
+  between host Python and container Python (use `PYTHONDONTWRITEBYTECODE=1`
+  or `:ro` mount), entry-point changes still need rebuild, C-extension
+  rebuilds still need rebuild.
+- **See also**: discussed 2026-05-13 after the first containerized
+  `axon-recon status` run. `containers/axon-recon/rebuild_shifter.sh`
+  remains the canonical rebuild path; this entry is the fast-path
+  alternative for the inner dev loop.
