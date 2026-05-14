@@ -74,36 +74,42 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
 
   #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260224/M06804/AxonTracking/000032/data.raw.h5
   - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260224/M06804/AxonTracking/000032/data.raw.h5
@@ -116,12 +122,14 @@ datasets:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         # 2026-05-13: bombcell labels 0 good + 0 non_soma_good (only 8 mua).
         # Same root cause as well003 / well005 — too sparse at DIV 6 to pass
@@ -133,6 +141,7 @@ datasets:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         # 2026-05-13: bombcell labels all 63 sorted clusters as noise/mua → 0
         # SLAy-qualifying units → SLAy short-circuits with no_qualifying_units.
@@ -143,12 +152,14 @@ datasets:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         # 2026-05-13: bombcell labels all 539 sorted clusters as noise/mua/
         # non_soma_mua → 0 SLAy-qualifying units. Excluded from runtime
@@ -158,6 +169,7 @@ datasets:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
 
   #- raw_data_h5_path: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260226/M08073/AxonTracking/000057/data.raw.h5
   - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260226/M08073/AxonTracking/000057/data.raw.h5
@@ -170,36 +182,42 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
 
   # Best guess: the sheet's 2026-03-02 M08073 Axon Tracking row is run 77 at DIV 12,
   # but the matching on-disk AxonTracking folder is 000073. I kept this path because the
@@ -216,36 +234,42 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
 
   # Not added: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M06804/AxonTracking/000077/data.raw.h5
   # The path date also lines up with DIV 12, but there is no M06804 Axon Tracking row on the
@@ -261,36 +285,42 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
 
   - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260305/M06804/AxonTracking/000099/data.raw.h5
     include_in_runtime: true
@@ -302,36 +332,42 @@ datasets:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
 
   - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260309/M08073/AxonTracking/000118/data.raw.h5
     include_in_runtime: true
@@ -343,36 +379,42 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
 
   - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260312/M08073/AxonTracking/000146/data.raw.h5
     include_in_runtime: true
@@ -384,36 +426,42 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
 
   # Not added: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
   # The sheet only mentions run 147 as Adam's test scan in the note on run 146. The filesystem
@@ -430,24 +478,28 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         # 2026-05-13: spikesort never completed for this well even after
         # multi-rerun attempts (bootstrap_concat_binary present from a
@@ -460,12 +512,14 @@ datasets:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
 
   # Sheet/date mismatch: the pasted sheet labels runs 170 and 174 as 2026-03-12, but 2026-03-12
   # would be DIV 22 from the plated date, not DIV 29. I used the filesystem date 260319 because
@@ -480,36 +534,42 @@ datasets:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well003
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: true
         attributes:
           plating_density: 80000
           media: NBP
           genotype: WT
+          treatment: none
 
   - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260319/M06804/AxonTracking/000174/data.raw.h5
     include_in_runtime: true
@@ -521,18 +581,21 @@ datasets:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well001
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       - well_id: well002
         include_in_runtime: true
         attributes:
           plating_density: 60000
           media: DMEM
           genotype: WT
+          treatment: none
       # H5 file 000174 only contains streams for well000/001/002 — disabling 003/004/005.
       - well_id: well003
         include_in_runtime: false
@@ -540,18 +603,21 @@ datasets:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well004
         include_in_runtime: false
         attributes:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
       - well_id: well005
         include_in_runtime: false
         attributes:
           plating_density: 60000
           media: NBP
           genotype: WT
+          treatment: none
 
   # Kept both same-day M08073 runs because the sheet has two Axon Tracking rows on 2026-03-26
   # at DIV 36: run 208 is the baseline-before-treatment scan and run 222 is the 2-hours-post-treatment scan.
