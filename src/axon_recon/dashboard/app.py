@@ -1134,6 +1134,7 @@ def _register_image_download(
 		ID_FILTER_GENOTYPE,
 		ID_FILTER_MEDIA,
 		ID_FILTER_PLATING,
+		ID_FILTER_TREATMENT,
 		ID_FILTER_DIV_RANGE,
 	)
 	filter_states = [State(_id, "value") for _id in filter_state_ids]
@@ -1164,7 +1165,8 @@ def _register_image_download(
 			genotype=filter_values[9],
 			media=filter_values[10],
 			plating=filter_values[11],
-			div_range=filter_values[12],
+			treatment=filter_values[12],
+			div_range=filter_values[13],
 		)
 		filtered = filter_helpers.apply_filter_spec(units_df, spec)
 		fig = fig_builder(filtered, *fig_values)
