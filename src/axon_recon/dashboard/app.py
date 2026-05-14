@@ -14,6 +14,9 @@ the bound data via closures. No NAS access, no global state.
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import dash
@@ -65,6 +68,13 @@ ID_BOX_PLOT = "box-plot-graph"
 ID_RELOAD_BUTTON = "reload-data-button"
 ID_RELOAD_STATUS = "reload-data-status"
 ID_EXCLUDE_NULLS = "filter-exclude-nulls"
+ID_PROJECT_VIEW_NAME = "project-view-name"
+ID_PROJECT_SAVE_BUTTON = "project-save-button"
+ID_PROJECT_SAVE_STATUS = "project-save-status"
+ID_PROJECT_VIEW_DROPDOWN = "project-view-dropdown"
+ID_PROJECT_LOAD_BUTTON = "project-load-button"
+ID_PROJECT_LOAD_STATUS = "project-load-status"
+ID_PROJECT_IMAGE_DEST = "project-image-dest"
 ID_SCATTER_X = "scatter-x"
 ID_SCATTER_Y = "scatter-y"
 ID_SCATTER_COLOR = "scatter-color"
@@ -242,7 +252,27 @@ def _union_columns_in_order(*dfs: pd.DataFrame, picker) -> list[str]:
 	return out
 
 
-def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html.Div:
+def _list_saved_views(project_dir: Path | None) -> list[str]:
+	"""Return saved-view filenames (without extension) sorted reverse-mtime."""
+	if project_dir is None:
+		return []
+	views_dir = Path(project_dir) / "dash_views"
+	if not views_dir.is_dir():
+		return []
+	entries = sorted(
+		views_dir.glob("*.json"),
+		key=lambda p: p.stat().st_mtime,
+		reverse=True,
+	)
+	return [p.stem for p in entries]
+
+
+def _build_layout(
+	units_df: pd.DataFrame,
+	well_summary_df: pd.DataFrame,
+	*,
+	project_dir: Path | None = None,
+) -> html.Div:
 	div_lo, div_hi = _div_range_extents(units_df)
 	hist_axis_options = [{"label": c, "value": c} for c in _numeric_columns(units_df)]
 	# Box-plot value / group dropdowns offer columns from BOTH units and
@@ -679,6 +709,83 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 						],
 						style={"display": "flex", "gap": "0.5rem", "marginBottom": "0.5rem"},
 					),
+					html.Details(
+						open=False,
+						children=[
+							html.Summary(
+								f"Project folder views ({project_dir.name if project_dir else 'no project folder bound'})"
+								if project_dir is not None
+								else "Project folder views (no project folder bound)"
+							),
+							html.Div(
+								[
+									html.Div(
+										[
+											dcc.Input(
+												id=ID_PROJECT_VIEW_NAME,
+												type="text",
+												placeholder="view name (e.g. dmem_vs_nbp_branch_length)",
+												style={"flex": "1 1 auto", "marginRight": "0.5rem"},
+											),
+											html.Button(
+												"Save view to project folder",
+												id=ID_PROJECT_SAVE_BUTTON,
+												n_clicks=0,
+											),
+										],
+										style={"display": "flex", "alignItems": "center", "gap": "0.25rem", "marginTop": "0.25rem"},
+									),
+									html.Span(
+										id=ID_PROJECT_SAVE_STATUS,
+										children=(
+											f"Save target: {project_dir / 'dash_views'}"
+											if project_dir is not None
+											else "No project folder configured — save disabled."
+										),
+										style={"fontSize": "0.8rem", "color": "#555"},
+									),
+									html.Div(
+										[
+											dcc.Dropdown(
+												id=ID_PROJECT_VIEW_DROPDOWN,
+												options=[
+													{"label": name, "value": name}
+													for name in _list_saved_views(project_dir)
+												],
+												placeholder="select a saved view to load",
+												style={"flex": "1 1 auto", "marginRight": "0.5rem"},
+											),
+											html.Button(
+												"Load selected view",
+												id=ID_PROJECT_LOAD_BUTTON,
+												n_clicks=0,
+											),
+										],
+										style={"display": "flex", "alignItems": "center", "gap": "0.25rem", "marginTop": "0.5rem"},
+									),
+									html.Span(
+										id=ID_PROJECT_LOAD_STATUS,
+										children="Saved views appear in the dropdown above on dashboard restart.",
+										style={"fontSize": "0.8rem", "color": "#555"},
+									),
+									html.Label(
+										"Image download destination (PNG / SVG / PDF buttons above):",
+										style={"fontSize": "0.85rem", "marginTop": "0.5rem"},
+									),
+									dcc.RadioItems(
+										id=ID_PROJECT_IMAGE_DEST,
+										options=[
+											{"label": "Browser downloads", "value": "browser"},
+											{"label": "Project folder (dash_plots/)", "value": "project"},
+										],
+										value="browser",
+										inline=True,
+									),
+								],
+								style={"display": "flex", "flexDirection": "column", "gap": "0.25rem", "padding": "0.5rem", "border": "1px solid #eee", "borderRadius": "4px"},
+							),
+						],
+					),
 				]
 			),
 			dag.AgGrid(
@@ -739,6 +846,7 @@ def build_app(
 	well_summary_df: pd.DataFrame,
 	*,
 	data_loader: Any = None,
+	project_dir: Path | None = None,
 ) -> dash.Dash:
 	"""Build a Dash app over the loaded units + well_summary tables.
 
@@ -769,7 +877,8 @@ def build_app(
 
 	app = dash.Dash(__name__, suppress_callback_exceptions=True)
 	app.title = "axon-recon dashboard"
-	app.layout = _build_layout(units_df, well_summary_df)
+	app.layout = _build_layout(units_df, well_summary_df, project_dir=project_dir)
+	data_state["project_dir"] = project_dir
 
 	@app.callback(
 		Output(ID_RELOAD_STATUS, "children"),
@@ -1069,6 +1178,8 @@ def build_app(
 		fig_inputs=(ID_HIST_X_AXIS, ID_HIST_COLOR),
 		fig_builder=lambda filtered, *fig_args: _build_histogram(filtered, x_column=fig_args[0], color_column=fig_args[1]),
 		units_df_getter=_state_get_units_df,
+		project_dir_getter=lambda: data_state.get("project_dir"),
+		dest_id=ID_PROJECT_IMAGE_DEST,
 	)
 	_register_image_download(
 		app,
@@ -1079,6 +1190,8 @@ def build_app(
 		fig_inputs=(ID_HIST_X_AXIS, ID_HIST_COLOR),
 		fig_builder=lambda filtered, *fig_args: _build_histogram(filtered, x_column=fig_args[0], color_column=fig_args[1]),
 		units_df_getter=_state_get_units_df,
+		project_dir_getter=lambda: data_state.get("project_dir"),
+		dest_id=ID_PROJECT_IMAGE_DEST,
 	)
 	_register_image_download(
 		app,
@@ -1089,6 +1202,8 @@ def build_app(
 		fig_inputs=(ID_HIST_X_AXIS, ID_HIST_COLOR),
 		fig_builder=lambda filtered, *fig_args: _build_histogram(filtered, x_column=fig_args[0], color_column=fig_args[1]),
 		units_df_getter=_state_get_units_df,
+		project_dir_getter=lambda: data_state.get("project_dir"),
+		dest_id=ID_PROJECT_IMAGE_DEST,
 	)
 
 	def _build_box_from_state(filtered, *args):
@@ -1126,6 +1241,8 @@ def build_app(
 			),
 			fig_builder=_build_box_from_state,
 			units_df_getter=_state_get_units_df,
+			project_dir_getter=lambda: data_state.get("project_dir"),
+			dest_id=ID_PROJECT_IMAGE_DEST,
 		)
 
 	def _build_scatter_from_state(filtered, *args):
@@ -1161,6 +1278,8 @@ def build_app(
 			),
 			fig_builder=_build_scatter_from_state,
 			units_df_getter=_state_get_units_df,
+			project_dir_getter=lambda: data_state.get("project_dir"),
+			dest_id=ID_PROJECT_IMAGE_DEST,
 		)
 
 	@app.callback(
@@ -1333,6 +1452,258 @@ def build_app(
 		text = filter_helpers.filter_spec_to_json(filter_spec, plot_spec=plot_spec)
 		return dcc.send_string(text, "axon_dashboard_spec.json")
 
+	# ---- Save current view to project folder ----
+	@app.callback(
+		Output(ID_PROJECT_SAVE_STATUS, "children"),
+		Input(ID_PROJECT_SAVE_BUTTON, "n_clicks"),
+		State(ID_PROJECT_VIEW_NAME, "value"),
+		State(ID_FILTER_REQUIRE_RECON_OK, "value"),
+		State(ID_FILTER_BOMBCELL, "value"),
+		State(ID_FILTER_MIN_NUM_SPIKES, "value"),
+		State(ID_FILTER_MIN_NUM_BRANCHES, "value"),
+		State(ID_FILTER_MIN_RECON_QUALITY, "value"),
+		State(ID_FILTER_PROJECT, "value"),
+		State(ID_FILTER_CHIP, "value"),
+		State(ID_FILTER_WELL, "value"),
+		State(ID_FILTER_SCAN_TYPE, "value"),
+		State(ID_FILTER_GENOTYPE, "value"),
+		State(ID_FILTER_MEDIA, "value"),
+		State(ID_FILTER_PLATING, "value"),
+		State(ID_FILTER_TREATMENT, "value"),
+		State(ID_FILTER_DIV_RANGE, "value"),
+		State(ID_EXCLUDE_NULLS, "value"),
+		State(ID_HIST_X_AXIS, "value"),
+		State(ID_HIST_COLOR, "value"),
+		State(ID_BOX_VALUE_COL, "value"),
+		State(ID_BOX_GROUP_COL, "value"),
+		State(ID_BOX_COLOR, "value"),
+		State(ID_BOX_TEST, "value"),
+		State(ID_BOX_CORRECTION, "value"),
+		State(ID_BOX_SHOW_SIGNIFICANCE, "value"),
+		State(ID_BOX_POINTS_MODE, "value"),
+		State(ID_BOX_LOG_TRANSFORM, "value"),
+		State(ID_BOX_BRACKET_OFFSET, "value"),
+		State(ID_BOX_BRACKET_STEP, "value"),
+		State(ID_BOX_POINT_SIZE, "value"),
+		State(ID_BOX_POINT_OPACITY, "value"),
+		State(ID_BOX_GAP, "value"),
+		State(ID_BOX_GROUP_GAP, "value"),
+		State(ID_BOX_DATA_SOURCE, "value"),
+		State(ID_SCATTER_X, "value"),
+		State(ID_SCATTER_Y, "value"),
+		State(ID_SCATTER_COLOR, "value"),
+		State(ID_SCATTER_FACET_COL, "value"),
+		State(ID_SCATTER_FACET_ROW, "value"),
+		State(ID_SCATTER_JITTER, "value"),
+		State(ID_MAIN_TABS, "value"),
+		prevent_initial_call=True,
+	)
+	def _save_view_to_project(n_clicks, view_name, *all_state):
+		if not n_clicks:
+			raise dash.exceptions.PreventUpdate
+		project = data_state.get("project_dir")
+		if project is None:
+			return "Save failed: no project folder is bound to this dashboard."
+		stem = (view_name or "").strip()
+		if not stem:
+			stem = f"view_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+		# Sanitize: keep alphanumerics, dash, underscore, dot.
+		safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in stem)
+		# Unpack the state tuple back into the named pieces the spec serializer expects.
+		(
+			require_recon_ok, bombcell, min_num_spikes, min_num_branches, min_recon_quality,
+			project_v, chip, well, scan_type, genotype, media, plating, treatment, div_range,
+			exclude_nulls, hist_x, hist_color, box_value_col, box_group_col, box_color,
+			box_test, box_correction, show_significance, points_mode, log_transform_v,
+			bracket_offset, bracket_step, point_size, point_opacity, box_gap, box_group_gap,
+			box_data_source, scatter_x, scatter_y, scatter_color, scatter_facet_col,
+			scatter_facet_row, scatter_jitter, active_tab,
+		) = all_state
+		filter_spec = _build_filter_spec_from_state(
+			require_recon_ok=require_recon_ok,
+			bombcell=bombcell,
+			min_num_spikes=min_num_spikes,
+			min_num_branches=min_num_branches,
+			min_recon_quality=min_recon_quality,
+			project=project_v,
+			chip=chip,
+			well=well,
+			scan_type=scan_type,
+			genotype=genotype,
+			media=media,
+			plating=plating,
+			treatment=treatment,
+			div_range=div_range,
+		)
+		plot_spec = {
+			"active_tab": active_tab,
+			"exclude_nulls": bool(exclude_nulls and "on" in exclude_nulls),
+			"histogram": {"x_axis": hist_x, "color": hist_color},
+			"box": {
+				"data_source": box_data_source,
+				"value_col": box_value_col,
+				"group_col": box_group_col,
+				"color": box_color,
+				"test": box_test,
+				"correction": box_correction,
+				"show_significance": bool(show_significance and "on" in show_significance),
+				"points_mode": str(points_mode or "off"),
+				"log_transform": bool(log_transform_v and "on" in log_transform_v),
+				"bracket_y_offset_frac": bracket_offset,
+				"bracket_step_frac": bracket_step,
+				"point_size": point_size,
+				"point_opacity": point_opacity,
+				"boxgap": box_gap,
+				"boxgroupgap": box_group_gap,
+			},
+			"scatter": {
+				"x": scatter_x,
+				"y": scatter_y,
+				"color": scatter_color,
+				"facet_col": scatter_facet_col,
+				"facet_row": scatter_facet_row,
+				"jitter": bool(scatter_jitter and "on" in scatter_jitter),
+			},
+		}
+		text = filter_helpers.filter_spec_to_json(filter_spec, plot_spec=plot_spec)
+		views_dir = Path(project) / "dash_views"
+		views_dir.mkdir(parents=True, exist_ok=True)
+		out_path = views_dir / f"{safe}.json"
+		try:
+			out_path.write_text(text, encoding="utf-8")
+		except OSError as exc:
+			return f"Save failed: {type(exc).__name__}: {exc}"
+		return f"Saved view to {out_path} (refresh the dashboard to see it in the load dropdown)."
+
+	# ---- Load saved view from project folder ----
+	# Updates all filter + plot widget values from the selected view's JSON.
+	# Multi-output is verbose but Dash supports it cleanly. The output order
+	# below MUST match the unpacking order at the bottom of the callback.
+	_load_outputs = [
+		Output(ID_FILTER_REQUIRE_RECON_OK, "value"),
+		Output(ID_FILTER_BOMBCELL, "value"),
+		Output(ID_FILTER_MIN_NUM_SPIKES, "value"),
+		Output(ID_FILTER_MIN_NUM_BRANCHES, "value"),
+		Output(ID_FILTER_MIN_RECON_QUALITY, "value"),
+		Output(ID_FILTER_PROJECT, "value"),
+		Output(ID_FILTER_CHIP, "value"),
+		Output(ID_FILTER_WELL, "value"),
+		Output(ID_FILTER_SCAN_TYPE, "value"),
+		Output(ID_FILTER_GENOTYPE, "value"),
+		Output(ID_FILTER_MEDIA, "value"),
+		Output(ID_FILTER_PLATING, "value"),
+		Output(ID_FILTER_TREATMENT, "value"),
+		Output(ID_FILTER_DIV_RANGE, "value"),
+		Output(ID_EXCLUDE_NULLS, "value"),
+		Output(ID_HIST_X_AXIS, "value"),
+		Output(ID_HIST_COLOR, "value"),
+		Output(ID_BOX_VALUE_COL, "value"),
+		Output(ID_BOX_GROUP_COL, "value"),
+		Output(ID_BOX_COLOR, "value"),
+		Output(ID_BOX_TEST, "value"),
+		Output(ID_BOX_CORRECTION, "value"),
+		Output(ID_BOX_SHOW_SIGNIFICANCE, "value"),
+		Output(ID_BOX_POINTS_MODE, "value"),
+		Output(ID_BOX_LOG_TRANSFORM, "value"),
+		Output(ID_BOX_BRACKET_OFFSET, "value"),
+		Output(ID_BOX_BRACKET_STEP, "value"),
+		Output(ID_BOX_POINT_SIZE, "value"),
+		Output(ID_BOX_POINT_OPACITY, "value"),
+		Output(ID_BOX_GAP, "value"),
+		Output(ID_BOX_GROUP_GAP, "value"),
+		Output(ID_BOX_DATA_SOURCE, "value"),
+		Output(ID_SCATTER_X, "value"),
+		Output(ID_SCATTER_Y, "value"),
+		Output(ID_SCATTER_COLOR, "value"),
+		Output(ID_SCATTER_FACET_COL, "value"),
+		Output(ID_SCATTER_FACET_ROW, "value"),
+		Output(ID_SCATTER_JITTER, "value"),
+		Output(ID_MAIN_TABS, "value"),
+		Output(ID_PROJECT_LOAD_STATUS, "children"),
+	]
+
+	@app.callback(
+		*_load_outputs,
+		Input(ID_PROJECT_LOAD_BUTTON, "n_clicks"),
+		State(ID_PROJECT_VIEW_DROPDOWN, "value"),
+		prevent_initial_call=True,
+	)
+	def _load_view_from_project(n_clicks, selected_view):
+		no_update = dash.no_update
+		empty_updates = [no_update] * (len(_load_outputs) - 1)
+		if not n_clicks:
+			raise dash.exceptions.PreventUpdate
+		project = data_state.get("project_dir")
+		if project is None:
+			return (*empty_updates, "Load failed: no project folder is bound.")
+		if not selected_view:
+			return (*empty_updates, "Load failed: pick a view from the dropdown first.")
+		path = Path(project) / "dash_views" / f"{selected_view}.json"
+		if not path.is_file():
+			return (*empty_updates, f"Load failed: {path} not found.")
+		try:
+			payload = json.loads(path.read_text(encoding="utf-8"))
+		except (OSError, json.JSONDecodeError) as exc:
+			return (*empty_updates, f"Load failed: {type(exc).__name__}: {exc}")
+		filter_spec = payload.get("filter_spec", {}) or {}
+		plot_spec = payload.get("plot_spec", {}) or {}
+		box = plot_spec.get("box", {}) or {}
+		hist = plot_spec.get("histogram", {}) or {}
+		scatter = plot_spec.get("scatter", {}) or {}
+
+		def _checklist(value: bool) -> list[str]:
+			return ["on"] if bool(value) else []
+
+		div_lo_v = filter_spec.get("div_lo")
+		div_hi_v = filter_spec.get("div_hi")
+		div_range = (
+			[div_lo_v, div_hi_v]
+			if div_lo_v is not None and div_hi_v is not None
+			else no_update
+		)
+		return (
+			_checklist(filter_spec.get("require_recon_ok")),
+			filter_spec.get("bombcell") or [],
+			filter_spec.get("min_num_spikes") if filter_spec.get("min_num_spikes") is not None else no_update,
+			filter_spec.get("min_num_branches") if filter_spec.get("min_num_branches") is not None else no_update,
+			filter_spec.get("min_recon_quality_score") if filter_spec.get("min_recon_quality_score") is not None else no_update,
+			filter_spec.get("project") or [],
+			filter_spec.get("chip_id") or [],
+			filter_spec.get("well_id") or [],
+			filter_spec.get("scan_type") or [],
+			filter_spec.get("genotype") or [],
+			filter_spec.get("media") or [],
+			filter_spec.get("plating_density") or [],
+			filter_spec.get("treatment") or [],
+			div_range,
+			_checklist(plot_spec.get("exclude_nulls")),
+			hist.get("x_axis") or no_update,
+			hist.get("color") or no_update,
+			box.get("value_col") or no_update,
+			box.get("group_col") or no_update,
+			box.get("color") or no_update,
+			box.get("test") or no_update,
+			box.get("correction") or no_update,
+			_checklist(box.get("show_significance")),
+			str(box.get("points_mode") or "off"),
+			_checklist(box.get("log_transform")),
+			box.get("bracket_y_offset_frac") if box.get("bracket_y_offset_frac") is not None else no_update,
+			box.get("bracket_step_frac") if box.get("bracket_step_frac") is not None else no_update,
+			box.get("point_size") if box.get("point_size") is not None else no_update,
+			box.get("point_opacity") if box.get("point_opacity") is not None else no_update,
+			box.get("boxgap") if box.get("boxgap") is not None else no_update,
+			box.get("boxgroupgap") if box.get("boxgroupgap") is not None else no_update,
+			box.get("data_source") or no_update,
+			scatter.get("x") or no_update,
+			scatter.get("y") or no_update,
+			scatter.get("color") or no_update,
+			scatter.get("facet_col") or no_update,
+			scatter.get("facet_row") or no_update,
+			_checklist(scatter.get("jitter")),
+			plot_spec.get("active_tab") or no_update,
+			f"Loaded view from {path}.",
+		)
+
 	return app
 
 
@@ -1346,6 +1717,8 @@ def _register_image_download(
 	fig_inputs: tuple[str, ...],
 	fig_builder,
 	units_df_getter: Any,
+	project_dir_getter: Any = None,
+	dest_id: str | None = None,
 ) -> None:
 	"""Wire a single PNG/SVG/PDF download button into the app.
 
@@ -1374,19 +1747,27 @@ def _register_image_download(
 	)
 	filter_states = [State(_id, "value") for _id in filter_state_ids]
 	fig_states = [State(_id, "value") for _id in fig_inputs]
+	dest_states = [State(dest_id, "value")] if dest_id else []
 
 	@app.callback(
 		Output(target_id, "data"),
 		Input(button_id, "n_clicks"),
 		*filter_states,
 		*fig_states,
+		*dest_states,
 		prevent_initial_call=True,
 	)
 	def _callback(n_clicks, *all_args):
 		if not n_clicks:
 			raise dash.exceptions.PreventUpdate
 		filter_values = all_args[: len(filter_state_ids)]
-		fig_values = all_args[len(filter_state_ids) :]
+		rest = all_args[len(filter_state_ids) :]
+		if dest_states:
+			fig_values = rest[:-1]
+			image_dest = str(rest[-1] or "browser")
+		else:
+			fig_values = rest
+			image_dest = "browser"
 		spec = _build_filter_spec_from_state(
 			require_recon_ok=filter_values[0],
 			bombcell=filter_values[1],
@@ -1406,6 +1787,24 @@ def _register_image_download(
 		filtered = filter_helpers.apply_filter_spec(units_df_getter(), spec)
 		fig = fig_builder(filtered, *fig_values)
 		image_bytes = fig.to_image(format=format)
+		# Route to project folder when requested.
+		if image_dest == "project" and project_dir_getter is not None:
+			project = project_dir_getter()
+			if project is not None:
+				plots_dir = Path(project) / "dash_plots"
+				plots_dir.mkdir(parents=True, exist_ok=True)
+				ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+				out_path = plots_dir / f"{filename_stem}_{ts}.{format}"
+				try:
+					out_path.write_bytes(image_bytes)
+				except OSError:
+					# Fall through to browser download on filesystem error.
+					return dcc.send_bytes(image_bytes, f"{filename_stem}.{format}", type=mime)
+				# We can't update a status label from this download callback
+				# (only one Output), so the file is written silently. Browser
+				# stays on the same page; check the project folder for the
+				# new file.
+				return dash.no_update
 		return dcc.send_bytes(image_bytes, f"{filename_stem}.{format}", type=mime)
 
 

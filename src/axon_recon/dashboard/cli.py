@@ -234,8 +234,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 	# Local import keeps the discovery / data path importable without Dash.
 	from .app import build_app
+	from pathlib import Path as _Path
 
-	app = build_app(units_df, well_summary_df, data_loader=_load_tables)
+	# Project folder = parent of the runtime config. Per-project saved views
+	# and (optionally) downloaded plot images land under this directory.
+	project_dir = _Path(str(args.config)).expanduser().resolve().parent
+	LOGGER.info("Project folder for saved views / image downloads: %s", project_dir)
+
+	app = build_app(
+		units_df,
+		well_summary_df,
+		data_loader=_load_tables,
+		project_dir=project_dir,
+	)
 
 	bind_host = "0.0.0.0" if bool(args.lan) else str(args.host)
 	lan_addresses: list[str] = []
