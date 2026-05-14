@@ -653,6 +653,45 @@ def _format_label_column_aggregate(col: LabelColumn, status_tally: dict[str, int
 	return base + suffix
 
 
+def _render_aligned_table(
+	headers: list[str],
+	rows: list[list[str]],
+	*,
+	aligns: list[str] | None = None,
+	gap: int = 2,
+) -> list[str]:
+	"""Render a table sized to each column's widest cell.
+
+	``aligns`` is one of ``"L"`` (left) or ``"R"`` (right) per column; defaults
+	to all-left. Returns the lines: header, rule, and one row per ``rows``.
+	"""
+	n = len(headers)
+	if aligns is None:
+		aligns = ["L"] * n
+	widths = [len(h) for h in headers]
+	for row in rows:
+		for i in range(min(n, len(row))):
+			cell_len = len(row[i])
+			if cell_len > widths[i]:
+				widths[i] = cell_len
+
+	def _fmt(cells: list[str]) -> str:
+		parts: list[str] = []
+		for i in range(n):
+			cell = cells[i] if i < len(cells) else ""
+			width = widths[i]
+			if aligns[i] == "R":
+				parts.append(cell.rjust(width))
+			else:
+				parts.append(cell.ljust(width))
+		return (" " * gap).join(parts)
+
+	out = [_fmt(headers), (" " * gap).join("-" * w for w in widths)]
+	for row in rows:
+		out.append(_fmt(row))
+	return out
+
+
 def _format_skip_annotation(well: WellStatus) -> str:
 	"""Compact skip annotation for default-mode tables.
 
@@ -703,24 +742,16 @@ def format_default_tables(report: StatusReport) -> str:
 				"+ input labels (bombcell if present, else KS-raw snapshot) via SLAy's mode-of-input rule; "
 				"merges=N, good_loss=M (merges where a good/non_soma_good was absorbed but the merged label isn't)"
 			)
-		label_header_suffix = (
-			"  ks_labels(agg)        bombcell_labels(agg)  slay_labels(agg)"
-			if label_cols
-			else ""
-		)
-		label_rule_suffix = (
-			"  --------------------  --------------------  ----------------"
-			if label_cols
-			else ""
-		)
-		lines.append(
-			f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'wells (ok/total)':<18}  "
-			f"{'missing_wells':<28}  {'skipped_wells':<24}{label_header_suffix}"
-		)
-		lines.append(
-			f"{'---':>3}  {'---':>3}  {'-'*30:<30}  {'-'*18:<18}  {'-'*28:<28}  "
-			f"{'-'*24:<24}{label_rule_suffix}"
-		)
+		headers = ["idx", "DIV", "dataset", "wells", "missing_wells", "skipped_wells"]
+		aligns = ["R", "R", "L", "L", "L", "L"]
+		if label_cols:
+			headers += ["ks_labels(agg)", "bombcell_labels(agg)", "slay_labels(agg)"]
+			aligns += ["L", "L", "L"]
+		# Trailing "status" column carries the COMPLETE tag when every well is done.
+		headers.append("status")
+		aligns.append("L")
+
+		rows: list[list[str]] = []
 		total_ok = 0
 		total_wells = 0
 		incomplete_count = 0
@@ -744,25 +775,30 @@ def format_default_tables(report: StatusReport) -> str:
 				)
 			else:
 				skip_str = "-"
-			complete_tag = "" if missing else "  COMPLETE"
-			label_suffix = ""
+			row: list[str] = [
+				str(dataset.index),
+				div_str,
+				dataset.short_label,
+				f"{ok}/{total}",
+				missing_str,
+				skip_str,
+			]
 			if label_cols:
 				ks_col, ks_tally = _aggregate_label_column(dataset.wells, "ks_labels")
 				bc_col, bc_tally = _aggregate_label_column(dataset.wells, "bombcell_labels")
 				sl_col, sl_tally = _aggregate_label_column(dataset.wells, "slay_labels")
-				label_suffix = (
-					f"  {_format_label_column_aggregate(ks_col, ks_tally)}"
-					f"  {_format_label_column_aggregate(bc_col, bc_tally)}"
-					f"  {_format_label_column_aggregate(sl_col, sl_tally)}"
-				)
-			lines.append(
-				f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  "
-				f"{ok}/{total:<16}  {missing_str:<28}  {skip_str}{complete_tag}{label_suffix}"
-			)
+				row += [
+					_format_label_column_aggregate(ks_col, ks_tally),
+					_format_label_column_aggregate(bc_col, bc_tally),
+					_format_label_column_aggregate(sl_col, sl_tally),
+				]
+			row.append("" if missing else "COMPLETE")
+			rows.append(row)
 			total_ok += ok
 			total_wells += total
 			if missing:
 				incomplete_count += 1
+		lines.extend(_render_aligned_table(headers, rows, aligns=aligns))
 		summary = (
 			f"# {incomplete_count} of {len(stage.datasets)} datasets incomplete · "
 			f"{total_ok}/{total_wells} wells done"
@@ -803,17 +839,13 @@ def format_verbose_tables(report: StatusReport) -> str:
 		)
 		phases_header = "".join(f"{i % 10}" for i in range(1, len(phase_names) + 1))
 		label_cols = stage.stage == "spikesort"
-		label_header_suffix = (
-			"  ks_labels             bombcell_labels       slay_labels"
-			if label_cols
-			else ""
-		)
-		header = (
-			f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'well':<8}  done  "
-			f"phases({phases_header})  {'skips':<24}{label_header_suffix}"
-		)
-		lines.append(header)
-		lines.append("-" * min(len(header), 240))
+		headers = ["idx", "DIV", "dataset", "well", "done", f"phases({phases_header})", "skips"]
+		aligns = ["R", "R", "L", "L", "R", "L", "L"]
+		if label_cols:
+			headers += ["ks_labels", "bombcell_labels", "slay_labels"]
+			aligns += ["L", "L", "L"]
+
+		rows: list[list[str]] = []
 		for dataset in stage.datasets:
 			div_str = str(dataset.div) if dataset.div is not None and dataset.div >= 0 else "-"
 			for well in dataset.wells:
@@ -822,17 +854,23 @@ def format_verbose_tables(report: StatusReport) -> str:
 					("✓" if well.phase_done.get(name, False) else "·") for name in phase_names
 				)
 				skip_str = _format_skip_annotation(well) if well.has_skips else "-"
-				label_suffix = ""
+				row: list[str] = [
+					str(dataset.index),
+					div_str,
+					dataset.short_label,
+					well.well_id,
+					done_glyph,
+					phase_glyphs,
+					skip_str,
+				]
 				if label_cols:
-					label_suffix = (
-						f"  {_format_label_column(well.ks_labels)}"
-						f"  {_format_label_column(well.bombcell_labels)}"
-						f"  {_format_label_column(well.slay_labels)}"
-					)
-				lines.append(
-					f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  "
-					f"{well.well_id:<8}  {done_glyph:>4}  {phase_glyphs}  {skip_str:<24}{label_suffix}"
-				)
+					row += [
+						_format_label_column(well.ks_labels),
+						_format_label_column(well.bombcell_labels),
+						_format_label_column(well.slay_labels),
+					]
+				rows.append(row)
+		lines.extend(_render_aligned_table(headers, rows, aligns=aligns))
 	return "\n".join(lines)
 
 
