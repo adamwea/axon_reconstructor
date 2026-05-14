@@ -5,7 +5,10 @@ from pathlib import Path
 import yaml
 
 from axon_recon.pipeline.status import (
+	BOMBCELL_LABELS_JSON,
+	MERGE_SLAY_UNIT_DIFF_FLAT_JSON,
 	SORTER_OUTPUT_KS_LABEL_TSV,
+	SPIKESORT_SUMMARY_JSON,
 	STAGE_PHASES,
 	STAGE_WELL_MARKER,
 	_rel_pattern_from_h5,
@@ -285,7 +288,7 @@ def test_format_default_tables_surfaces_skip_reasons_with_acceptability_tag(tmp_
 	assert "2 skipped-but-complete wells (1 flagged !!)" in text
 
 
-def _write_ks_label_tsv(
+def _write_ks_label_snapshot(
 	output_root: Path, rel_pattern: str, well_id: str, labels: list[str]
 ) -> None:
 	tsv_path = output_root / rel_pattern / well_id
@@ -299,85 +302,303 @@ def _write_ks_label_tsv(
 	tsv_path.write_text("\n".join(rows) + "\n")
 
 
-def test_scan_status_reads_ks_label_counts_for_spikesort_wells(tmp_path: Path) -> None:
+def _write_bombcell_labels(
+	output_root: Path,
+	rel_pattern: str,
+	well_id: str,
+	labels_by_unit: dict[str, str],
+) -> Path:
+	bc_path = output_root / rel_pattern / well_id
+	for piece in BOMBCELL_LABELS_JSON[:-1]:
+		bc_path = bc_path / piece
+	bc_path.mkdir(parents=True, exist_ok=True)
+	bc_path = bc_path / BOMBCELL_LABELS_JSON[-1]
+	import json as _json
+	from collections import Counter
+	counts = dict(Counter(labels_by_unit.values()))
+	bc_path.write_text(
+		_json.dumps({"labels_by_unit": labels_by_unit, "counts_by_label": counts})
+	)
+	return bc_path
+
+
+def _write_slay_unit_diff_flat(
+	output_root: Path,
+	rel_pattern: str,
+	well_id: str,
+	groups: list[dict],
+) -> Path:
+	flat_path = output_root / rel_pattern / well_id
+	for piece in MERGE_SLAY_UNIT_DIFF_FLAT_JSON[:-1]:
+		flat_path = flat_path / piece
+	flat_path.mkdir(parents=True, exist_ok=True)
+	flat_path = flat_path / MERGE_SLAY_UNIT_DIFF_FLAT_JSON[-1]
+	import json as _json
+	flat_path.write_text(_json.dumps({"groups": groups}))
+	return flat_path
+
+
+def _write_spikesort_marker(output_root: Path, rel_pattern: str, well_id: str) -> Path:
+	marker = output_root / rel_pattern / well_id
+	for piece in SPIKESORT_SUMMARY_JSON[:-1]:
+		marker = marker / piece
+	marker.mkdir(parents=True, exist_ok=True)
+	marker = marker / SPIKESORT_SUMMARY_JSON[-1]
+	marker.write_text("{}")
+	return marker
+
+
+def test_scan_status_reads_ks_labels_from_snapshot(tmp_path: Path) -> None:
 	raw = "/d/p/M/X/0001/data.raw.h5"
 	rel_pattern = _rel_pattern_from_h5(Path(raw))
 	datasets = [_build_dataset(raw, ["well000", "well001"])]
 	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
 	output_root = tmp_path / "out"
 
-	_write_ks_label_tsv(output_root, rel_pattern, "well000", ["good"] * 3 + ["mua"] * 2)
-	# well001: no KS label TSV → counts should be empty.
+	_write_ks_label_snapshot(output_root, rel_pattern, "well000", ["good"] * 3 + ["mua"] * 2)
+	# well001: snapshot missing → status="snapshot_missing".
 
 	report = scan_status(runtime_yml, stages=["spikesort"])
 	wells = {w.well_id: w for w in report.stages[0].datasets[0].wells}
-	assert wells["well000"].ks_label_counts == {"good": 3, "mua": 2}
-	assert wells["well001"].ks_label_counts == {}
+	assert wells["well000"].ks_labels.counts == {"good": 3, "mua": 2}
+	assert wells["well000"].ks_labels.status == "ok"
+	assert wells["well001"].ks_labels.counts == {}
+	assert wells["well001"].ks_labels.status == "snapshot_missing"
 
 
-def test_scan_status_does_not_read_ks_labels_for_non_spikesort_stages(tmp_path: Path) -> None:
+def test_scan_status_skips_label_columns_for_non_spikesort_stages(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+	_write_ks_label_snapshot(output_root, rel_pattern, "well000", ["good", "mua"])
+
+	report = scan_status(runtime_yml, stages=["preprocess", "spikesort", "reconstruct"])
+	by_stage = {s.stage: s for s in report.stages}
+	assert by_stage["spikesort"].datasets[0].wells[0].ks_labels.counts == {"good": 1, "mua": 1}
+	# Other stages get the default empty LabelColumn (status="ok", counts={}).
+	for non_spike in ("preprocess", "reconstruct"):
+		well = by_stage[non_spike].datasets[0].wells[0]
+		assert well.ks_labels.counts == {}
+		assert well.bombcell_labels.counts == {}
+		assert well.slay_labels.counts == {}
+
+
+def test_scan_status_reads_bombcell_label_column(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000", "well001"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+
+	_write_bombcell_labels(
+		output_root,
+		rel_pattern,
+		"well000",
+		{"0": "good", "1": "good", "2": "mua", "3": "noise", "4": "non_soma_good"},
+	)
+	# well001 has no bombcell artifact → status="bombcell_missing".
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	wells = {w.well_id: w for w in report.stages[0].datasets[0].wells}
+	assert wells["well000"].bombcell_labels.counts == {
+		"good": 2,
+		"mua": 1,
+		"noise": 1,
+		"non_soma_good": 1,
+	}
+	assert wells["well001"].bombcell_labels.status == "bombcell_missing"
+
+
+def test_scan_status_flags_bombcell_as_stale_when_sort_is_newer(tmp_path: Path) -> None:
 	raw = "/d/p/M/X/0001/data.raw.h5"
 	rel_pattern = _rel_pattern_from_h5(Path(raw))
 	datasets = [_build_dataset(raw, ["well000"])]
 	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
 	output_root = tmp_path / "out"
 
-	# Even with KS labels on disk, non-spikesort stages should not surface them.
-	_write_ks_label_tsv(output_root, rel_pattern, "well000", ["good", "mua"])
+	# Bombcell first, then a fresher spikesort_summary → must read as stale.
+	bc_path = _write_bombcell_labels(
+		output_root, rel_pattern, "well000", {"0": "good"}
+	)
+	import os
+	old_time = bc_path.stat().st_mtime - 60
+	os.utime(bc_path, (old_time, old_time))
+	_write_spikesort_marker(output_root, rel_pattern, "well000")
 
-	report = scan_status(runtime_yml, stages=["preprocess", "spikesort", "reconstruct"])
-	by_stage = {s.stage: s for s in report.stages}
-	assert by_stage["spikesort"].datasets[0].wells[0].ks_label_counts == {"good": 1, "mua": 1}
-	assert by_stage["preprocess"].datasets[0].wells[0].ks_label_counts == {}
-	assert by_stage["reconstruct"].datasets[0].wells[0].ks_label_counts == {}
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	well = report.stages[0].datasets[0].wells[0]
+	assert well.bombcell_labels.status == "bombcell_stale"
 
 
-def test_format_default_tables_shows_ks_label_aggregate_for_spikesort(tmp_path: Path) -> None:
+def test_scan_status_slay_replays_merge_label_mode_from_bombcell(tmp_path: Path) -> None:
 	raw = "/d/p/M/X/0001/data.raw.h5"
 	rel_pattern = _rel_pattern_from_h5(Path(raw))
-	datasets = [_build_dataset(raw, ["well000", "well001"])]
+	datasets = [_build_dataset(raw, ["well000"])]
 	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
 	output_root = tmp_path / "out"
 
-	_write_ks_label_tsv(output_root, rel_pattern, "well000", ["good"] * 10 + ["mua"] * 5)
-	_write_ks_label_tsv(output_root, rel_pattern, "well001", ["good"] * 20 + ["mua"] * 8)
+	# Bombcell labels: 4 good, 1 mua, 1 noise.
+	# SLAy merges:
+	#   group A: 0,1,2 (good,good,good)  → mode "good"     → post is good      → NOT a loss
+	#   group B: 3,4   (good, mua)       → mode "good" (alpha tie)              → post is good   → NOT a loss
+	#   group C: 5,6   (good, noise)     → mode "good" (alpha tie)              → post is good   → NOT a loss
+	# Want to exercise the loss case → add a 4th group whose inputs are dominated by mua.
+	#   group D: 7,8,9 (good, mua, mua)  → mode "mua"      → had good input but post is NOT good → LOSS
+	_write_bombcell_labels(
+		output_root,
+		rel_pattern,
+		"well000",
+		{
+			"0": "good", "1": "good", "2": "good",
+			"3": "good", "4": "mua",
+			"5": "good", "6": "noise",
+			"7": "good", "8": "mua", "9": "mua",
+		},
+	)
+	_write_slay_unit_diff_flat(
+		output_root,
+		rel_pattern,
+		"well000",
+		[
+			{"primary_pre_unit_ids": ["0", "1", "2"], "final_post_unit_id": "100"},
+			{"primary_pre_unit_ids": ["3", "4"], "final_post_unit_id": "101"},
+			{"primary_pre_unit_ids": ["5", "6"], "final_post_unit_id": "102"},
+			{"primary_pre_unit_ids": ["7", "8", "9"], "final_post_unit_id": "103"},
+		],
+	)
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	well = report.stages[0].datasets[0].wells[0]
+	slay = well.slay_labels
+	assert slay.status == "ok"
+	# Post-SLAy survivors: 100=good, 101=good, 102=good, 103=mua.
+	assert slay.counts == {"good": 3, "mua": 1}
+	assert slay.extras == {"merges": 4, "good_loss": 1}
+
+
+def test_scan_status_slay_missing_artifact_reports_status(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+	_write_bombcell_labels(output_root, rel_pattern, "well000", {"0": "good"})
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	well = report.stages[0].datasets[0].wells[0]
+	assert well.slay_labels.status == "slay_missing"
+
+
+def test_scan_status_slay_without_bombcell_reports_status(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+	_write_slay_unit_diff_flat(
+		output_root,
+		rel_pattern,
+		"well000",
+		[{"primary_pre_unit_ids": ["0"], "final_post_unit_id": "1"}],
+	)
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	well = report.stages[0].datasets[0].wells[0]
+	assert well.slay_labels.status == "slay_no_bombcell"
+
+
+def test_format_default_tables_shows_three_label_columns_for_spikesort(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+	_write_ks_label_snapshot(output_root, rel_pattern, "well000", ["good"] * 3 + ["mua"] * 2)
+	_write_bombcell_labels(
+		output_root,
+		rel_pattern,
+		"well000",
+		{"0": "good", "1": "good", "2": "mua"},
+	)
+	_write_slay_unit_diff_flat(
+		output_root,
+		rel_pattern,
+		"well000",
+		[{"primary_pre_unit_ids": ["0", "1"], "final_post_unit_id": "10"}],
+	)
 
 	report = scan_status(runtime_yml, stages=["spikesort"])
 	text = format_default_tables(report)
 
-	# Aggregate: good = 30, mua = 13, total = 43.
-	assert "good:30,mua:13|t=43" in text
-	# Column header should be present.
+	# All three column headers present.
 	assert "ks_labels(agg)" in text
+	assert "bombcell_labels(agg)" in text
+	assert "slay_labels(agg)" in text
+	# KS aggregate counts.
+	assert "good:3,mua:2|t=5" in text
+	# Bombcell aggregate counts.
+	assert "good:2,mua:1|t=3" in text
+	# SLAy: merge 0,1 (good,good) → good. Surviving: {2:mua, merged:good} → good:1,mua:1
+	assert "good:1,mua:1|t=2|good_loss=0,merges=1" in text
 
 
-def test_format_default_tables_omits_ks_column_for_non_spikesort(tmp_path: Path) -> None:
+def test_format_default_tables_omits_label_columns_for_non_spikesort(tmp_path: Path) -> None:
 	datasets = [_build_dataset("/d/p/M/X/0001/data.raw.h5", ["well000"])]
 	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
 
-	# preprocess stage only — ks_labels column must not appear.
 	report = scan_status(runtime_yml, stages=["preprocess"])
 	text = format_default_tables(report)
 
-	assert "ks_labels" not in text
+	assert "ks_labels(agg)" not in text
+	assert "bombcell_labels(agg)" not in text
+	assert "slay_labels(agg)" not in text
 
 
-def test_format_verbose_tables_shows_per_well_ks_label_counts(tmp_path: Path) -> None:
+def test_format_default_tables_surfaces_status_when_well_has_no_snapshot(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+
+	# No artifacts at all — every column should display "snapshot_missing" /
+	# "bombcell_missing" / "slay_missing" via the status tally.
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	text = format_default_tables(report)
+
+	assert "snapshot_missing" in text
+	assert "bombcell_missing" in text
+	assert "slay_missing" in text
+
+
+def test_format_verbose_tables_shows_per_well_label_columns(tmp_path: Path) -> None:
 	raw = "/d/p/M/X/0001/data.raw.h5"
 	rel_pattern = _rel_pattern_from_h5(Path(raw))
-	datasets = [_build_dataset(raw, ["well000", "well001"])]
+	datasets = [_build_dataset(raw, ["well000"])]
 	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
 	output_root = tmp_path / "out"
-
-	_write_ks_label_tsv(output_root, rel_pattern, "well000", ["good"] * 4 + ["mua"])
-	# well001 has no TSV; should print "-".
+	_write_ks_label_snapshot(output_root, rel_pattern, "well000", ["good"] * 4 + ["mua"])
+	_write_bombcell_labels(
+		output_root,
+		rel_pattern,
+		"well000",
+		{"0": "good", "1": "mua"},
+	)
+	_write_slay_unit_diff_flat(
+		output_root,
+		rel_pattern,
+		"well000",
+		[{"primary_pre_unit_ids": ["0", "1"], "final_post_unit_id": "100"}],
+	)
 
 	report = scan_status(runtime_yml, stages=["spikesort"], collect_phases=True)
 	text = format_verbose_tables(report)
 
-	assert "good:4,mua:1|t=5" in text
-	# Empty wells render as "-" in the ks_labels column.
-	assert "well001" in text
+	assert "good:4,mua:1|t=5" in text  # ks_labels
+	assert "good:1,mua:1|t=2" in text  # bombcell (and possibly slay since it's the same)
+	# slay extras present (good_loss=1 because pre had a good but mode of [good,mua] is alphabetically "good", so good_loss=0 here actually).
+	# Mode of [good,mua] -> tie, sorted -> ["good","mua"], mode[0]="good". pre_good=1, post_good=1 -> no loss.
+	assert "good_loss=0,merges=1" in text
 
 
 def test_format_verbose_tables_numbers_phase_legend(tmp_path: Path) -> None:

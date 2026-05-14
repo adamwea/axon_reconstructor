@@ -27,6 +27,7 @@ is still the authoritative answer for "did the well finish this stage."
 from __future__ import annotations
 
 import json
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -54,15 +55,45 @@ ACCEPTABLE_SKIP_REASONS: frozenset[str] = frozenset(
 STAGE_ORDER: tuple[str, ...] = ("preprocess", "spikesort", "reconstruct", "analysis")
 
 
-# KiloSort4 emits cluster_KSLabel.tsv inside each well's sorter_output dir,
-# with header "cluster_id\tKSLabel" and one row per cluster. KS4 itself only
-# assigns "good" / "mua" — anything else (e.g. "noise") would come from
-# downstream curation (Phy, bombcell rewrite), not KS itself.
+# KS-raw labels: pull from the snapshot dir rather than the canonical
+# sorter_output because bombcell + merge_SLAy both mutate the canonical
+# directory in place. The snapshot is the only pristine record of KS4's
+# original cluster_KSLabel.tsv that survives those mutations.
 SORTER_OUTPUT_KS_LABEL_TSV: tuple[str, ...] = (
 	"spikesort_outputs",
-	"sorter_output",
+	"sorter_output_snapshot",
 	"cluster_KSLabel.tsv",
 )
+
+# Bombcell persists its labeling as a json artifact independent of the
+# canonical cluster_group.tsv it writes. We read counts from here so the
+# numbers survive any subsequent restore_sorter_output operation.
+BOMBCELL_LABELS_JSON: tuple[str, ...] = (
+	"spikesort_outputs",
+	"bombcell_label_outputs",
+	"bombcell_labels.json",
+)
+
+# Sort-stage completion marker — used as the freshness reference for
+# downstream bombcell / merge_SLAy artifacts.
+SPIKESORT_SUMMARY_JSON: tuple[str, ...] = (
+	"spikesort_outputs",
+	"spikesort_summary.json",
+)
+
+# merge_SLAy persists per-merge groupings here. Combined with the bombcell
+# per-unit labels, this is enough to reconstruct what SLAy's post-merge
+# labels would be (via accept_merge()'s mode-of-input rule) without
+# depending on the canonical cluster_group.tsv that SLAy mutates.
+MERGE_SLAY_UNIT_DIFF_FLAT_JSON: tuple[str, ...] = (
+	"spikesort_outputs",
+	"merge_SLAy",
+	"unit_diff_map_flat.json",
+)
+
+# Labels SLAy treats as "good for downstream analysis" — used to count
+# merges that consume a good unit but produce a non-good merged unit.
+SLAY_GOOD_LIKE_LABELS: frozenset[str] = frozenset({"good", "non_soma_good"})
 
 
 # Marker that signals "this stage finished for this well." Path is relative
@@ -132,12 +163,28 @@ class SkipRecord:
 
 
 @dataclass(frozen=True)
+class LabelColumn:
+	"""Per-well label counts for one stage in the pipeline (KS / bombcell / SLAy).
+
+	``status`` is "ok" when counts are populated and current, or a short token
+	like ``snapshot_missing`` / ``bombcell_stale`` describing why ``counts`` is
+	empty. ``extras`` carries per-column scalars that aren't label counts (used
+	by the SLAy column to surface merge counts).
+	"""
+	counts: dict[str, int] = field(default_factory=dict)
+	status: str = "ok"
+	extras: dict[str, int] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class WellStatus:
 	well_id: str
 	stage_done: bool
 	phase_done: dict[str, bool] = field(default_factory=dict)
 	skip_records: tuple[SkipRecord, ...] = field(default_factory=tuple)
-	ks_label_counts: dict[str, int] = field(default_factory=dict)
+	ks_labels: LabelColumn = field(default_factory=LabelColumn)
+	bombcell_labels: LabelColumn = field(default_factory=LabelColumn)
+	slay_labels: LabelColumn = field(default_factory=LabelColumn)
 
 	@property
 	def has_skips(self) -> bool:
@@ -212,20 +259,8 @@ def _classify_skip_reason(reason: str | None) -> bool:
 	return str(reason).strip() in ACCEPTABLE_SKIP_REASONS
 
 
-def _read_ks_label_counts(well_root: Path) -> dict[str, int]:
-	"""Return per-label cluster counts from KS4's cluster_KSLabel.tsv.
-
-	KS4 writes `<well>/spikesort_outputs/sorter_output/cluster_KSLabel.tsv` with
-	a header row and tab-separated columns ``cluster_id<TAB>KSLabel``. Native
-	KS4 labels are "good" and "mua"; "noise" is not produced by KS4 itself but
-	may appear if some downstream step rewrote the file.
-
-	Returns ``{}`` when the TSV is missing or unreadable so callers can treat
-	the well as having "no KS labels available" without raising.
-	"""
-	tsv_path = well_root.joinpath(*SORTER_OUTPUT_KS_LABEL_TSV)
-	if not tsv_path.is_file():
-		return {}
+def _count_labels_from_tsv(tsv_path: Path) -> dict[str, int]:
+	"""Parse a TSV with header + `<id><TAB><label>` rows into per-label counts."""
 	counts: dict[str, int] = {}
 	try:
 		with tsv_path.open("r", encoding="utf-8") as fh:
@@ -241,6 +276,150 @@ def _read_ks_label_counts(well_root: Path) -> dict[str, int]:
 	except OSError:
 		return {}
 	return counts
+
+
+def _mode_alphabetical(labels: list[str]) -> str:
+	"""First-alphabetically among the most-frequent labels — mirrors pandas
+	``mode().values[0]`` semantics that SLAy's ``accept_merge`` relies on."""
+	if not labels:
+		return ""
+	counter = Counter(labels)
+	max_count = max(counter.values())
+	modes = sorted(label for label, count in counter.items() if count == max_count)
+	return modes[0]
+
+
+def _read_ks_label_column(well_root: Path) -> LabelColumn:
+	"""KS-raw labels from sorter_output_snapshot/cluster_KSLabel.tsv.
+
+	The snapshot is the only pristine record once bombcell / merge_SLAy have
+	mutated the canonical sorter_output. If the snapshot is missing the
+	column surfaces ``snapshot_missing`` rather than empty counts so the
+	operator knows the data is not just absent of clusters.
+	"""
+	tsv_path = well_root.joinpath(*SORTER_OUTPUT_KS_LABEL_TSV)
+	if not tsv_path.is_file():
+		return LabelColumn(status="snapshot_missing")
+	return LabelColumn(counts=_count_labels_from_tsv(tsv_path))
+
+
+def _read_bombcell_label_column(well_root: Path) -> LabelColumn:
+	"""Bombcell label counts from bombcell_labels.json's ``counts_by_label``.
+
+	Stale flag fires when the sort-stage marker is newer than bombcell's
+	output (i.e. spikesort_summary.json mtime > bombcell_labels.json mtime),
+	which means a re-sort happened after the bombcell pass and the cached
+	counts no longer reflect the current sorter_output.
+	"""
+	bc_path = well_root.joinpath(*BOMBCELL_LABELS_JSON)
+	if not bc_path.is_file():
+		return LabelColumn(status="bombcell_missing")
+	sort_summary = well_root.joinpath(*SPIKESORT_SUMMARY_JSON)
+	if (
+		sort_summary.is_file()
+		and sort_summary.stat().st_mtime > bc_path.stat().st_mtime
+	):
+		return LabelColumn(status="bombcell_stale")
+	try:
+		payload = json.loads(bc_path.read_text(encoding="utf-8"))
+	except (json.JSONDecodeError, OSError):
+		return LabelColumn(status="bombcell_unreadable")
+	counts_raw = payload.get("counts_by_label", {}) if isinstance(payload, dict) else {}
+	counts: dict[str, int] = {
+		str(label): int(count) for label, count in counts_raw.items()
+	}
+	return LabelColumn(counts=counts)
+
+
+def _read_slay_label_column(well_root: Path) -> LabelColumn:
+	"""Reconstruct post-SLAy label counts + per-merge stats.
+
+	SLAy mutates the canonical cluster_group.tsv in place, so we can't trust
+	whatever is on disk now (a restore_sorter_output between SLAy runs would
+	wipe the post-SLAy labels). Instead we replay SLAy's ``accept_merge``
+	rule: for each merge group in ``unit_diff_map_flat.json``, the post-merge
+	unit's label is the mode (first-alphabetical) of its input bombcell
+	labels; absorbed input units drop out of the post-merge unit set.
+
+	``extras`` reports:
+	  - ``merges``: total merge groups SLAy applied
+	  - ``good_loss``: count of merges where at least one good/non_soma_good
+	    input did NOT survive to the merged output's label
+
+	Stale fires when either bombcell or sort is newer than SLAy's flat map.
+	"""
+	flat_path = well_root.joinpath(*MERGE_SLAY_UNIT_DIFF_FLAT_JSON)
+	if not flat_path.is_file():
+		return LabelColumn(status="slay_missing")
+	bc_path = well_root.joinpath(*BOMBCELL_LABELS_JSON)
+	if not bc_path.is_file():
+		return LabelColumn(status="slay_no_bombcell")
+	sort_summary = well_root.joinpath(*SPIKESORT_SUMMARY_JSON)
+	flat_mtime = flat_path.stat().st_mtime
+	bc_mtime = bc_path.stat().st_mtime
+	sort_mtime = sort_summary.stat().st_mtime if sort_summary.is_file() else 0
+	if max(bc_mtime, sort_mtime) > flat_mtime:
+		return LabelColumn(status="slay_stale")
+	try:
+		bc_payload = json.loads(bc_path.read_text(encoding="utf-8"))
+		flat_payload = json.loads(flat_path.read_text(encoding="utf-8"))
+	except (json.JSONDecodeError, OSError):
+		return LabelColumn(status="slay_unreadable")
+	labels_by_unit_raw = (
+		bc_payload.get("labels_by_unit", {}) if isinstance(bc_payload, dict) else {}
+	)
+	labels_by_unit: dict[str, str] = {
+		str(uid): str(label) for uid, label in labels_by_unit_raw.items()
+	}
+	groups = flat_payload.get("groups", []) if isinstance(flat_payload, dict) else []
+	if not isinstance(groups, list):
+		groups = []
+
+	absorbed_unit_ids: set[str] = set()
+	new_merged_labels: dict[str, str] = {}
+	n_merges = 0
+	n_merges_with_good_loss = 0
+	for group in groups:
+		if not isinstance(group, dict):
+			continue
+		pre_ids = [str(x) for x in (group.get("primary_pre_unit_ids", []) or [])]
+		post_id = group.get("final_post_unit_id", None)
+		if post_id is None or not pre_ids:
+			continue
+		post_id_str = str(post_id)
+		pre_labels = [labels_by_unit.get(uid, "") for uid in pre_ids]
+		pre_labels = [lbl for lbl in pre_labels if lbl]
+		if not pre_labels:
+			# Can't replay SLAy's mode rule without input labels; skip this group.
+			continue
+		n_merges += 1
+		absorbed_unit_ids.update(pre_ids)
+		mode_label = _mode_alphabetical(pre_labels)
+		new_merged_labels[post_id_str] = mode_label
+		# "good_loss" = the merge had at least one good/non_soma_good input but
+		# the merged unit's inferred label is no longer good/non_soma_good.
+		# We don't count the natural N->1 reduction (e.g. merging two good
+		# units into one good unit) since that is the expected outcome of
+		# merging duplicate templates.
+		had_good_input = any(lbl in SLAY_GOOD_LIKE_LABELS for lbl in pre_labels)
+		post_is_good = mode_label in SLAY_GOOD_LIKE_LABELS
+		if had_good_input and not post_is_good:
+			n_merges_with_good_loss += 1
+
+	# Post-SLAy label distribution = surviving non-absorbed pre-units + the
+	# new merged units' inferred labels.
+	counts: dict[str, int] = {}
+	for unit_id, label in labels_by_unit.items():
+		if unit_id in absorbed_unit_ids:
+			continue
+		counts[label] = counts.get(label, 0) + 1
+	for label in new_merged_labels.values():
+		counts[label] = counts.get(label, 0) + 1
+
+	return LabelColumn(
+		counts=counts,
+		extras={"merges": n_merges, "good_loss": n_merges_with_good_loss},
+	)
 
 
 def _read_marker_skip(marker_path: Path, *, label: str) -> SkipRecord | None:
@@ -349,19 +528,26 @@ def scan_status(
 					phase_skip = _read_marker_skip(phase_marker_path, label=phase_name)
 					if phase_skip is not None:
 						skip_records.append(phase_skip)
-				# KS-raw label counts only make sense for the spikesort stage's
-				# sorter_output. For other stages the column stays empty and is
-				# elided from the formatted tables.
-				ks_label_counts = (
-					_read_ks_label_counts(well_root) if stage_name == "spikesort" else {}
-				)
+				# Label columns only make sense for the spikesort stage. Other
+				# stages keep the default-empty LabelColumns and the formatter
+				# elides the three columns for them.
+				if stage_name == "spikesort":
+					ks_labels = _read_ks_label_column(well_root)
+					bombcell_labels = _read_bombcell_label_column(well_root)
+					slay_labels = _read_slay_label_column(well_root)
+				else:
+					ks_labels = LabelColumn()
+					bombcell_labels = LabelColumn()
+					slay_labels = LabelColumn()
 				wells_out.append(
 					WellStatus(
 						well_id=well_id,
 						stage_done=stage_done,
 						phase_done=phase_done,
 						skip_records=tuple(skip_records),
-						ks_label_counts=ks_label_counts,
+						ks_labels=ks_labels,
+						bombcell_labels=bombcell_labels,
+						slay_labels=slay_labels,
 					)
 				)
 			datasets_out.append(
@@ -383,20 +569,60 @@ def scan_status(
 	)
 
 
-def _format_ks_label_counts_compact(counts: dict[str, int]) -> str:
-	"""Compact KS-label count summary. ``good:194,mua:132|t=326`` or ``-``."""
-	if not counts:
+def _format_label_column(col: LabelColumn) -> str:
+	"""Compact label-column summary.
+
+	  - ok    → ``good:194,mua:132|t=326`` (and ``|merges=N,good_loss=M`` if extras)
+	  - non-ok status (snapshot_missing / bombcell_stale / etc.) → the status
+	    token verbatim so the operator sees *why* the counts are absent.
+	"""
+	if col.status != "ok":
+		return col.status
+	if not col.counts:
 		return "-"
-	parts = [f"{label}:{counts[label]}" for label in sorted(counts)]
-	return ",".join(parts) + f"|t={sum(counts.values())}"
+	parts = [f"{label}:{col.counts[label]}" for label in sorted(col.counts)]
+	base = ",".join(parts) + f"|t={sum(col.counts.values())}"
+	if col.extras:
+		extras_str = ",".join(f"{k}={col.extras[k]}" for k in sorted(col.extras))
+		base = f"{base}|{extras_str}"
+	return base
 
 
-def _aggregate_ks_label_counts(wells: Iterable[WellStatus]) -> dict[str, int]:
-	out: dict[str, int] = {}
+def _aggregate_label_column(
+	wells: Iterable[WellStatus], attr: str
+) -> tuple[LabelColumn, dict[str, int]]:
+	"""Sum counts/extras across wells; tally non-ok statuses separately.
+
+	Returns ``(combined, status_tally)`` where ``status_tally`` maps each
+	non-ok status to the number of wells in that state. Wells with status="ok"
+	contribute to the combined counts; others only show up in the tally.
+	"""
+	counts: dict[str, int] = {}
+	extras: dict[str, int] = {}
+	status_tally: dict[str, int] = {}
 	for well in wells:
-		for label, count in well.ks_label_counts.items():
-			out[label] = out.get(label, 0) + count
-	return out
+		col: LabelColumn = getattr(well, attr)
+		if col.status != "ok":
+			status_tally[col.status] = status_tally.get(col.status, 0) + 1
+			continue
+		for label, count in col.counts.items():
+			counts[label] = counts.get(label, 0) + count
+		for key, value in col.extras.items():
+			extras[key] = extras.get(key, 0) + value
+	return LabelColumn(counts=counts, extras=extras), status_tally
+
+
+def _format_label_column_aggregate(col: LabelColumn, status_tally: dict[str, int]) -> str:
+	"""Aggregate format: ``<counts>[ + N {status}, M {status}]``."""
+	base = _format_label_column(col)
+	if not status_tally:
+		return base
+	tally_parts = [f"{count} {status}" for status, count in sorted(status_tally.items())]
+	suffix = " [" + ", ".join(tally_parts) + "]"
+	if base in {"-", *status_tally}:
+		# When no wells were ok at all, the base is "-"; just show the tally.
+		return suffix.strip(" []")
+	return base + suffix
 
 
 def _format_skip_annotation(well: WellStatus) -> str:
@@ -435,21 +661,37 @@ def format_default_tables(report: StatusReport) -> str:
 		marker_path = "/".join(STAGE_WELL_MARKER[stage.stage])
 		lines.append(f"=== {stage.stage} ===")
 		lines.append(f"# marker: <well>/{marker_path}")
-		ks_col = stage.stage == "spikesort"
-		if ks_col:
+		label_cols = stage.stage == "spikesort"
+		if label_cols:
 			lines.append(
-				f"# ks_labels: aggregate cluster_KSLabel.tsv counts across this "
-				f"dataset's wells (KS4 native labels — good/mua)"
+				"# ks_labels: from sorter_output_snapshot/cluster_KSLabel.tsv (KS4 raw)"
 			)
-		ks_header_suffix = "  ks_labels(agg)" if ks_col else ""
-		ks_rule_suffix = "  ---------------" if ks_col else ""
+			lines.append(
+				"# bombcell: from bombcell_label_outputs/bombcell_labels.json "
+				"(stale if sort newer than bombcell)"
+			)
+			lines.append(
+				"# slay: derived from bombcell labels + merge_SLAy/unit_diff_map_flat.json "
+				"(post-merge inferred via SLAy's mode-of-input rule); "
+				"merges=N, good_loss=M (merges where a good/non_soma_good was absorbed but the merged label isn't)"
+			)
+		label_header_suffix = (
+			"  ks_labels(agg)        bombcell_labels(agg)  slay_labels(agg)"
+			if label_cols
+			else ""
+		)
+		label_rule_suffix = (
+			"  --------------------  --------------------  ----------------"
+			if label_cols
+			else ""
+		)
 		lines.append(
 			f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'wells (ok/total)':<18}  "
-			f"{'missing_wells':<28}  {'skipped_wells':<24}{ks_header_suffix}"
+			f"{'missing_wells':<28}  {'skipped_wells':<24}{label_header_suffix}"
 		)
 		lines.append(
 			f"{'---':>3}  {'---':>3}  {'-'*30:<30}  {'-'*18:<18}  {'-'*28:<28}  "
-			f"{'-'*24:<24}{ks_rule_suffix}"
+			f"{'-'*24:<24}{label_rule_suffix}"
 		)
 		total_ok = 0
 		total_wells = 0
@@ -475,14 +717,19 @@ def format_default_tables(report: StatusReport) -> str:
 			else:
 				skip_str = "-"
 			complete_tag = "" if missing else "  COMPLETE"
-			ks_suffix = (
-				f"  {_format_ks_label_counts_compact(_aggregate_ks_label_counts(dataset.wells))}"
-				if ks_col
-				else ""
-			)
+			label_suffix = ""
+			if label_cols:
+				ks_col, ks_tally = _aggregate_label_column(dataset.wells, "ks_labels")
+				bc_col, bc_tally = _aggregate_label_column(dataset.wells, "bombcell_labels")
+				sl_col, sl_tally = _aggregate_label_column(dataset.wells, "slay_labels")
+				label_suffix = (
+					f"  {_format_label_column_aggregate(ks_col, ks_tally)}"
+					f"  {_format_label_column_aggregate(bc_col, bc_tally)}"
+					f"  {_format_label_column_aggregate(sl_col, sl_tally)}"
+				)
 			lines.append(
 				f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  "
-				f"{ok}/{total:<16}  {missing_str:<28}  {skip_str}{complete_tag}{ks_suffix}"
+				f"{ok}/{total:<16}  {missing_str:<28}  {skip_str}{complete_tag}{label_suffix}"
 			)
 			total_ok += ok
 			total_wells += total
@@ -527,14 +774,18 @@ def format_verbose_tables(report: StatusReport) -> str:
 			"# skips column: '<phase>=<reason>(ok|!!)' for each phase whose marker has status=skipped"
 		)
 		phases_header = "".join(f"{i % 10}" for i in range(1, len(phase_names) + 1))
-		ks_col = stage.stage == "spikesort"
-		ks_header_suffix = "  ks_labels" if ks_col else ""
+		label_cols = stage.stage == "spikesort"
+		label_header_suffix = (
+			"  ks_labels             bombcell_labels       slay_labels"
+			if label_cols
+			else ""
+		)
 		header = (
 			f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'well':<8}  done  "
-			f"phases({phases_header})  {'skips':<24}{ks_header_suffix}"
+			f"phases({phases_header})  {'skips':<24}{label_header_suffix}"
 		)
 		lines.append(header)
-		lines.append("-" * min(len(header), 200))
+		lines.append("-" * min(len(header), 240))
 		for dataset in stage.datasets:
 			div_str = str(dataset.div) if dataset.div is not None and dataset.div >= 0 else "-"
 			for well in dataset.wells:
@@ -543,14 +794,16 @@ def format_verbose_tables(report: StatusReport) -> str:
 					("✓" if well.phase_done.get(name, False) else "·") for name in phase_names
 				)
 				skip_str = _format_skip_annotation(well) if well.has_skips else "-"
-				ks_suffix = (
-					f"  {_format_ks_label_counts_compact(well.ks_label_counts)}"
-					if ks_col
-					else ""
-				)
+				label_suffix = ""
+				if label_cols:
+					label_suffix = (
+						f"  {_format_label_column(well.ks_labels)}"
+						f"  {_format_label_column(well.bombcell_labels)}"
+						f"  {_format_label_column(well.slay_labels)}"
+					)
 				lines.append(
 					f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  "
-					f"{well.well_id:<8}  {done_glyph:>4}  {phase_glyphs}  {skip_str:<24}{ks_suffix}"
+					f"{well.well_id:<8}  {done_glyph:>4}  {phase_glyphs}  {skip_str:<24}{label_suffix}"
 				)
 	return "\n".join(lines)
 
