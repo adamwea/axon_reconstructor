@@ -14,6 +14,24 @@ re-run the affected stages, and delete the corresponding entry here.
 
 ## Dataset 1 — `260224/M06804/000032` (DIV 6)
 
+### well002 — excluded 2026-05-13 (added in 2nd pass)
+- **Symptom**: reconstruct bailed at phase 2 (`extract_partial_templates`)
+  during the 2026-05-13 16:32 srun rerun. Only 2 context summaries
+  written (`analyzers`, `extract_partial_templates`); no
+  `build_templates_summary.json`, no merged templates cache.
+- **Root cause**: bombcell labeled all 8 sorted clusters as `mua`
+  (good=0, non_soma_good=0). Same DIV 6 sparse-activity issue as
+  well003 / well005 — just a different media condition (DMEM vs NBP).
+  With 0 qualifying units there's nothing for SLAy to merge and
+  nothing for `build_templates` to build from.
+- **Pipeline now short-circuits gracefully at merge_SLAy** (commit
+  `d537ff5`), but for these wells the reconstruct stage's
+  `build_templates` phase still has the same "0 inputs" sensitivity
+  — it does its own filter on qualifying units and there's nothing
+  to feed it. Exclusion is the right move for now.
+- **Unblock criterion**: same as well003 / well005 below — bombcell
+  retuned for young cultures so ≥ 1 qualifying unit emerges.
+
 ### well003 — excluded 2026-05-13
 - **Symptom**: SLAy crashed with
   `ValueError: With n_samples=0, test_size=0.2 and train_size=None,

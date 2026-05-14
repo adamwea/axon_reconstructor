@@ -123,7 +123,12 @@ datasets:
           media: DMEM
           genotype: WT
       - well_id: well002
-        include_in_runtime: true
+        # 2026-05-13: bombcell labels 0 good + 0 non_soma_good (only 8 mua).
+        # Same root cause as well003 / well005 — too sparse at DIV 6 to pass
+        # bombcell defaults. Reconstruct can't proceed past
+        # extract_partial_templates with 0 qualifying units. Excluded pending
+        # bombcell tuning. See dev/debug_NERSC/excluded_wells.md.
+        include_in_runtime: false
         attributes:
           plating_density: 60000
           media: DMEM
