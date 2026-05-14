@@ -259,9 +259,9 @@ def _classify_skip_reason(reason: str | None) -> bool:
 	return str(reason).strip() in ACCEPTABLE_SKIP_REASONS
 
 
-def _count_labels_from_tsv(tsv_path: Path) -> dict[str, int]:
-	"""Parse a TSV with header + `<id><TAB><label>` rows into per-label counts."""
-	counts: dict[str, int] = {}
+def _read_labels_from_tsv(tsv_path: Path) -> dict[str, str]:
+	"""Parse a TSV with header + `<id><TAB><label>` rows into a unit→label map."""
+	out: dict[str, str] = {}
 	try:
 		with tsv_path.open("r", encoding="utf-8") as fh:
 			next(fh, None)  # header row
@@ -269,12 +269,21 @@ def _count_labels_from_tsv(tsv_path: Path) -> dict[str, int]:
 				parts = line.rstrip("\n").split("\t")
 				if len(parts) < 2:
 					continue
+				unit_id = parts[0].strip()
 				label = parts[1].strip()
-				if not label:
+				if not unit_id or not label:
 					continue
-				counts[label] = counts.get(label, 0) + 1
+				out[unit_id] = label
 	except OSError:
 		return {}
+	return out
+
+
+def _count_labels_from_tsv(tsv_path: Path) -> dict[str, int]:
+	"""Parse a TSV with header + `<id><TAB><label>` rows into per-label counts."""
+	counts: dict[str, int] = {}
+	for label in _read_labels_from_tsv(tsv_path).values():
+		counts[label] = counts.get(label, 0) + 1
 	return counts
 
 
@@ -338,39 +347,58 @@ def _read_slay_label_column(well_root: Path) -> LabelColumn:
 	whatever is on disk now (a restore_sorter_output between SLAy runs would
 	wipe the post-SLAy labels). Instead we replay SLAy's ``accept_merge``
 	rule: for each merge group in ``unit_diff_map_flat.json``, the post-merge
-	unit's label is the mode (first-alphabetical) of its input bombcell
-	labels; absorbed input units drop out of the post-merge unit set.
+	unit's label is the mode (first-alphabetical) of its input labels;
+	absorbed input units drop out of the post-merge unit set.
+
+	Input-label source priority:
+	  1. bombcell_labels.json's labels_by_unit (when bombcell ran)
+	  2. sorter_output_snapshot/cluster_KSLabel.tsv (when bombcell did not run
+	     — SLAy reads cluster_group.tsv directly off the canonical sorter_output,
+	     which at SLAy invocation time is whatever was last written there; if
+	     bombcell didn't run it's still the KS-raw labels, so the snapshot is a
+	     faithful proxy)
 
 	``extras`` reports:
 	  - ``merges``: total merge groups SLAy applied
 	  - ``good_loss``: count of merges where at least one good/non_soma_good
 	    input did NOT survive to the merged output's label
 
-	Stale fires when either bombcell or sort is newer than SLAy's flat map.
+	Stale fires when either the source label artifact or the sort marker is
+	newer than SLAy's flat map.
 	"""
 	flat_path = well_root.joinpath(*MERGE_SLAY_UNIT_DIFF_FLAT_JSON)
 	if not flat_path.is_file():
 		return LabelColumn(status="slay_missing")
-	bc_path = well_root.joinpath(*BOMBCELL_LABELS_JSON)
-	if not bc_path.is_file():
-		return LabelColumn(status="slay_no_bombcell")
 	sort_summary = well_root.joinpath(*SPIKESORT_SUMMARY_JSON)
 	flat_mtime = flat_path.stat().st_mtime
-	bc_mtime = bc_path.stat().st_mtime
 	sort_mtime = sort_summary.stat().st_mtime if sort_summary.is_file() else 0
-	if max(bc_mtime, sort_mtime) > flat_mtime:
+
+	bc_path = well_root.joinpath(*BOMBCELL_LABELS_JSON)
+	snapshot_tsv = well_root.joinpath(*SORTER_OUTPUT_KS_LABEL_TSV)
+
+	labels_by_unit: dict[str, str] = {}
+	upstream_mtime = sort_mtime
+	if bc_path.is_file():
+		try:
+			bc_payload = json.loads(bc_path.read_text(encoding="utf-8"))
+		except (json.JSONDecodeError, OSError):
+			return LabelColumn(status="slay_unreadable")
+		raw = bc_payload.get("labels_by_unit", {}) if isinstance(bc_payload, dict) else {}
+		labels_by_unit = {str(uid): str(label) for uid, label in raw.items()}
+		upstream_mtime = max(upstream_mtime, bc_path.stat().st_mtime)
+	elif snapshot_tsv.is_file():
+		labels_by_unit = _read_labels_from_tsv(snapshot_tsv)
+		upstream_mtime = max(upstream_mtime, snapshot_tsv.stat().st_mtime)
+	else:
+		# No bombcell artifact and no snapshot → can't determine input labels.
+		return LabelColumn(status="slay_no_labels")
+
+	if upstream_mtime > flat_mtime:
 		return LabelColumn(status="slay_stale")
 	try:
-		bc_payload = json.loads(bc_path.read_text(encoding="utf-8"))
 		flat_payload = json.loads(flat_path.read_text(encoding="utf-8"))
 	except (json.JSONDecodeError, OSError):
 		return LabelColumn(status="slay_unreadable")
-	labels_by_unit_raw = (
-		bc_payload.get("labels_by_unit", {}) if isinstance(bc_payload, dict) else {}
-	)
-	labels_by_unit: dict[str, str] = {
-		str(uid): str(label) for uid, label in labels_by_unit_raw.items()
-	}
 	groups = flat_payload.get("groups", []) if isinstance(flat_payload, dict) else []
 	if not isinstance(groups, list):
 		groups = []
@@ -671,8 +699,8 @@ def format_default_tables(report: StatusReport) -> str:
 				"(stale if sort newer than bombcell)"
 			)
 			lines.append(
-				"# slay: derived from bombcell labels + merge_SLAy/unit_diff_map_flat.json "
-				"(post-merge inferred via SLAy's mode-of-input rule); "
+				"# slay: post-merge labels reconstructed from merge_SLAy/unit_diff_map_flat.json "
+				"+ input labels (bombcell if present, else KS-raw snapshot) via SLAy's mode-of-input rule; "
 				"merges=N, good_loss=M (merges where a good/non_soma_good was absorbed but the merged label isn't)"
 			)
 		label_header_suffix = (

@@ -491,7 +491,40 @@ def test_scan_status_slay_missing_artifact_reports_status(tmp_path: Path) -> Non
 	assert well.slay_labels.status == "slay_missing"
 
 
-def test_scan_status_slay_without_bombcell_reports_status(tmp_path: Path) -> None:
+def test_scan_status_slay_without_bombcell_falls_back_to_snapshot_labels(
+	tmp_path: Path,
+) -> None:
+	"""SLAy can run without bombcell — it reads cluster_group.tsv (KS labels
+	when bombcell didn't rewrite). Status should use the KS snapshot as the
+	input-label source, not refuse to compute."""
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+	# KS snapshot only — no bombcell.
+	_write_ks_label_snapshot(output_root, rel_pattern, "well000", ["good", "good", "mua"])
+	_write_slay_unit_diff_flat(
+		output_root,
+		rel_pattern,
+		"well000",
+		[{"primary_pre_unit_ids": ["0", "1"], "final_post_unit_id": "100"}],
+	)
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	well = report.stages[0].datasets[0].wells[0]
+	slay = well.slay_labels
+	# Should NOT block on bombcell.
+	assert slay.status == "ok"
+	# Pre: 0=good, 1=good, 2=mua. Merge [0,1] → mode "good" → 100=good.
+	# Post: {2:mua, 100:good}.
+	assert slay.counts == {"good": 1, "mua": 1}
+	assert slay.extras == {"merges": 1, "good_loss": 0}
+
+
+def test_scan_status_slay_without_any_label_source_reports_status(tmp_path: Path) -> None:
+	"""When neither bombcell nor snapshot is available, slay column can't
+	derive post-merge labels and should report slay_no_labels."""
 	raw = "/d/p/M/X/0001/data.raw.h5"
 	rel_pattern = _rel_pattern_from_h5(Path(raw))
 	datasets = [_build_dataset(raw, ["well000"])]
@@ -506,7 +539,7 @@ def test_scan_status_slay_without_bombcell_reports_status(tmp_path: Path) -> Non
 
 	report = scan_status(runtime_yml, stages=["spikesort"])
 	well = report.stages[0].datasets[0].wells[0]
-	assert well.slay_labels.status == "slay_no_bombcell"
+	assert well.slay_labels.status == "slay_no_labels"
 
 
 def test_format_default_tables_shows_three_label_columns_for_spikesort(tmp_path: Path) -> None:
