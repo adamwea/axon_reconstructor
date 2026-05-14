@@ -54,6 +54,17 @@ ACCEPTABLE_SKIP_REASONS: frozenset[str] = frozenset(
 STAGE_ORDER: tuple[str, ...] = ("preprocess", "spikesort", "reconstruct", "analysis")
 
 
+# KiloSort4 emits cluster_KSLabel.tsv inside each well's sorter_output dir,
+# with header "cluster_id\tKSLabel" and one row per cluster. KS4 itself only
+# assigns "good" / "mua" — anything else (e.g. "noise") would come from
+# downstream curation (Phy, bombcell rewrite), not KS itself.
+SORTER_OUTPUT_KS_LABEL_TSV: tuple[str, ...] = (
+	"spikesort_outputs",
+	"sorter_output",
+	"cluster_KSLabel.tsv",
+)
+
+
 # Marker that signals "this stage finished for this well." Path is relative
 # to the per-well output dir (compute_mea_analysis_output_dir output).
 STAGE_WELL_MARKER: dict[str, tuple[str, ...]] = {
@@ -126,6 +137,7 @@ class WellStatus:
 	stage_done: bool
 	phase_done: dict[str, bool] = field(default_factory=dict)
 	skip_records: tuple[SkipRecord, ...] = field(default_factory=tuple)
+	ks_label_counts: dict[str, int] = field(default_factory=dict)
 
 	@property
 	def has_skips(self) -> bool:
@@ -198,6 +210,37 @@ def _classify_skip_reason(reason: str | None) -> bool:
 	if reason is None:
 		return False
 	return str(reason).strip() in ACCEPTABLE_SKIP_REASONS
+
+
+def _read_ks_label_counts(well_root: Path) -> dict[str, int]:
+	"""Return per-label cluster counts from KS4's cluster_KSLabel.tsv.
+
+	KS4 writes `<well>/spikesort_outputs/sorter_output/cluster_KSLabel.tsv` with
+	a header row and tab-separated columns ``cluster_id<TAB>KSLabel``. Native
+	KS4 labels are "good" and "mua"; "noise" is not produced by KS4 itself but
+	may appear if some downstream step rewrote the file.
+
+	Returns ``{}`` when the TSV is missing or unreadable so callers can treat
+	the well as having "no KS labels available" without raising.
+	"""
+	tsv_path = well_root.joinpath(*SORTER_OUTPUT_KS_LABEL_TSV)
+	if not tsv_path.is_file():
+		return {}
+	counts: dict[str, int] = {}
+	try:
+		with tsv_path.open("r", encoding="utf-8") as fh:
+			next(fh, None)  # header row
+			for line in fh:
+				parts = line.rstrip("\n").split("\t")
+				if len(parts) < 2:
+					continue
+				label = parts[1].strip()
+				if not label:
+					continue
+				counts[label] = counts.get(label, 0) + 1
+	except OSError:
+		return {}
+	return counts
 
 
 def _read_marker_skip(marker_path: Path, *, label: str) -> SkipRecord | None:
@@ -306,12 +349,19 @@ def scan_status(
 					phase_skip = _read_marker_skip(phase_marker_path, label=phase_name)
 					if phase_skip is not None:
 						skip_records.append(phase_skip)
+				# KS-raw label counts only make sense for the spikesort stage's
+				# sorter_output. For other stages the column stays empty and is
+				# elided from the formatted tables.
+				ks_label_counts = (
+					_read_ks_label_counts(well_root) if stage_name == "spikesort" else {}
+				)
 				wells_out.append(
 					WellStatus(
 						well_id=well_id,
 						stage_done=stage_done,
 						phase_done=phase_done,
 						skip_records=tuple(skip_records),
+						ks_label_counts=ks_label_counts,
 					)
 				)
 			datasets_out.append(
@@ -331,6 +381,22 @@ def scan_status(
 		output_root=output_root,
 		stages=stages_out,
 	)
+
+
+def _format_ks_label_counts_compact(counts: dict[str, int]) -> str:
+	"""Compact KS-label count summary. ``good:194,mua:132|t=326`` or ``-``."""
+	if not counts:
+		return "-"
+	parts = [f"{label}:{counts[label]}" for label in sorted(counts)]
+	return ",".join(parts) + f"|t={sum(counts.values())}"
+
+
+def _aggregate_ks_label_counts(wells: Iterable[WellStatus]) -> dict[str, int]:
+	out: dict[str, int] = {}
+	for well in wells:
+		for label, count in well.ks_label_counts.items():
+			out[label] = out.get(label, 0) + count
+	return out
 
 
 def _format_skip_annotation(well: WellStatus) -> str:
@@ -369,12 +435,21 @@ def format_default_tables(report: StatusReport) -> str:
 		marker_path = "/".join(STAGE_WELL_MARKER[stage.stage])
 		lines.append(f"=== {stage.stage} ===")
 		lines.append(f"# marker: <well>/{marker_path}")
+		ks_col = stage.stage == "spikesort"
+		if ks_col:
+			lines.append(
+				f"# ks_labels: aggregate cluster_KSLabel.tsv counts across this "
+				f"dataset's wells (KS4 native labels — good/mua)"
+			)
+		ks_header_suffix = "  ks_labels(agg)" if ks_col else ""
+		ks_rule_suffix = "  ---------------" if ks_col else ""
 		lines.append(
 			f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'wells (ok/total)':<18}  "
-			f"{'missing_wells':<28}  skipped_wells"
+			f"{'missing_wells':<28}  {'skipped_wells':<24}{ks_header_suffix}"
 		)
 		lines.append(
-			f"{'---':>3}  {'---':>3}  {'-'*30:<30}  {'-'*18:<18}  {'-'*28:<28}  -------------"
+			f"{'---':>3}  {'---':>3}  {'-'*30:<30}  {'-'*18:<18}  {'-'*28:<28}  "
+			f"{'-'*24:<24}{ks_rule_suffix}"
 		)
 		total_ok = 0
 		total_wells = 0
@@ -400,9 +475,14 @@ def format_default_tables(report: StatusReport) -> str:
 			else:
 				skip_str = "-"
 			complete_tag = "" if missing else "  COMPLETE"
+			ks_suffix = (
+				f"  {_format_ks_label_counts_compact(_aggregate_ks_label_counts(dataset.wells))}"
+				if ks_col
+				else ""
+			)
 			lines.append(
 				f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  "
-				f"{ok}/{total:<16}  {missing_str:<28}  {skip_str}{complete_tag}"
+				f"{ok}/{total:<16}  {missing_str:<28}  {skip_str}{complete_tag}{ks_suffix}"
 			)
 			total_ok += ok
 			total_wells += total
@@ -447,9 +527,11 @@ def format_verbose_tables(report: StatusReport) -> str:
 			"# skips column: '<phase>=<reason>(ok|!!)' for each phase whose marker has status=skipped"
 		)
 		phases_header = "".join(f"{i % 10}" for i in range(1, len(phase_names) + 1))
+		ks_col = stage.stage == "spikesort"
+		ks_header_suffix = "  ks_labels" if ks_col else ""
 		header = (
 			f"{'idx':>3}  {'DIV':>3}  {'dataset':<30}  {'well':<8}  done  "
-			f"phases({phases_header})  skips"
+			f"phases({phases_header})  {'skips':<24}{ks_header_suffix}"
 		)
 		lines.append(header)
 		lines.append("-" * min(len(header), 200))
@@ -461,9 +543,14 @@ def format_verbose_tables(report: StatusReport) -> str:
 					("✓" if well.phase_done.get(name, False) else "·") for name in phase_names
 				)
 				skip_str = _format_skip_annotation(well) if well.has_skips else "-"
+				ks_suffix = (
+					f"  {_format_ks_label_counts_compact(well.ks_label_counts)}"
+					if ks_col
+					else ""
+				)
 				lines.append(
 					f"{dataset.index:>3}  {div_str:>3}  {dataset.short_label:<30}  "
-					f"{well.well_id:<8}  {done_glyph:>4}  {phase_glyphs}  {skip_str}"
+					f"{well.well_id:<8}  {done_glyph:>4}  {phase_glyphs}  {skip_str:<24}{ks_suffix}"
 				)
 	return "\n".join(lines)
 

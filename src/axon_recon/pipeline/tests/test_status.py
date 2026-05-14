@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from axon_recon.pipeline.status import (
+	SORTER_OUTPUT_KS_LABEL_TSV,
 	STAGE_PHASES,
 	STAGE_WELL_MARKER,
 	_rel_pattern_from_h5,
@@ -282,6 +283,101 @@ def test_format_default_tables_surfaces_skip_reasons_with_acceptability_tag(tmp_
 	assert "well001[spikesort=weird_failure(!!)]" in text
 	# Summary line mentions the skip counts.
 	assert "2 skipped-but-complete wells (1 flagged !!)" in text
+
+
+def _write_ks_label_tsv(
+	output_root: Path, rel_pattern: str, well_id: str, labels: list[str]
+) -> None:
+	tsv_path = output_root / rel_pattern / well_id
+	for piece in SORTER_OUTPUT_KS_LABEL_TSV[:-1]:
+		tsv_path = tsv_path / piece
+	tsv_path.mkdir(parents=True, exist_ok=True)
+	tsv_path = tsv_path / SORTER_OUTPUT_KS_LABEL_TSV[-1]
+	rows = ["cluster_id\tKSLabel"]
+	for idx, label in enumerate(labels):
+		rows.append(f"{idx}\t{label}")
+	tsv_path.write_text("\n".join(rows) + "\n")
+
+
+def test_scan_status_reads_ks_label_counts_for_spikesort_wells(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000", "well001"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+
+	_write_ks_label_tsv(output_root, rel_pattern, "well000", ["good"] * 3 + ["mua"] * 2)
+	# well001: no KS label TSV → counts should be empty.
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	wells = {w.well_id: w for w in report.stages[0].datasets[0].wells}
+	assert wells["well000"].ks_label_counts == {"good": 3, "mua": 2}
+	assert wells["well001"].ks_label_counts == {}
+
+
+def test_scan_status_does_not_read_ks_labels_for_non_spikesort_stages(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+
+	# Even with KS labels on disk, non-spikesort stages should not surface them.
+	_write_ks_label_tsv(output_root, rel_pattern, "well000", ["good", "mua"])
+
+	report = scan_status(runtime_yml, stages=["preprocess", "spikesort", "reconstruct"])
+	by_stage = {s.stage: s for s in report.stages}
+	assert by_stage["spikesort"].datasets[0].wells[0].ks_label_counts == {"good": 1, "mua": 1}
+	assert by_stage["preprocess"].datasets[0].wells[0].ks_label_counts == {}
+	assert by_stage["reconstruct"].datasets[0].wells[0].ks_label_counts == {}
+
+
+def test_format_default_tables_shows_ks_label_aggregate_for_spikesort(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000", "well001"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+
+	_write_ks_label_tsv(output_root, rel_pattern, "well000", ["good"] * 10 + ["mua"] * 5)
+	_write_ks_label_tsv(output_root, rel_pattern, "well001", ["good"] * 20 + ["mua"] * 8)
+
+	report = scan_status(runtime_yml, stages=["spikesort"])
+	text = format_default_tables(report)
+
+	# Aggregate: good = 30, mua = 13, total = 43.
+	assert "good:30,mua:13|t=43" in text
+	# Column header should be present.
+	assert "ks_labels(agg)" in text
+
+
+def test_format_default_tables_omits_ks_column_for_non_spikesort(tmp_path: Path) -> None:
+	datasets = [_build_dataset("/d/p/M/X/0001/data.raw.h5", ["well000"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+
+	# preprocess stage only — ks_labels column must not appear.
+	report = scan_status(runtime_yml, stages=["preprocess"])
+	text = format_default_tables(report)
+
+	assert "ks_labels" not in text
+
+
+def test_format_verbose_tables_shows_per_well_ks_label_counts(tmp_path: Path) -> None:
+	raw = "/d/p/M/X/0001/data.raw.h5"
+	rel_pattern = _rel_pattern_from_h5(Path(raw))
+	datasets = [_build_dataset(raw, ["well000", "well001"])]
+	runtime_yml = _write_runtime_and_data(tmp_path, datasets)
+	output_root = tmp_path / "out"
+
+	_write_ks_label_tsv(output_root, rel_pattern, "well000", ["good"] * 4 + ["mua"])
+	# well001 has no TSV; should print "-".
+
+	report = scan_status(runtime_yml, stages=["spikesort"], collect_phases=True)
+	text = format_verbose_tables(report)
+
+	assert "good:4,mua:1|t=5" in text
+	# Empty wells render as "-" in the ks_labels column.
+	assert "well001" in text
 
 
 def test_format_verbose_tables_numbers_phase_legend(tmp_path: Path) -> None:
