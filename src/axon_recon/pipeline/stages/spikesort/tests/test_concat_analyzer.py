@@ -7,6 +7,12 @@ from typing import Any
 
 import pytest
 
+from axon_recon.pipeline.cpu_allocation import (
+    TaskSlot,
+    phase_budgets_context,
+    task_slot_context,
+)
+from axon_recon.pipeline.resources import PhaseResourceClassConfig
 from axon_recon.pipeline.stages.spikesort.config import (
     DEFAULT_SPIKESORT_PHASE_SEQUENCE,
     parse_spikesort_stage_config,
@@ -17,6 +23,9 @@ from axon_recon.pipeline.stages.spikesort.core.concat_analyzer import (
     compute_sorter_output_fingerprint,
     fingerprints_match,
     run_concat_analyzer_phase,
+)
+from axon_recon.pipeline.stages.spikesort.runner import (
+    _concat_analyzer_runtime_n_jobs,
 )
 from axon_recon.runtime_config import RuntimeConfig
 
@@ -308,3 +317,68 @@ def test_default_phase_sequence_orders_concat_analyzer_correctly() -> None:
     analyzer_idx = seq.index("concat_analyzer")
     bombcell_idx = seq.index("bombcell_label")
     assert snapshot_idx < analyzer_idx < bombcell_idx
+
+
+class _StageConfigStub:
+	def __init__(self, *, concat_analyzer_n_jobs=None):
+		self.concat_analyzer_n_jobs = concat_analyzer_n_jobs
+
+
+def _slot_with(cpus: int) -> TaskSlot:
+	return TaskSlot(
+		slot_id=0,
+		logical_cpus=tuple(range(cpus)),
+		core_ids=tuple(range(cpus)),
+		package_ids=(0,),
+	)
+
+
+def test_concat_analyzer_runtime_n_jobs_inherits_from_phase_budget() -> None:
+	"""YAML n_jobs=null + phase budget present → use the budget's cpus_per_task."""
+	budgets = {
+		"spikesort.concat_analyzer": PhaseResourceClassConfig(
+			nested_shape="si_njobs",
+			cpus_per_task=16,
+		),
+	}
+	with task_slot_context(_slot_with(16)), phase_budgets_context(budgets):
+		resolved = _concat_analyzer_runtime_n_jobs(
+			_StageConfigStub(concat_analyzer_n_jobs=None)
+		)
+	assert resolved == 16
+
+
+def test_concat_analyzer_runtime_n_jobs_yaml_overrides_budget() -> None:
+	"""Explicit YAML n_jobs caps the budget value (min wins)."""
+	budgets = {
+		"spikesort.concat_analyzer": PhaseResourceClassConfig(
+			nested_shape="si_njobs",
+			cpus_per_task=16,
+		),
+	}
+	with task_slot_context(_slot_with(16)), phase_budgets_context(budgets):
+		resolved = _concat_analyzer_runtime_n_jobs(
+			_StageConfigStub(concat_analyzer_n_jobs=4)
+		)
+	assert resolved == 4
+
+
+def test_concat_analyzer_runtime_n_jobs_falls_back_to_1_with_no_context() -> None:
+	"""No budget, no task slot → falls back to 1 (the safe default)."""
+	resolved = _concat_analyzer_runtime_n_jobs(_StageConfigStub(concat_analyzer_n_jobs=None))
+	assert resolved == 1
+
+
+def test_concat_analyzer_runtime_n_jobs_capped_by_task_slot() -> None:
+	"""When task slot exposes fewer CPUs than the budget claims, the slot wins."""
+	budgets = {
+		"spikesort.concat_analyzer": PhaseResourceClassConfig(
+			nested_shape="si_njobs",
+			cpus_per_task=32,
+		),
+	}
+	with task_slot_context(_slot_with(8)), phase_budgets_context(budgets):
+		resolved = _concat_analyzer_runtime_n_jobs(
+			_StageConfigStub(concat_analyzer_n_jobs=None)
+		)
+	assert resolved == 8

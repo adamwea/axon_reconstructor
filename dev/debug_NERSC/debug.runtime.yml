@@ -23,8 +23,8 @@ env:
     conda_env_name: axon_recon
 
 resources:
-  #active_profile: perlmutter_cpu
-  active_profile: perlmutter_gpu
+  active_profile: perlmutter_cpu
+  #active_profile: perlmutter_gpu
   container_caps:
     #shm_size: 8g # Docker /dev/shm cap for axon-recon-container; raise this for parallel analyzer runs, or set to null to stop forcing --shm-size.
     shm_size: 24g # increase Docker /dev/shm cap for axon-recon-container to 16 GB to support more parallel analyzer runs and reduce the likelihood of out-of-shm errors during memory-intensive analysis phases; adjust as needed based on the expected memory usage of your analyzers and the degree of parallelism you want to enable, or set to null to stop forcing --shm-size.
@@ -736,19 +736,32 @@ stages:
           random_spikes:
             #max_spikes_per_unit: 500
             max_spikes_per_unit: 2000
+            # `seed` belongs to the random_spikes sampler — NOT to templates.
+            # SpikeInterface's ComputeTemplates._set_params() rejects `seed` as
+            # an unknown kwarg; the only reproducibility knob for templates is
+            # the random-spike sampler upstream of it.
+            seed: 0
           waveforms:
             ms_before: 2.0
             ms_after: 3.0
           templates:
             # Optional template build parameters; when null, defaults are used.
-            seed: 0
+            # NOTE: do NOT put `seed:` here — see random_spikes block above.
             #random_spikes_percentage: 25
             #min_spikes_per_unit: 1000
             #max_spikes_per_unit: 500
             max_spikes_per_unit: 2000
             log_before_after_spike_counts: true
           noise_levels: {}
-        # n_jobs: null  # take from phase budget by default
+        # n_jobs controls intra-rank SpikeInterface worker count for every
+        # `analyzer.compute(ext, ...)` call below (random_spikes, waveforms,
+        # templates, noise_levels). Setting null tells the runner to inherit
+        # the resolved per-task CPU budget (cpus_per_task from the active
+        # task profile, e.g. perlmutter_cpu → 16). Set an explicit integer
+        # to override. Under the MPI backend every rank gets its own budget
+        # context and resolves this independently, so the value here is
+        # PER-RANK n_jobs, not a global pool.
+        n_jobs: null
         # extensions: null  # null → use DEFAULT_CONCAT_ANALYZER_EXTENSIONS (random_spikes,
         #                   #   waveforms, templates, noise_levels). Override with a mapping:
         # extensions:
@@ -1034,7 +1047,8 @@ stages:
             #max_spikes: -1
             #max_spikes: 1000
             max_spikes: 2000
-            good_lbls: [good, non_soma_good]
+            #good_lbls: [good, non_soma_good]
+            good_lbls: [good, non_soma_good, mua] # include mua units as "good" for the purposes of eligible merges; these units are not labeled non-somatic and can merge with somatic goods without violating the non-somatic split
             window_size: 0.1
             xcorr_bin_width: 0.0005
             overlap_tol: 0.00016666666666666666 # 5 / 30000
@@ -1235,8 +1249,14 @@ stages:
         resource_class: spikeinterface_analyzer_segment
         summary_json_relpath: context/analyzers_summary.json
         defaults:
-          # Job controls applied when templates needs to recompute analyzer extensions locally.
-          #n_jobs: 4
+          # Job controls applied when templates needs to recompute analyzer
+          # extensions locally (segment and/or concat analyzers in this stage).
+          # Setting n_jobs: null inherits the resolved per-task CPU budget
+          # from the active task profile (cpus_per_task — e.g. 16 on
+          # perlmutter_cpu / perlmutter_gpu). Set an explicit integer to
+          # override. Under the MPI backend every rank gets its own budget
+          # context and resolves this independently → PER-RANK n_jobs.
+          n_jobs: null
           #chunk_duration: 1s
           waveforms:
             ms_before: 2

@@ -396,6 +396,25 @@ def _normalize_merge_template_heatmap_magnitude_mode(raw: Any) -> str:
 	return "ptp"
 
 
+def _concat_analyzer_runtime_n_jobs(stage_config: Any) -> int:
+	"""Resolve concat_analyzer's per-rank SI n_jobs from YAML + phase budget.
+
+	If ``phases.concat_analyzer.n_jobs`` is set explicitly in YAML it caps the
+	result; if it's left null the value falls back to the active phase
+	budget's ``cpus_per_task`` (or to 1 when no budget context is active —
+	e.g. unit tests or interactive REPL use). Under the MPI backend each
+	rank gets its own budget context so this resolves PER RANK, not globally.
+	"""
+	yaml_n_jobs = getattr(stage_config, "concat_analyzer_n_jobs", None)
+	budget = current_phase_budget("spikesort", "concat_analyzer")
+	return resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=getattr(budget, "cpus_per_task", None) if budget else None,
+		yaml_n_jobs_override=int(yaml_n_jobs) if yaml_n_jobs is not None else None,
+		work_item_count=None,
+	)
+
+
 def _merge_analyzer_configured_n_jobs(stage_config: Any) -> int | None:
 	"""Return the explicitly configured merge analyzer n_jobs, or None if not set."""
 	n_jobs_raw = getattr(stage_config, "merge_analyzer_n_jobs", None)
@@ -3884,7 +3903,7 @@ def run_spikesort_concat_analyzer_stage(
 		rebuild_on_sorter_output_change=rebuild_on_change,
 		analyzer_format=str(getattr(stage_config, "concat_analyzer_format", "binary_folder") or "binary_folder"),
 		compute_sparsity=bool(getattr(stage_config, "concat_analyzer_compute_sparsity", True)),
-		n_jobs=getattr(stage_config, "concat_analyzer_n_jobs", None),
+		n_jobs=_concat_analyzer_runtime_n_jobs(stage_config),
 		create_sorting_analyzer_fn=getattr(si_module, "create_sorting_analyzer", None),
 		load_sorting_analyzer_fn=getattr(si_module, "load_sorting_analyzer", None),
 		logger=LOGGER,
