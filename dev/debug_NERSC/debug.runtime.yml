@@ -747,13 +747,103 @@ stages:
         dry_run: false
 
         # Canonical Bombcell labeling function arguments.
-        # Mirrors spikeinterface.curation.bombcell_label_units(...)
+        # Mirrors spikeinterface.curation.bombcell_label_units(...) from
+        # spikeinterface==0.104.3 (see
+        # site-packages/spikeinterface/curation/bombcell_curation.py).
+        #
+        # The function signature exposes four user-facing params:
+        #   - thresholds (dict OR path-to-json, OR None for defaults)
+        #   - label_non_somatic (bool)
+        #   - split_non_somatic_good_mua (bool)
+        #   - external_metrics (pandas DataFrame; axon-recon hard-wires None)
+        #
+        # Within `thresholds`, the dict has THREE top-level keys: noise, mua,
+        # non-somatic. Each is a {metric_name: {greater, less[, abs]}} block.
+        # Semantics (per SI's bombcell_curation.py docstring):
+        #   - "greater": minimum required value (unit must be >= this)
+        #   - "less": maximum allowed value (unit must be <= this)
+        #   - "abs": when true, the absolute value of the metric is used
+        #     (relevant for amplitude which is negative)
+        #   - null on either side disables that side of the threshold
+        #
+        # Defaults below mirror bombcell_get_default_thresholds() verbatim.
+        # Comment a threshold OR set both sides to null to disable it entirely
+        # for a metric. Adjust freely — values flow through the
+        # _as_optional_dict pass-through and into SI without remapping.
         params:
           label_non_somatic: true
           split_non_somatic_good_mua: true
-          # optional: provide a custom thresholds dict or thresholds_path
-          # thresholds: null
+
+          # Alternative: point at a JSON file holding the thresholds dict
+          # (relative paths resolve under <well>/<bombcell_out_dir>). Mutually
+          # exclusive with the inline `thresholds:` block — if both are set,
+          # the inline dict wins.
           # thresholds_path: null
+
+          thresholds:
+            # ---- noise: failing ANY of these labels the unit "noise" ----
+            noise:
+              num_positive_peaks:
+                greater: null
+                less: 2
+              num_negative_peaks:
+                greater: null
+                less: 1
+              peak_to_trough_duration:  # seconds
+                greater: 0.0001
+                less: 0.00115
+              waveform_baseline_flatness:
+                greater: null
+                less: 0.5
+              peak_after_to_trough_ratio:
+                greater: null
+                less: 0.8
+              exp_decay:
+                greater: 0.01
+                less: 0.1
+
+            # ---- mua: failing ANY of these (and not noise) -> "mua" ----
+            mua:
+              amplitude_median:  # uV; `abs: true` so negative amplitudes count
+                greater: 30
+                less: null
+                abs: true
+              snr:
+                greater: 5
+                less: null
+              amplitude_cutoff:
+                greater: null
+                less: 0.2
+              num_spikes:
+                greater: 300
+                less: null
+              rp_contamination:
+                greater: null
+                less: 0.1
+              presence_ratio:
+                greater: 0.7
+                less: null
+              drift_ptp:  # um
+                greater: null
+                less: 100
+
+            # ---- non-somatic: only consulted when label_non_somatic=true ----
+            non-somatic:
+              peak_before_to_trough_ratio:
+                greater: null
+                less: 3
+              peak_before_width:  # seconds
+                greater: 0.00015
+                less: null
+              trough_width:  # seconds
+                greater: 0.0002
+                less: null
+              peak_before_to_peak_after_ratio:
+                greater: null
+                less: 3
+              main_peak_to_trough_ratio:
+                greater: null
+                less: 0.8
 
         apply_to_sorter_output: true
         write_cluster_group: true
