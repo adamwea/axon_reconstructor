@@ -136,7 +136,10 @@ datasets:
         # bombcell defaults. Reconstruct can't proceed past
         # extract_partial_templates with 0 qualifying units. Excluded pending
         # bombcell tuning. See dev/debug_NERSC/excluded_wells.md.
-        include_in_runtime: false
+        #include_in_runtime: false
+
+        # 2026-05-14 update: enabling this well. testing without bombcell-labeling for now.
+        include_in_runtime: true
         attributes:
           plating_density: 60000
           media: DMEM
@@ -147,7 +150,10 @@ datasets:
         # SLAy-qualifying units → SLAy short-circuits with no_qualifying_units.
         # Excluded from runtime pending bombcell tuning for young cultures.
         # See dev/debug_NERSC/excluded_wells.md.
-        include_in_runtime: false
+        #include_in_runtime: false
+
+        # 2026-05-14 update: enabling this well. testing without bombcell-labeling for now.
+        include_in_runtime: true
         attributes:
           plating_density: 60000
           media: NBP
@@ -164,7 +170,10 @@ datasets:
         # 2026-05-13: bombcell labels all 539 sorted clusters as noise/mua/
         # non_soma_mua → 0 SLAy-qualifying units. Excluded from runtime
         # pending bombcell tuning. See dev/debug_NERSC/excluded_wells.md.
-        include_in_runtime: false
+        #include_in_runtime: false
+
+        # 2026-05-14 update: enabling this well. testing without bombcell-labeling for now.
+        include_in_runtime: true
         attributes:
           plating_density: 60000
           media: NBP
