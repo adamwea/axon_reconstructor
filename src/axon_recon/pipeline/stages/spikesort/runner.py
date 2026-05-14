@@ -7932,64 +7932,84 @@ def _log_merge_summary_details(
 _SLAY_QUALIFYING_BOMBCELL_LABELS: frozenset[str] = frozenset({"good", "non_soma_good"})
 
 
-def _count_slay_eligible_bombcell_units(
+def _count_slay_eligible_units(
 	*,
 	well_out_dir: Path,
 	output_rel_root: str,
 	stage_config: Any,
 ) -> tuple[int | None, dict[str, int] | None, Path | None]:
-	"""Count bombcell-labeled units that are eligible for SLAy merging.
+	"""Count units whose label in sorter_output is SLAy-eligible.
 
-	SLAy's autoencoder + cluster-similarity step trains on the "good" /
-	"non_soma_good" subset; with zero such units the step's
-	`train_test_split` collapses (n_samples=0). This helper reads the
-	bombcell_label_summary.json that the upstream `bombcell_label` phase
-	writes and returns the eligible count.
+	**Single source of truth: the cluster label TSV inside sorter_output.**
+	That's the same file SLAy reads (`slay/algo.py:31-35` reads
+	`cluster_group.tsv` — falls back to `cluster_KSLabel.tsv` via SLAy's
+	`label`/`KSLabel`/`group` column logic), so this gate sees exactly
+	what SLAy will see when it runs.
 
-	Returns ``(count, counts_by_label, summary_path)``. ``(None, None,
-	path)`` when the bombcell summary couldn't be read (file missing or
-	malformed) — caller should treat that as "don't skip" so the existing
-	failure mode surfaces normally.
+	This intentionally does NOT consult ``bombcell_label_outputs/`` — if
+	the user runs ``spikesort.restore_sorter_output`` to roll back to the
+	pre-bombcell snapshot, the bombcell summary will be stale and would
+	cause us to incorrectly short-circuit wells that now have plenty of
+	KS-labeled "good" units to feed SLAy.
+
+	Returns ``(count, counts_by_label, label_tsv_path)``. ``(None, None,
+	path)`` when the label TSV couldn't be read (file missing or
+	malformed) — caller should treat that as "don't skip" so the
+	existing failure mode surfaces normally.
 	"""
-	merge_output_rel_root = _compose_output_rel_root(
-		stage_output_rel_root=output_rel_root,
-		child_rel_root=getattr(stage_config, "merge_rel_output_root", None),
-	)
-	bombcell_out_dir = _resolve_under_spikesort_output_root(
+	sorter_output_dir = _resolve_sorter_output_dir(
 		well_out_dir=well_out_dir,
-		output_rel_root=merge_output_rel_root,
-		relpath=str(getattr(stage_config, "bombcell_label_relpath", "bombcell_label_outputs")),
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
 	)
-	summary_relpath = (
-		str(
-			getattr(stage_config, "bombcell_label_reports_summary_json_relpath", "bombcell_label_summary.json")
-			or "bombcell_label_summary.json"
-		)
-		.strip()
-		.lstrip("/")
-		or "bombcell_label_summary.json"
-	)
-	summary_path = (bombcell_out_dir / summary_relpath).resolve()
-	if not summary_path.is_file():
-		return None, None, summary_path
+	label_tsv = _find_kilosort_quality_label_tsv(sorter_output_dir)
+	if label_tsv is None or not label_tsv.is_file():
+		return None, None, label_tsv
+	# Match SLAy's good_lbls (defaults to ["good"]) plus the non_soma_good
+	# bucket that bombcell may emit. The configured good_lbls — if the user
+	# overrides slay_params.good_lbls in the runtime yml — is the
+	# authoritative set; honor that when present.
+	good_labels: set[str] = set(_SLAY_QUALIFYING_BOMBCELL_LABELS)
+	slay_params = getattr(stage_config, "slay_params", None)
+	if isinstance(slay_params, dict):
+		raw = slay_params.get("good_lbls", None)
+		if isinstance(raw, (list, tuple)):
+			cleaned = {str(item).strip() for item in raw if str(item).strip()}
+			if cleaned:
+				good_labels = cleaned
+	counts_by_label: dict[str, int] = {}
 	try:
-		with summary_path.open("r", encoding="utf-8") as fh:
-			payload = json.load(fh)
-	except (json.JSONDecodeError, OSError):
-		return None, None, summary_path
-	counts = payload.get("counts_by_label") if isinstance(payload, dict) else None
-	if not isinstance(counts, dict):
-		return None, None, summary_path
-	normalized_counts: dict[str, int] = {}
-	for label, value in counts.items():
-		try:
-			normalized_counts[str(label)] = int(value)
-		except (TypeError, ValueError):
-			continue
-	eligible = sum(
-		count for label, count in normalized_counts.items() if label in _SLAY_QUALIFYING_BOMBCELL_LABELS
-	)
-	return int(eligible), normalized_counts, summary_path
+		with label_tsv.open("r", encoding="utf-8") as fh:
+			header_line = fh.readline()
+			if not header_line:
+				return None, None, label_tsv
+			columns = [c.strip() for c in header_line.rstrip("\n").split("\t")]
+			# SLAy's label column resolution: `label` > `KSLabel` > `group`.
+			label_col_idx = None
+			for preferred in ("label", "KSLabel", "group"):
+				if preferred in columns:
+					label_col_idx = columns.index(preferred)
+					break
+			if label_col_idx is None:
+				return None, None, label_tsv
+			for line in fh:
+				parts = line.rstrip("\n").split("\t")
+				if len(parts) <= label_col_idx:
+					continue
+				label = parts[label_col_idx].strip()
+				if not label:
+					continue
+				counts_by_label[label] = counts_by_label.get(label, 0) + 1
+	except OSError:
+		return None, None, label_tsv
+	eligible = sum(count for label, count in counts_by_label.items() if label in good_labels)
+	return int(eligible), counts_by_label, label_tsv
+
+
+# Backward-compat alias for any external callers that may have imported the
+# old name. The new implementation reads sorter_output instead of the
+# bombcell summary, but the return shape is the same.
+_count_slay_eligible_bombcell_units = _count_slay_eligible_units
 
 
 def _run_slay_merge_method(
@@ -8050,7 +8070,7 @@ def _run_slay_merge_method(
 	# yields zero candidates → train_test_split crashes on n_samples=0.
 	# Detect that here and short-circuit cleanly so the well still gets a
 	# completion marker downstream and the user gets a clear "skipped" reason.
-	eligible_units, counts_by_label, bombcell_summary_path = _count_slay_eligible_bombcell_units(
+	eligible_units, counts_by_label, bombcell_summary_path = _count_slay_eligible_units(
 		well_out_dir=well_out_dir,
 		output_rel_root=output_rel_root,
 		stage_config=stage_config,
@@ -8415,7 +8435,7 @@ def run_spikesort_merge_stage(
 	# which propagates into the stage-level merge_stage_summary.json marker.
 	if slay_requested:
 		_eligible_units, _eligible_counts, _eligible_summary_path = (
-			_count_slay_eligible_bombcell_units(
+			_count_slay_eligible_units(
 				well_out_dir=well_out_dir,
 				output_rel_root=output_rel_root,
 				stage_config=stage_config,

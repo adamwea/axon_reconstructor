@@ -4346,36 +4346,55 @@ def test_run_spikesort_merge_stage_skips_when_disabled(tmp_path: Path) -> None:
     assert summary.get("stage_output_root_dir") == str(result.well_out_dir / "spikesort_outputs")
 
 
-def test_count_slay_eligible_bombcell_units_reads_counts_by_label(tmp_path: Path) -> None:
-    """Helper sums good + non_soma_good from bombcell_label_summary.json."""
-    from axon_recon.pipeline.stages.spikesort.runner import _count_slay_eligible_bombcell_units
+def _write_cluster_group_tsv(path: Path, labels: list[tuple[int, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["cluster_id\tKSLabel"]
+    for cluster_id, label in labels:
+        lines.append(f"{cluster_id}\t{label}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_count_slay_eligible_units_reads_sorter_output_cluster_group(tmp_path: Path) -> None:
+    """Helper sums good + non_soma_good from sorter_output/cluster_group.tsv.
+
+    Source of truth: the live label TSV that SLAy itself reads (slay/algo.py
+    line 31-35). Stale bombcell_label_outputs/ are intentionally ignored.
+    """
+    from axon_recon.pipeline.stages.spikesort.runner import _count_slay_eligible_units
 
     well_out_dir = tmp_path / "well042"
-    bombcell_dir = well_out_dir / "spikesort_outputs" / "bombcell_label_outputs"
-    bombcell_dir.mkdir(parents=True, exist_ok=True)
-    (bombcell_dir / "bombcell_label_summary.json").write_text(
-        json.dumps({"counts_by_label": {"good": 3, "non_soma_good": 1, "noise": 50, "mua": 5}})
-    )
-    eligible, counts, path = _count_slay_eligible_bombcell_units(
+    sorter_out = well_out_dir / "spikesort_outputs" / "sorter_output" / "sorter_output"
+    labels = [
+        *[(i, "good") for i in range(3)],
+        *[(i + 3, "non_soma_good") for i in range(1)],
+        *[(i + 4, "noise") for i in range(50)],
+        *[(i + 54, "mua") for i in range(5)],
+    ]
+    _write_cluster_group_tsv(sorter_out / "cluster_group.tsv", labels)
+
+    eligible, counts, path = _count_slay_eligible_units(
         well_out_dir=well_out_dir,
         output_rel_root="spikesort_outputs",
         stage_config=SimpleNamespace(),
     )
     assert eligible == 4
     assert counts == {"good": 3, "non_soma_good": 1, "noise": 50, "mua": 5}
-    assert str(path).endswith("bombcell_label_summary.json")
+    assert str(path).endswith("cluster_group.tsv")
 
 
-def test_count_slay_eligible_bombcell_units_returns_zero_when_no_qualifying_labels(tmp_path: Path) -> None:
-    from axon_recon.pipeline.stages.spikesort.runner import _count_slay_eligible_bombcell_units
+def test_count_slay_eligible_units_returns_zero_when_no_qualifying_labels(tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort.runner import _count_slay_eligible_units
 
     well_out_dir = tmp_path / "well042"
-    bombcell_dir = well_out_dir / "spikesort_outputs" / "bombcell_label_outputs"
-    bombcell_dir.mkdir(parents=True, exist_ok=True)
-    (bombcell_dir / "bombcell_label_summary.json").write_text(
-        json.dumps({"counts_by_label": {"noise": 50, "mua": 5, "non_soma_mua": 2}})
-    )
-    eligible, _counts, _path = _count_slay_eligible_bombcell_units(
+    sorter_out = well_out_dir / "spikesort_outputs" / "sorter_output" / "sorter_output"
+    labels = [
+        *[(i, "noise") for i in range(50)],
+        *[(i + 50, "mua") for i in range(5)],
+        *[(i + 55, "non_soma_mua") for i in range(2)],
+    ]
+    _write_cluster_group_tsv(sorter_out / "cluster_group.tsv", labels)
+
+    eligible, _counts, _path = _count_slay_eligible_units(
         well_out_dir=well_out_dir,
         output_rel_root="spikesort_outputs",
         stage_config=SimpleNamespace(),
@@ -4383,44 +4402,68 @@ def test_count_slay_eligible_bombcell_units_returns_zero_when_no_qualifying_labe
     assert eligible == 0
 
 
-def test_count_slay_eligible_bombcell_units_returns_none_when_summary_missing(tmp_path: Path) -> None:
-    from axon_recon.pipeline.stages.spikesort.runner import _count_slay_eligible_bombcell_units
+def test_count_slay_eligible_units_returns_none_when_label_tsv_missing(tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort.runner import _count_slay_eligible_units
 
     well_out_dir = tmp_path / "well042"
     well_out_dir.mkdir(parents=True, exist_ok=True)
-    eligible, counts, _path = _count_slay_eligible_bombcell_units(
+    eligible, counts, _path = _count_slay_eligible_units(
         well_out_dir=well_out_dir,
         output_rel_root="spikesort_outputs",
         stage_config=SimpleNamespace(),
     )
-    # Bombcell hasn't run → caller treats this as "don't short-circuit" so the
+    # Sort never ran → caller treats this as "don't short-circuit" so the
     # downstream code path's natural error surfaces.
     assert eligible is None
     assert counts is None
 
 
-def test_run_spikesort_merge_stage_skips_when_no_qualifying_bombcell_units(tmp_path: Path) -> None:
+def test_count_slay_eligible_units_honors_slay_good_lbls_override(tmp_path: Path) -> None:
+    """When stage_config.slay_params.good_lbls is set, eligibility uses
+    that allowlist instead of the default {good, non_soma_good}.
+    """
+    from axon_recon.pipeline.stages.spikesort.runner import _count_slay_eligible_units
+
+    well_out_dir = tmp_path / "well042"
+    sorter_out = well_out_dir / "spikesort_outputs" / "sorter_output" / "sorter_output"
+    labels = [
+        *[(i, "good") for i in range(2)],
+        *[(i + 2, "mua") for i in range(7)],
+        *[(i + 9, "noise") for i in range(20)],
+    ]
+    _write_cluster_group_tsv(sorter_out / "cluster_group.tsv", labels)
+
+    eligible, _counts, _path = _count_slay_eligible_units(
+        well_out_dir=well_out_dir,
+        output_rel_root="spikesort_outputs",
+        stage_config=SimpleNamespace(slay_params={"good_lbls": ["good", "mua"]}),
+    )
+    # With "mua" allowed alongside "good", the count includes the 7 mua units.
+    assert eligible == 9
+
+
+def test_run_spikesort_merge_stage_skips_when_no_qualifying_units(tmp_path: Path) -> None:
     """End-to-end: merge_stage_summary.json is written with status=skipped
-    and reason=no_qualifying_units when bombcell labeled every unit as
-    noise/mua. Crucially, SLAy is never invoked — so its
-    train_test_split(n_samples=0) crash can't happen, and the missing
-    Kilosort params.py preflight isn't tripped either."""
+    and reason=no_qualifying_units when sorter_output's cluster_group.tsv has
+    every unit labeled as noise / mua. Crucially, SLAy is never invoked —
+    so its train_test_split(n_samples=0) crash can't happen, and the
+    missing Kilosort params.py preflight isn't tripped either.
+    """
     from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
     h5_path.parent.mkdir(parents=True, exist_ok=True)
     h5_path.write_bytes(b"")
 
-    # Resolve the actual well_out_dir the runner will use, then seed the
-    # bombcell summary at that exact location.
     well_out_dir = compute_mea_analysis_output_dir(
         output_root=tmp_path, data_file=h5_path, well="well001"
     )
-    bombcell_dir = well_out_dir / "spikesort_outputs" / "bombcell_label_outputs"
-    bombcell_dir.mkdir(parents=True, exist_ok=True)
-    (bombcell_dir / "bombcell_label_summary.json").write_text(
-        json.dumps({"counts_by_label": {"noise": 59, "mua": 4}})
-    )
+    sorter_out = well_out_dir / "spikesort_outputs" / "sorter_output" / "sorter_output"
+    labels = [
+        *[(i, "noise") for i in range(59)],
+        *[(i + 59, "mua") for i in range(4)],
+    ]
+    _write_cluster_group_tsv(sorter_out / "cluster_group.tsv", labels)
 
     stage_cfg = SimpleNamespace(
         slay_enabled=True,
@@ -4441,11 +4484,12 @@ def test_run_spikesort_merge_stage_skips_when_no_qualifying_bombcell_units(tmp_p
     summary = _read_json(result.summary_json)
     assert summary.get("status") == "skipped"
 
-    # The SLAy method summary should record the skip with the no-qualifying-units reason.
     slay_summary_path = result.merge_out_dir / "slay_method_summary.json"
     slay_summary = _read_json(slay_summary_path)
     assert slay_summary["status"] == "skipped"
     assert slay_summary["reason"] == "no_qualifying_units"
+    # bombcell_counts_by_label in the stub now reflects the live KS labels
+    # (the renamed-but-still-present field carries the same shape).
     assert slay_summary["bombcell_counts_by_label"] == {"noise": 59, "mua": 4}
 
 

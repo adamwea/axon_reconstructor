@@ -687,6 +687,38 @@ stages:
         relpath: sorter_output_snapshot
         skip_if_exists: true
 
+      restore_sorter_output:
+        # Inverse of snapshot_sorter_output: copies sorter_output_snapshot/
+        # back over the canonical sorter_output/ directory. Used to roll
+        # back the bombcell_label rewrite (or any other mutation of
+        # sorter_output) so SLAy / reconstruct re-runs see the raw KS4
+        # labels again. Intentionally NOT in DEFAULT_SPIKESORT_PHASE_SEQUENCE
+        # — only invoke via `axon-recon stages spikesort.restore_sorter_output
+        # --target-dataset ... --target-wells ... --confirm`. The --confirm
+        # flag is enforced by the CLI because this phase deletes
+        # sorter_output/ before copying the snapshot in.
+        #
+        # Reads:
+        #   <well>/spikesort_outputs/sorter_output_snapshot/  (source)
+        #   <well>/spikesort_outputs/sorter_output_snapshot/snapshot_summary.json
+        #     (gate — refuses to restore if this is missing, to prevent
+        #      restoring from an unverified / incomplete snapshot)
+        # Writes:
+        #   <well>/spikesort_outputs/sorter_output/  (destination — wiped + replaced)
+        #   <well>/spikesort_outputs/restore_sorter_output_summary.json
+        #
+        # After running this phase, merge_SLAy's eligibility gate reads the
+        # restored cluster_group.tsv (raw KS4 labels), not the now-stale
+        # bombcell_label_outputs/. To force a clean re-merge after restore:
+        #   axon-recon stages spikesort.merge_SLAy --force-restart ...
+        enabled: true
+        resource_class: template_build
+
+        # Read the snapshot from this relpath under <well>/spikesort_outputs.
+        # Matches snapshot_sorter_output.relpath above; keep them in sync if
+        # you change one.
+        snapshot_relpath: sorter_output_snapshot
+
       concat_analyzer:
         # Build the canonical concat-level SortingAnalyzer once per well.
         # bombcell_label and merge_SLAy consume this analyzer instead of
