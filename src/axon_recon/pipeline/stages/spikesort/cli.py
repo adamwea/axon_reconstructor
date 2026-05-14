@@ -23,7 +23,22 @@ def register_spikesort_subparser(subparsers: argparse._SubParsersAction[argparse
 	parser = subparsers.add_parser("spikesort", aliases=["spikesorting"], help="Run spikesort stage")
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
 	parser.add_argument("--force-restart", action="store_true", help="Recompute spikesort outputs for each target")
-	parser.add_argument("--force-replot", action="store_true", help="Alias for force-restart compatibility")
+	parser.add_argument(
+		"--force-replot",
+		action="store_true",
+		help=(
+			"Replot existing computed outputs without recomputing. For merge_SLAy this "
+			"reuses on-disk merge outputs and regenerates only the plots."
+		),
+	)
+	parser.add_argument(
+		"--no-plot",
+		action="store_true",
+		help=(
+			"Skip plot generation in plot-heavy phases (merge_SLAy plots). "
+			"Compute work still runs."
+		),
+	)
 	parser.add_argument(
 		"--target-dataset",
 		"--target-datasets",

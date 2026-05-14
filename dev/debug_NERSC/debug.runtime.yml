@@ -904,6 +904,18 @@ stages:
 
       merge_SLAy:
 
+        # ---------------------------------------------------------------------
+        # Plot/report control:
+        #
+        #   --no-plot    : CLI flag that disables figure-producing reports
+        #                  (unit_locations_*.png, template_heatmaps) while
+        #                  keeping data-only JSONs (unit_diff*, post_merge
+        #                  unit_locations) so the status command can still
+        #                  derive post-SLAy label counts.
+        #   --force-replot : reuse existing on-disk compute outputs and
+        #                  regenerate only the plots.
+        # The CLI override beats any YAML setting below.
+        # ---------------------------------------------------------------------
         enabled: true
         #resource_class: spikeinterface_analyzer_concat
         resource_class: merge_SLAy
@@ -1560,6 +1572,21 @@ stages:
               scalebar_channel_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
               max_overlap_check_iterations: 10 # maximum number of iterations to attempt to resolve overlaps through zooming out; if exceeded, will give up and plot with overlaps.
               scalecircle_channel_overlap_detect: true # whether to check for overlaps between scale circle and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
+      # =====================================================================
+      # Plot/report phase control (applies to plot_templates_v2, plot_recons,
+      # plot_branch_propagations, plot_branch_velocities, plot_unit_summary,
+      # report_templates, report_recons, report_recon_grid,
+      # report_full_chip_layout, report_summaries).
+      #
+      #   --no-plot       : CLI flag — skips the whole phase, writes a
+      #                     skip-stub summary marker with reason=plots_disabled
+      #                     so `axon-recon status` classifies the well as
+      #                     complete-by-skip rather than failed.
+      #   --force-replot  : reuse on-disk compute outputs and regenerate
+      #                     only the figures/reports.
+      #
+      # The CLI override wins over any per-phase `enabled` setting below.
+      # =====================================================================
       plot_templates_v2:
         enabled: true
         resource_class: plot_unit

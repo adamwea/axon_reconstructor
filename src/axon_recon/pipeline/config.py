@@ -52,6 +52,38 @@ def get_target_wells_override() -> list[str] | None:
 	return list(_TARGET_WELLS_OVERRIDE) if _TARGET_WELLS_OVERRIDE else None
 
 
+# Same pattern as _TARGET_WELLS_OVERRIDE: a process-wide toggle set by the CLI
+# (`--no-plot`) that downstream phases can consult to decide whether to skip
+# their plot/report work. `None` means "no override — honor the YAML setting".
+_NO_PLOT_OVERRIDE: bool | None = None
+
+
+def set_no_plot_override(enabled: bool | None) -> None:
+	"""Set the process-wide --no-plot override. Pass None to clear."""
+	global _NO_PLOT_OVERRIDE
+	_NO_PLOT_OVERRIDE = bool(enabled) if enabled is not None else None
+
+
+def get_no_plot_override() -> bool | None:
+	"""Return the current --no-plot override state, or None if unset."""
+	return _NO_PLOT_OVERRIDE
+
+
+def resolve_plots_enabled(yaml_plots_enabled: bool | None, *, default: bool = True) -> bool:
+	"""Combine the YAML `plots_enabled` setting with the CLI `--no-plot` override.
+
+	Rules:
+	  - `--no-plot` (override == True) always wins → returns False.
+	  - YAML value, when explicitly set, wins over the default.
+	  - Falls back to `default` when both are unset.
+	"""
+	if _NO_PLOT_OVERRIDE is True:
+		return False
+	if yaml_plots_enabled is None:
+		return bool(default)
+	return bool(yaml_plots_enabled)
+
+
 def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
 	LOGGER.warning(
 		"Legacy scratch input keys detected for %s; scratch_input_root/use_scratch_input_root are deprecated. "

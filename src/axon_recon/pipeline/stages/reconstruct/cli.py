@@ -143,7 +143,22 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 		help="Run reconstruct for a comma-separated list of unit ids",
 	)
 	parser.add_argument("--force-restart", action="store_true", help="Recompute even if per-unit outputs exist")
-	parser.add_argument("--force-replot", action="store_true", help="Reserved for parity with legacy CLI")
+	parser.add_argument(
+		"--force-replot",
+		action="store_true",
+		help=(
+			"Replot existing computed outputs without recomputing. Reuses on-disk "
+			"compute and regenerates only the figures/reports for plot_* and report_* phases."
+		),
+	)
+	parser.add_argument(
+		"--no-plot",
+		action="store_true",
+		help=(
+			"Skip plot/report generation for plot-heavy phases (plot_*, report_*). "
+			"Compute work still runs."
+		),
+	)
 	parser.add_argument(
 		"--limit-segments",
 		type=_parse_positive_int,

@@ -591,6 +591,38 @@ def _unit_rows(unit_results: list[UnitReconstructionResult]) -> list[dict[str, A
 	]
 
 
+def reconstruct_phase_plots_disabled_skip(
+	*,
+	inputs: ReconstructionInputs,
+	phase_name: str,
+	summary_json: Path,
+) -> dict[str, Any]:
+	"""Skip a plot/report phase entirely, writing a skip-stub summary marker.
+
+	Fires when the CLI's process-wide --no-plot override is active. The marker
+	has status=skipped + reason=plots_disabled so the status command can
+	classify the well as "complete-by-skip" rather than "failed".
+	"""
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+	summary_json.parent.mkdir(parents=True, exist_ok=True)
+	payload: dict[str, Any] = {
+		"phase": phase_name,
+		"status": "skipped",
+		"reason": "plots_disabled",
+		"h5_path": str(inputs.h5_path),
+		"stream_id": str(inputs.stream_id),
+		"well_out_dir": str(env.well_out_dir),
+		"reconstruction_out_dir": str(env.reconstruction_out_dir),
+	}
+	write_json(summary_json, payload)
+	payload["summary_json"] = str(summary_json)
+	LOGGER.info(
+		"reconstruct.%s: skipped (reason=plots_disabled, --no-plot override active)",
+		phase_name,
+	)
+	return payload
+
+
 def _write_reconstruct_phase_summary(
 	*,
 	phase_name: str,

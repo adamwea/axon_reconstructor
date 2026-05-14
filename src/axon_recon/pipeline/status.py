@@ -48,6 +48,7 @@ ACCEPTABLE_SKIP_REASONS: frozenset[str] = frozenset(
 		"merge_disabled",
 		"phase_disabled",
 		"bombcell_label_not_invoked_by_merge_stage",
+		"plots_disabled",
 	}
 )
 

@@ -9,15 +9,21 @@ from axon_recon.pipeline.stages.reconstruct.models.results import UnitReconstruc
 
 
 def run_reconstruct_plot_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+    from axon_recon.pipeline.config import get_no_plot_override
+
     env = reconstruct_runner._prepare_reconstruct_phase_environment(
         inputs=inputs, clear_output_root=False
-    )
-    unit_results, failed_units_summary_json = _run_reconstruct_plot_recons_phase_impl(
-        inputs=inputs, env=env
     )
     summary_json = (
         env.reconstruction_out_dir
         / Path(str(inputs.phases.plot_recons.summary_json_relpath)).expanduser()
+    )
+    if get_no_plot_override() is True:
+        return reconstruct_runner.reconstruct_phase_plots_disabled_skip(
+            inputs=inputs, phase_name="plot_recons", summary_json=summary_json
+        )
+    unit_results, failed_units_summary_json = _run_reconstruct_plot_recons_phase_impl(
+        inputs=inputs, env=env
     )
     return reconstruct_runner._write_reconstruct_phase_summary(
         phase_name="plot_recons",

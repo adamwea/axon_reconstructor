@@ -192,9 +192,27 @@ def _run_plot_templates_v2_batch(batch_inputs: _PlotTemplatesV2BatchInputs) -> d
 
 
 def run_reconstruct_templates_plot_templates_v2_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.config import get_no_plot_override
+
 	phase_started = perf_counter()
 	phase_cfg = inputs.phases.plot_templates_v2
 	well_out_dir, _, templates_out_dir, _ = templates_runner._resolve_templates_phase_environment(inputs)
+	if get_no_plot_override() is True:
+		summary_path = templates_out_dir / str(phase_cfg.summary_json_relpath)
+		summary_path.parent.mkdir(parents=True, exist_ok=True)
+		payload: dict[str, Any] = {
+			"phase": "plot_templates_v2",
+			"status": "skipped",
+			"reason": "plots_disabled",
+			"templates_out_dir": str(templates_out_dir),
+			"well_out_dir": str(well_out_dir),
+		}
+		write_json(summary_path, payload)
+		payload["summary_json"] = str(summary_path)
+		templates_runner.LOGGER.info(
+			"templates.plot_templates_v2: skipped (reason=plots_disabled, --no-plot override active)"
+		)
+		return payload
 	try:
 		merged_units_dir, full_channels_templates_dir = templates_runner._resolve_templates_dirs(
 			well_out_dir=well_out_dir,

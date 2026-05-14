@@ -586,7 +586,24 @@ def _register_stage_sequence_parser(
 	)
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
 	parser.add_argument("--force-restart", action="store_true", help="Force stage restart for selected stages")
-	parser.add_argument("--force-replot", action="store_true", help="Alias for force-restart compatibility")
+	parser.add_argument(
+		"--force-replot",
+		action="store_true",
+		help=(
+			"Replot existing computed outputs without recomputing. For plot-heavy phases "
+			"(merge_SLAy, plot_*, report_*) this reuses on-disk compute and regenerates "
+			"only the figures/reports."
+		),
+	)
+	parser.add_argument(
+		"--no-plot",
+		action="store_true",
+		help=(
+			"Skip plot/report generation for plot-heavy phases (merge_SLAy plots, "
+			"plot_*, report_*). Compute work still runs. Useful for big re-runs where "
+			"figures aren't needed."
+		),
+	)
 	unit_group = parser.add_mutually_exclusive_group()
 	unit_group.add_argument("--unit-id", type=int, default=None, help="Optional single unit override")
 	unit_group.add_argument(
@@ -1144,11 +1161,17 @@ def main(argv: list[str] | None = None) -> int:
 	# Activate the process-wide --target-wells override before any stage handler
 	# fires. select_execution_targets honors it at the leaf, so we don't need to
 	# plumb a target_wells_override parameter through every runner helper.
-	from .config import set_target_wells_override
+	from .config import set_no_plot_override, set_target_wells_override
 
 	target_wells_filter = _parse_target_well_ids_from_args(args)
 	if target_wells_filter is not None:
 		set_target_wells_override(target_wells_filter)
+
+	# Same pattern for --no-plot: a process-wide toggle that each plot-heavy
+	# phase consults via resolve_plots_enabled(). Reset to None in the finally
+	# block so subsequent in-process invocations aren't poisoned.
+	if bool(getattr(args, "no_plot", False)):
+		set_no_plot_override(True)
 
 	handler = getattr(args, "handler", None)
 	if handler is None:
@@ -1171,6 +1194,7 @@ def main(argv: list[str] | None = None) -> int:
 	finally:
 		finalize_pipeline_logging(status=status)
 		set_target_wells_override(None)
+		set_no_plot_override(None)
 		try:
 			from .resource_usage import configure_phase_tuning_monitoring
 

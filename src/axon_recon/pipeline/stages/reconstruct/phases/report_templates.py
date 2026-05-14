@@ -16,10 +16,28 @@ def _resolve_report_templates_source(inputs: TemplatesInputs) -> tuple[str, str]
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
+    from axon_recon.pipeline.config import get_no_plot_override
+
     phase_started = perf_counter()
     well_out_dir, _, templates_out_dir, _ = templates_runner._resolve_templates_phase_environment(
         inputs
     )
+    if get_no_plot_override() is True:
+        summary_path = templates_out_dir / str(inputs.phases.report_templates.summary_json_relpath)
+        summary_path.parent.mkdir(parents=True, exist_ok=True)
+        payload: dict[str, Any] = {
+            "phase": "report_templates",
+            "status": "skipped",
+            "reason": "plots_disabled",
+            "templates_out_dir": str(templates_out_dir),
+            "well_out_dir": str(well_out_dir),
+        }
+        templates_runner.write_json(summary_path, payload)
+        payload["summary_json"] = str(summary_path)
+        templates_runner.LOGGER.info(
+            "templates.report_templates: skipped (reason=plots_disabled, --no-plot override active)"
+        )
+        return payload
     source_output_key, source_phase_name = _resolve_report_templates_source(inputs)
     unit_ids = (
         list(inputs.unit_ids)

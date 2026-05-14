@@ -8550,6 +8550,20 @@ def run_spikesort_merge_stage(
 	merge_reports_template_heatmaps_enabled = bool(
 		getattr(stage_config, "merge_reports_template_heatmaps_enabled", False)
 	)
+	# --no-plot CLI override: turn off the figure-producing merge reports while
+	# leaving the data-only reports (unit_diff JSONs, post_merge_unit_locations)
+	# intact so downstream status tooling can still derive label counts.
+	from ...config import get_no_plot_override
+	if get_no_plot_override() is True:
+		if merge_reports_2panel_enabled or merge_reports_template_heatmaps_enabled:
+			LOGGER.info(
+				"merge_SLAy: --no-plot override disabling figure reports "
+				"(2panel=%s, template_heatmaps=%s); data-only reports remain enabled",
+				merge_reports_2panel_enabled,
+				merge_reports_template_heatmaps_enabled,
+			)
+		merge_reports_2panel_enabled = False
+		merge_reports_template_heatmaps_enabled = False
 	merge_reports_mappings_enabled = bool(
 		merge_reports_enabled
 		and (
