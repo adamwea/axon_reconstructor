@@ -54,6 +54,7 @@ ID_BOX_CORRECTION = "box-correction"
 ID_BOX_SHOW_SIGNIFICANCE = "box-show-significance"
 ID_BOX_POINTS_MODE = "box-points-mode"
 ID_BOX_LOG_TRANSFORM = "box-log-transform"
+ID_BOX_DATA_SOURCE = "box-data-source"
 ID_BOX_BRACKET_OFFSET = "box-bracket-offset"
 ID_BOX_BRACKET_STEP = "box-bracket-step"
 ID_BOX_POINT_SIZE = "box-point-size"
@@ -222,9 +223,39 @@ def _download_button_row(
 	)
 
 
+def _union_columns_in_order(*dfs: pd.DataFrame, picker) -> list[str]:
+	"""Union columns from multiple dataframes preserving first-appearance order.
+
+	`picker` is a per-df callable that returns the column list to consider
+	(e.g. _numeric_columns or _categorical_columns).
+	"""
+	seen: set[str] = set()
+	out: list[str] = []
+	for df in dfs:
+		if df is None:
+			continue
+		for col in picker(df):
+			if col in seen:
+				continue
+			seen.add(col)
+			out.append(col)
+	return out
+
+
 def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html.Div:
 	div_lo, div_hi = _div_range_extents(units_df)
 	hist_axis_options = [{"label": c, "value": c} for c in _numeric_columns(units_df)]
+	# Box-plot value / group dropdowns offer columns from BOTH units and
+	# well_summary so per-well metrics (unit_count_recon_ok, bombcell_count_*,
+	# etc.) are plottable when the user toggles the "Data source" radio to
+	# well_summary. The radio decides which df the callback consumes.
+	box_numeric_columns = _union_columns_in_order(
+		units_df, well_summary_df, picker=_numeric_columns,
+	)
+	box_categorical_columns = _union_columns_in_order(
+		units_df, well_summary_df, picker=_categorical_columns,
+	)
+	box_value_options = [{"label": c, "value": c} for c in box_numeric_columns]
 	color_options = [{"label": _HISTOGRAM_COLOR_DEFAULT, "value": _HISTOGRAM_COLOR_DEFAULT}] + [
 		{"label": c, "value": c} for c in _categorical_columns(units_df)
 	]
@@ -326,24 +357,30 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 	)
 
 	cat_cols = _categorical_columns(units_df)
+	# Box-plot dropdowns: union across both dataframes so the per-well
+	# columns (unit_count_recon_ok, bombcell_count_*, etc.) are pickable.
 	box_color_options = [{"label": _BOX_COLOR_NONE, "value": _BOX_COLOR_NONE}] + [
-		{"label": c, "value": c} for c in cat_cols
+		{"label": c, "value": c} for c in box_categorical_columns
 	]
-	box_group_options = [{"label": c, "value": c} for c in cat_cols]
+	box_group_options = [{"label": c, "value": c} for c in box_categorical_columns]
 	# Default the box plot to "total branch length × DIV grouped by media" when
 	# those columns exist (per user request 2026-05-13). Fall back gracefully
 	# for slim configurations.
 	default_box_value = (
 		"total_branch_length_um"
 		if "total_branch_length_um" in units_df.columns
-		else (hist_axis_options[0]["value"] if hist_axis_options else None)
+		else (box_value_options[0]["value"] if box_value_options else None)
 	)
 	default_group = (
 		"DIV"
-		if "DIV" in cat_cols
-		else ("genotype" if "genotype" in cat_cols else (cat_cols[0] if cat_cols else None))
+		if "DIV" in box_categorical_columns
+		else (
+			"genotype"
+			if "genotype" in box_categorical_columns
+			else (box_categorical_columns[0] if box_categorical_columns else None)
+		)
 	)
-	default_box_color = "media" if "media" in cat_cols else _BOX_COLOR_NONE
+	default_box_color = "media" if "media" in box_categorical_columns else _BOX_COLOR_NONE
 	# Scatter uses numeric for x/y; color and facets can include DIV as well.
 	numeric_options = hist_axis_options
 	scatter_color_options = [{"label": _SCATTER_COLOR_NONE, "value": _SCATTER_COLOR_NONE}] + [
@@ -399,10 +436,20 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 			[
 				html.Div(
 					[
+						html.Label("Data source"),
+						dcc.RadioItems(
+							id=ID_BOX_DATA_SOURCE,
+							options=[
+								{"label": "Per-unit (units.parquet)", "value": "units"},
+								{"label": "Per-well (well_summary.parquet)", "value": "well_summary"},
+							],
+							value="units",
+							inline=True,
+						),
 						html.Label("Value (numeric column)"),
 						dcc.Dropdown(
 							id=ID_BOX_VALUE_COL,
-							options=hist_axis_options,
+							options=box_value_options,
 							value=default_box_value,
 							clearable=False,
 						),
@@ -854,6 +901,7 @@ def build_app(
 		Input(ID_BOX_POINT_OPACITY, "value"),
 		Input(ID_BOX_GAP, "value"),
 		Input(ID_BOX_GROUP_GAP, "value"),
+		Input(ID_BOX_DATA_SOURCE, "value"),
 	)
 	def _update_box(
 		require_recon_ok,
@@ -885,6 +933,7 @@ def build_app(
 		point_opacity,
 		box_gap,
 		box_group_gap,
+		data_source,
 	):
 		spec = _build_filter_spec_from_state(
 			require_recon_ok=require_recon_ok,
@@ -902,7 +951,17 @@ def build_app(
 			treatment=treatment,
 			div_range=div_range,
 		)
-		filtered = filter_helpers.apply_filter_spec(_state_get_units_df(), spec)
+		# Pick the source df based on the radio. apply_filter_spec is
+		# robust to missing per-unit filter columns (e.g. bombcell_label,
+		# num_spikes) — clauses on absent columns no-op. So per-well
+		# filtering still works for identity fields (DIV, media, plating, …).
+		source_df = (
+			_state_get_well_summary_df() if str(data_source) == "well_summary"
+			else _state_get_units_df()
+		)
+		if source_df is None:
+			source_df = _state_get_units_df()
+		filtered = filter_helpers.apply_filter_spec(source_df, spec)
 		return build_box_plot(
 			filtered,
 			value_col=box_value_col,
