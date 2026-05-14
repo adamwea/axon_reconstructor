@@ -53,7 +53,16 @@ ID_BOX_TEST = "box-test"
 ID_BOX_CORRECTION = "box-correction"
 ID_BOX_SHOW_SIGNIFICANCE = "box-show-significance"
 ID_BOX_POINTS_MODE = "box-points-mode"
+ID_BOX_LOG_TRANSFORM = "box-log-transform"
+ID_BOX_BRACKET_OFFSET = "box-bracket-offset"
+ID_BOX_BRACKET_STEP = "box-bracket-step"
+ID_BOX_POINT_SIZE = "box-point-size"
+ID_BOX_POINT_OPACITY = "box-point-opacity"
+ID_BOX_GAP = "box-gap"
+ID_BOX_GROUP_GAP = "box-group-gap"
 ID_BOX_PLOT = "box-plot-graph"
+ID_RELOAD_BUTTON = "reload-data-button"
+ID_RELOAD_STATUS = "reload-data-status"
 ID_EXCLUDE_NULLS = "filter-exclude-nulls"
 ID_SCATTER_X = "scatter-x"
 ID_SCATTER_Y = "scatter-y"
@@ -321,7 +330,20 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 		{"label": c, "value": c} for c in cat_cols
 	]
 	box_group_options = [{"label": c, "value": c} for c in cat_cols]
-	default_group = "genotype" if "genotype" in cat_cols else (cat_cols[0] if cat_cols else None)
+	# Default the box plot to "total branch length × DIV grouped by media" when
+	# those columns exist (per user request 2026-05-13). Fall back gracefully
+	# for slim configurations.
+	default_box_value = (
+		"total_branch_length_um"
+		if "total_branch_length_um" in units_df.columns
+		else (hist_axis_options[0]["value"] if hist_axis_options else None)
+	)
+	default_group = (
+		"DIV"
+		if "DIV" in cat_cols
+		else ("genotype" if "genotype" in cat_cols else (cat_cols[0] if cat_cols else None))
+	)
+	default_box_color = "media" if "media" in cat_cols else _BOX_COLOR_NONE
 	# Scatter uses numeric for x/y; color and facets can include DIV as well.
 	numeric_options = hist_axis_options
 	scatter_color_options = [{"label": _SCATTER_COLOR_NONE, "value": _SCATTER_COLOR_NONE}] + [
@@ -381,7 +403,7 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 						dcc.Dropdown(
 							id=ID_BOX_VALUE_COL,
 							options=hist_axis_options,
-							value=hist_axis_options[0]["value"] if hist_axis_options else None,
+							value=default_box_value,
 							clearable=False,
 						),
 						html.Label("Primary x-axis (groups boxes left-to-right)"),
@@ -395,7 +417,7 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 						dcc.Dropdown(
 							id=ID_BOX_COLOR,
 							options=box_color_options,
-							value=_BOX_COLOR_NONE,
+							value=default_box_color,
 							clearable=False,
 						),
 					],
@@ -407,10 +429,12 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 						dcc.RadioItems(
 							id=ID_BOX_TEST,
 							options=[
-								{"label": "Mann-Whitney U", "value": "mann_whitney"},
-								{"label": "Welch's t-test", "value": "welch_t"},
-								{"label": "Tukey HSD", "value": "tukey_hsd"},
+								{"label": "Mann-Whitney U (pairwise)", "value": "mann_whitney"},
+								{"label": "Welch's t (pairwise)", "value": "welch_t"},
+								{"label": "Tukey HSD (pairwise)", "value": "tukey_hsd"},
 								{"label": "Kruskal-Wallis (omnibus)", "value": "kruskal_wallis"},
+								{"label": "Two-way ANOVA (primary × secondary)", "value": "two_way_anova"},
+								{"label": "Mixed-effects (random intercept on well_id)", "value": "mixed_effects"},
 							],
 							value=_BOX_TEST_DEFAULT,
 							inline=True,
@@ -429,8 +453,13 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 						),
 						dcc.Checklist(
 							id=ID_BOX_SHOW_SIGNIFICANCE,
-							options=[{"label": "Show significance brackets", "value": "on"}],
+							options=[{"label": "Show significance brackets / annotations", "value": "on"}],
 							value=["on"],
+						),
+						dcc.Checklist(
+							id=ID_BOX_LOG_TRANSFORM,
+							options=[{"label": "Log10-transform y-axis (drops non-positive values)", "value": "on"}],
+							value=[],
 						),
 						html.Label("Individual points overlay"),
 						dcc.RadioItems(
@@ -442,6 +471,53 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 							],
 							value="off",
 							inline=True,
+						),
+						html.Details(
+							open=False,
+							children=[
+								html.Summary("Plot styling"),
+								html.Div(
+									[
+										html.Label("Bracket vertical offset (fraction of y-range above max value)"),
+										dcc.Slider(
+											id=ID_BOX_BRACKET_OFFSET,
+											min=0.0, max=0.5, step=0.01, value=0.10,
+											marks={0: "0", 0.1: "0.1", 0.25: "0.25", 0.5: "0.5"},
+										),
+										html.Label("Bracket vertical spacing (fraction of y-range between stacked brackets)"),
+										dcc.Slider(
+											id=ID_BOX_BRACKET_STEP,
+											min=0.0, max=0.3, step=0.01, value=0.08,
+											marks={0: "0", 0.08: "0.08", 0.15: "0.15", 0.3: "0.3"},
+										),
+										html.Label("Point size"),
+										dcc.Slider(
+											id=ID_BOX_POINT_SIZE,
+											min=2.0, max=14.0, step=0.5, value=6.0,
+											marks={2: "2", 6: "6", 10: "10", 14: "14"},
+										),
+										html.Label("Point opacity"),
+										dcc.Slider(
+											id=ID_BOX_POINT_OPACITY,
+											min=0.1, max=1.0, step=0.05, value=0.6,
+											marks={0.1: "0.1", 0.5: "0.5", 1.0: "1.0"},
+										),
+										html.Label("Horizontal spacing between primary categories (boxgap)"),
+										dcc.Slider(
+											id=ID_BOX_GAP,
+											min=0.0, max=0.95, step=0.05, value=0.3,
+											marks={0: "tight", 0.3: "0.3", 0.7: "loose"},
+										),
+										html.Label("Spacing between secondary boxes within a primary (boxgroupgap)"),
+										dcc.Slider(
+											id=ID_BOX_GROUP_GAP,
+											min=0.0, max=0.95, step=0.05, value=0.3,
+											marks={0: "tight", 0.3: "0.3", 0.7: "loose"},
+										),
+									],
+									style={"display": "flex", "flexDirection": "column", "gap": "0.25rem", "marginTop": "0.25rem"},
+								),
+							],
 						),
 					],
 					style={"display": "flex", "flexDirection": "column", "gap": "0.5rem", "marginTop": "0.5rem"},
@@ -521,9 +597,27 @@ def _build_layout(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> html
 
 	main_pane = html.Div(
 		[
+			html.Div(
+				[
+					html.Button(
+						"Reload data from disk",
+						id=ID_RELOAD_BUTTON,
+						n_clicks=0,
+						style={"marginRight": "0.75rem"},
+					),
+					html.Span(
+						id=ID_RELOAD_STATUS,
+						children="Data loaded at startup.",
+						style={"fontSize": "0.85rem", "color": "#555"},
+					),
+				],
+				style={"display": "flex", "alignItems": "center", "marginBottom": "0.5rem"},
+			),
 			dcc.Tabs(
 				id=ID_MAIN_TABS,
-				value="histogram",
+				# Land on the box plot tab; defaults inside it are
+				# total_branch_length_um × DIV grouped by media when available.
+				value="box",
 				children=[histogram_tab, box_tab, scatter_tab],
 			),
 			html.Div(
@@ -593,15 +687,75 @@ def _build_filter_spec_from_state(
 	}
 
 
-def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Dash:
+def build_app(
+	units_df: pd.DataFrame,
+	well_summary_df: pd.DataFrame,
+	*,
+	data_loader: Any = None,
+) -> dash.Dash:
 	"""Build a Dash app over the loaded units + well_summary tables.
 
-	The data is captured in callback closures; the app contains no global
-	mutable state, so multiple instances can coexist (e.g., in tests).
+	Data is held in a per-app mutable container so the "Reload data" button
+	can swap in fresh DataFrames without restarting the server. Filter
+	dropdown options remain pinned to the values present at build time —
+	that's a deliberate trade-off so the layout doesn't have to be
+	regenerated on every reload.
+
+	`data_loader`, if provided, must be a zero-arg callable returning
+	``(units_df, well_summary_df)``. The dashboard CLI wires it up to
+	re-discover + re-load parquets from the configured output roots. When
+	None, the reload button is still present but will report that no loader
+	is configured and leave the data untouched.
 	"""
+	data_state: dict[str, Any] = {
+		"units_df": units_df,
+		"well_summary_df": well_summary_df,
+		"data_loader": data_loader,
+		"last_reload": None,
+	}
+
+	def _state_get_units_df() -> pd.DataFrame:
+		return data_state["units_df"]
+
+	def _state_get_well_summary_df() -> pd.DataFrame:
+		return data_state["well_summary_df"]
+
 	app = dash.Dash(__name__, suppress_callback_exceptions=True)
 	app.title = "axon-recon dashboard"
 	app.layout = _build_layout(units_df, well_summary_df)
+
+	@app.callback(
+		Output(ID_RELOAD_STATUS, "children"),
+		Input(ID_RELOAD_BUTTON, "n_clicks"),
+		prevent_initial_call=True,
+	)
+	def _reload_data(n_clicks):
+		"""Re-read parquets from disk and swap them into the data state.
+
+		Subsequent figure / table callbacks will pull the fresh data via
+		`_state_get_units_df` and `_state_get_well_summary_df`. Filter
+		dropdown options are NOT refreshed (would require rebuilding the
+		layout) — if new categorical values appear, just stop the server,
+		restart, and the layout will re-derive them.
+		"""
+		if not n_clicks:
+			raise dash.exceptions.PreventUpdate
+		loader = data_state.get("data_loader")
+		if loader is None:
+			return "Reload not available: no data loader configured in build_app(...). Restart the server to pick up new data."
+		try:
+			new_units, new_well = loader()
+		except Exception as exc:
+			return f"Reload failed: {type(exc).__name__}: {exc}"
+		data_state["units_df"] = new_units
+		data_state["well_summary_df"] = new_well
+		from datetime import datetime
+		data_state["last_reload"] = datetime.now().isoformat(timespec="seconds")
+		return (
+			f"Reloaded at {data_state['last_reload']}: "
+			f"{len(new_units)} unit rows, {len(new_well)} well rows. "
+			"(Filter option lists pinned to startup values.)"
+		)
 
 	@app.callback(
 		Output(ID_HISTOGRAM, "figure"),
@@ -660,7 +814,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			treatment=treatment,
 			div_range=div_range,
 		)
-		filtered = filter_helpers.apply_filter_spec(units_df, spec)
+		filtered = filter_helpers.apply_filter_spec(_state_get_units_df(), spec)
 		drop_nulls = bool(exclude_nulls and "on" in exclude_nulls)
 		hist_df = filtered.dropna(subset=[str(hist_x)]) if (drop_nulls and hist_x in filtered.columns) else filtered
 		fig = _build_histogram(hist_df, x_column=hist_x, color_column=hist_color)
@@ -693,6 +847,13 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		Input(ID_BOX_CORRECTION, "value"),
 		Input(ID_BOX_SHOW_SIGNIFICANCE, "value"),
 		Input(ID_BOX_POINTS_MODE, "value"),
+		Input(ID_BOX_LOG_TRANSFORM, "value"),
+		Input(ID_BOX_BRACKET_OFFSET, "value"),
+		Input(ID_BOX_BRACKET_STEP, "value"),
+		Input(ID_BOX_POINT_SIZE, "value"),
+		Input(ID_BOX_POINT_OPACITY, "value"),
+		Input(ID_BOX_GAP, "value"),
+		Input(ID_BOX_GROUP_GAP, "value"),
 	)
 	def _update_box(
 		require_recon_ok,
@@ -717,6 +878,13 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		box_correction,
 		show_significance,
 		points_mode,
+		log_transform_v,
+		bracket_offset,
+		bracket_step,
+		point_size,
+		point_opacity,
+		box_gap,
+		box_group_gap,
 	):
 		spec = _build_filter_spec_from_state(
 			require_recon_ok=require_recon_ok,
@@ -734,7 +902,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			treatment=treatment,
 			div_range=div_range,
 		)
-		filtered = filter_helpers.apply_filter_spec(units_df, spec)
+		filtered = filter_helpers.apply_filter_spec(_state_get_units_df(), spec)
 		return build_box_plot(
 			filtered,
 			value_col=box_value_col,
@@ -745,6 +913,14 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			show_significance=bool(show_significance and "on" in show_significance),
 			points_mode=str(points_mode or "off"),
 			exclude_nulls=bool(exclude_nulls and "on" in exclude_nulls),
+			log_transform=bool(log_transform_v and "on" in log_transform_v),
+			bracket_y_offset_frac=float(bracket_offset if bracket_offset is not None else 0.10),
+			bracket_step_frac=float(bracket_step if bracket_step is not None else 0.08),
+			point_size=float(point_size if point_size is not None else 6.0),
+			point_opacity=float(point_opacity if point_opacity is not None else 0.6),
+			boxgap=float(box_gap if box_gap is not None else 0.3),
+			boxgroupgap=float(box_group_gap if box_group_gap is not None else 0.3),
+			mixed_effects_group_col="well_id" if "well_id" in filtered.columns else None,
 		)
 
 	@app.callback(
@@ -810,7 +986,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			treatment=treatment,
 			div_range=div_range,
 		)
-		filtered = filter_helpers.apply_filter_spec(units_df, spec)
+		filtered = filter_helpers.apply_filter_spec(_state_get_units_df(), spec)
 		if bool(exclude_nulls and "on" in exclude_nulls):
 			subset = [c for c in (str(scatter_x), str(scatter_y)) if c in filtered.columns]
 			if subset:
@@ -833,7 +1009,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		filename_stem="histogram",
 		fig_inputs=(ID_HIST_X_AXIS, ID_HIST_COLOR),
 		fig_builder=lambda filtered, *fig_args: _build_histogram(filtered, x_column=fig_args[0], color_column=fig_args[1]),
-		units_df=units_df,
+		units_df_getter=_state_get_units_df,
 	)
 	_register_image_download(
 		app,
@@ -843,7 +1019,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		filename_stem="histogram",
 		fig_inputs=(ID_HIST_X_AXIS, ID_HIST_COLOR),
 		fig_builder=lambda filtered, *fig_args: _build_histogram(filtered, x_column=fig_args[0], color_column=fig_args[1]),
-		units_df=units_df,
+		units_df_getter=_state_get_units_df,
 	)
 	_register_image_download(
 		app,
@@ -853,7 +1029,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 		filename_stem="histogram",
 		fig_inputs=(ID_HIST_X_AXIS, ID_HIST_COLOR),
 		fig_builder=lambda filtered, *fig_args: _build_histogram(filtered, x_column=fig_args[0], color_column=fig_args[1]),
-		units_df=units_df,
+		units_df_getter=_state_get_units_df,
 	)
 
 	def _build_box_from_state(filtered, *args):
@@ -890,7 +1066,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 				ID_BOX_POINTS_MODE,
 			),
 			fig_builder=_build_box_from_state,
-			units_df=units_df,
+			units_df_getter=_state_get_units_df,
 		)
 
 	def _build_scatter_from_state(filtered, *args):
@@ -925,7 +1101,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 				ID_SCATTER_JITTER,
 			),
 			fig_builder=_build_scatter_from_state,
-			units_df=units_df,
+			units_df_getter=_state_get_units_df,
 		)
 
 	@app.callback(
@@ -982,7 +1158,7 @@ def build_app(units_df: pd.DataFrame, well_summary_df: pd.DataFrame) -> dash.Das
 			treatment=treatment,
 			div_range=div_range,
 		)
-		filtered = filter_helpers.apply_filter_spec(units_df, spec)
+		filtered = filter_helpers.apply_filter_spec(_state_get_units_df(), spec)
 		return dcc.send_data_frame(filtered.to_csv, "axon_dashboard_units.csv", index=False)
 
 	@app.callback(
@@ -1110,7 +1286,7 @@ def _register_image_download(
 	filename_stem: str,
 	fig_inputs: tuple[str, ...],
 	fig_builder,
-	units_df: pd.DataFrame,
+	units_df_getter: Any,
 ) -> None:
 	"""Wire a single PNG/SVG/PDF download button into the app.
 
@@ -1168,7 +1344,7 @@ def _register_image_download(
 			treatment=filter_values[12],
 			div_range=filter_values[13],
 		)
-		filtered = filter_helpers.apply_filter_spec(units_df, spec)
+		filtered = filter_helpers.apply_filter_spec(units_df_getter(), spec)
 		fig = fig_builder(filtered, *fig_values)
 		image_bytes = fig.to_image(format=format)
 		return dcc.send_bytes(image_bytes, f"{filename_stem}.{format}", type=mime)
@@ -1209,6 +1385,14 @@ def build_box_plot(
 	show_significance: bool = True,
 	points_mode: str = "off",
 	exclude_nulls: bool = False,
+	log_transform: bool = False,
+	bracket_y_offset_frac: float = 0.10,
+	bracket_step_frac: float = 0.08,
+	point_size: float = 6.0,
+	point_opacity: float = 0.6,
+	boxgap: float = 0.3,
+	boxgroupgap: float = 0.3,
+	mixed_effects_group_col: Any = None,
 ) -> Any:
 	"""Build a Plotly box-plot figure with optional significance brackets.
 
@@ -1260,6 +1444,17 @@ def build_box_plot(
 		df = df.dropna(subset=[value])
 		if df.empty:
 			return px.box(pd.DataFrame({"_": []}), y="_")
+	if log_transform:
+		# Drop non-positive values before log; plotly will use the transformed
+		# column as `value` so the axis label conveys the transform.
+		df = df.copy()
+		df[value] = pd.to_numeric(df[value], errors="coerce")
+		df = df[df[value] > 0]
+		if df.empty:
+			return px.box(pd.DataFrame({"_": []}), y="_")
+		import numpy as _np
+		df["__log_" + value] = _np.log10(df[value])
+		value = "__log_" + value
 	color = None
 	if color_col and color_col != _BOX_COLOR_NONE and str(color_col) in df.columns:
 		color = str(color_col)
@@ -1290,31 +1485,66 @@ def build_box_plot(
 		categoryorder="array",
 		categoryarray=sorted_present,
 	)
+	# Layout-level spacing knobs (compress wide categorical axes / control
+	# horizontal whitespace).
+	fig.update_layout(boxgap=float(boxgap), boxgroupgap=float(boxgroupgap))
+	# Per-trace point styling — applies to the jittered overlay when
+	# points_mode != "off".
+	marker_kwargs = {
+		"size": float(point_size),
+		"opacity": float(point_opacity),
+	}
 	if mode_key == "over_box":
-		fig.update_traces(pointpos=0, jitter=0.3, selector={"type": "box"})
+		fig.update_traces(
+			pointpos=0, jitter=0.3, marker=marker_kwargs, selector={"type": "box"}
+		)
 	elif mode_key == "jittered_side":
 		# Restore plotly's default offset-to-the-left look explicitly so the
 		# caller's intent is recoverable from the figure.
-		fig.update_traces(pointpos=-1.8, jitter=0.3, selector={"type": "box"})
+		fig.update_traces(
+			pointpos=-1.8, jitter=0.3, marker=marker_kwargs, selector={"type": "box"}
+		)
+	else:
+		fig.update_traces(marker=marker_kwargs, selector={"type": "box"})
 	if not show_significance:
 		return fig
 	test_key = str(test or _BOX_TEST_DEFAULT).strip().lower()
+	# Omnibus / model-level tests — render annotation; no per-pair brackets.
 	if test_key == "kruskal_wallis":
 		p_value = significance_helpers.kruskal_wallis_omnibus(df, group_col=group, value_col=value)
-		if p_value is not None:
-			stars = significance_helpers.asterisks_for_p(p_value)
-			label = stars if stars else "n.s."
-			fig.add_annotation(
-				xref="paper",
-				yref="paper",
-				x=0.99,
-				y=1.04,
-				xanchor="right",
-				yanchor="bottom",
-				text=f"Kruskal-Wallis p={p_value:.3g} ({label})",
-				showarrow=False,
-				font={"size": 11, "color": "#333"},
+		_annotate_omnibus(fig, "Kruskal-Wallis", {"omnibus": p_value} if p_value is not None else None)
+		return fig
+	if test_key == "two_way_anova":
+		if color is None:
+			_annotate_omnibus(fig, "Two-way ANOVA", None, note="needs secondary grouping")
+			return fig
+		stats_dict = significance_helpers.two_way_anova(
+			df, primary_col=group, secondary_col=color, value_col=value
+		)
+		_annotate_omnibus(fig, "Two-way ANOVA", stats_dict)
+		return fig
+	if test_key == "mixed_effects":
+		if color is None:
+			_annotate_omnibus(fig, "Mixed-effects", None, note="needs secondary grouping")
+			return fig
+		mlm_group_col = (
+			str(mixed_effects_group_col)
+			if mixed_effects_group_col and mixed_effects_group_col in df.columns
+			else None
+		)
+		if mlm_group_col is None:
+			_annotate_omnibus(
+				fig, "Mixed-effects", None, note="random-intercept column not in df"
 			)
+			return fig
+		stats_dict = significance_helpers.mixed_effects_anova(
+			df,
+			primary_col=group,
+			secondary_col=color,
+			value_col=value,
+			group_col=mlm_group_col,
+		)
+		_annotate_omnibus(fig, f"Mixed-effects (1|{mlm_group_col})", stats_dict)
 		return fig
 	raw_pvalues = significance_helpers.compute_pairwise_pvalues(
 		df, group_col=group, value_col=value, test=test_key
@@ -1322,7 +1552,55 @@ def build_box_plot(
 	corrected = significance_helpers.apply_correction(
 		raw_pvalues, method=str(correction or _BOX_CORRECTION_DEFAULT)
 	)
-	return significance_helpers.significance_brackets(fig, corrected)
+	# Convert fractional knobs into absolute plotly y_top / step values
+	# anchored to the data range.
+	max_y = significance_helpers._figure_y_max(fig)
+	y_top: float | None = None
+	step: float | None = None
+	if max_y is not None:
+		try:
+			abs_max = abs(float(max_y))
+			y_top = float(max_y) + max(abs_max * float(bracket_y_offset_frac), 0.5 * float(bracket_y_offset_frac) or 0.05)
+			step = max(abs(float(y_top)) * float(bracket_step_frac), 0.5 * float(bracket_step_frac) or 0.05)
+		except (TypeError, ValueError):
+			y_top, step = None, None
+	return significance_helpers.significance_brackets(fig, corrected, y_top=y_top, step=step)
+
+
+def _annotate_omnibus(
+	fig: Any,
+	label: str,
+	stats_dict: dict[str, float] | None,
+	*,
+	note: str | None = None,
+) -> None:
+	"""Stamp a model-level p-value annotation in the figure's top-right.
+
+	`stats_dict` keys map to per-factor names (primary/secondary/interaction
+	or just "omnibus"). When None, only the note (if any) is shown.
+	"""
+	if stats_dict:
+		parts: list[str] = []
+		for factor, p_value in stats_dict.items():
+			stars = significance_helpers.asterisks_for_p(float(p_value))
+			tag = stars if stars else "n.s."
+			parts.append(f"{factor}: p={p_value:.3g} ({tag})")
+		text = f"{label} — " + ", ".join(parts)
+	elif note:
+		text = f"{label}: {note}"
+	else:
+		text = f"{label}: (n/a)"
+	fig.add_annotation(
+		xref="paper",
+		yref="paper",
+		x=0.99,
+		y=1.04,
+		xanchor="right",
+		yanchor="bottom",
+		text=text,
+		showarrow=False,
+		font={"size": 11, "color": "#333"},
+	)
 
 
 def build_scatter(

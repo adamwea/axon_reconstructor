@@ -203,28 +203,39 @@ def main(argv: Sequence[str] | None = None) -> int:
 	logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 	target_datasets = _parse_target_dataset_indices(args.target_datasets)
-	manifest_paths = iter_manifest_paths_from_config(
-		config_path=str(args.config),
-		target_datasets=target_datasets,
-		limit_wells=args.limit_wells,
-		limit_datasets=args.limit_datasets,
-		limit_wells_per_dataset=args.limit_wells_per_dataset,
-	)
-	LOGGER.info("Discovered %d manifest(s) under the requested scope", len(manifest_paths))
-	tables = load_all(manifest_paths)
-	units_df = tables.get("units")
-	well_summary_df = tables.get("well_summary")
-	if units_df is not None:
-		LOGGER.info(
-			"Loaded units=%d rows, well_summary=%d rows",
-			len(units_df),
-			0 if well_summary_df is None else len(well_summary_df),
+
+	def _load_tables() -> tuple:
+		"""Re-runnable closure: discover manifests + load parquets fresh.
+
+		Used both for initial startup load and by the dashboard's "Reload
+		data" button so the running server can pick up new analysis runs
+		without a restart.
+		"""
+		manifest_paths = iter_manifest_paths_from_config(
+			config_path=str(args.config),
+			target_datasets=target_datasets,
+			limit_wells=args.limit_wells,
+			limit_datasets=args.limit_datasets,
+			limit_wells_per_dataset=args.limit_wells_per_dataset,
 		)
+		LOGGER.info("Discovered %d manifest(s) under the requested scope", len(manifest_paths))
+		tables = load_all(manifest_paths)
+		_units = tables.get("units")
+		_well = tables.get("well_summary")
+		if _units is not None:
+			LOGGER.info(
+				"Loaded units=%d rows, well_summary=%d rows",
+				len(_units),
+				0 if _well is None else len(_well),
+			)
+		return _units, _well
+
+	units_df, well_summary_df = _load_tables()
 
 	# Local import keeps the discovery / data path importable without Dash.
 	from .app import build_app
 
-	app = build_app(units_df, well_summary_df)
+	app = build_app(units_df, well_summary_df, data_loader=_load_tables)
 
 	bind_host = "0.0.0.0" if bool(args.lan) else str(args.host)
 	lan_addresses: list[str] = []

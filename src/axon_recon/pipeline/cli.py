@@ -1023,39 +1023,36 @@ def _register_dashboard_parser(
 	*,
 	subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> None:
-	"""Register `axon-recon dashboard` as a sibling subcommand of `stages`.
+	"""Register `axon-recon dashboard` (and the `dash` alias) as sibling
+	subcommands of `stages`.
 
 	Delegates argument parsing + entrypoint to `axon_recon.dashboard.cli` so
 	the dashboard's CLI surface stays owned by the dashboard package.
 	"""
 	from ..dashboard import cli as dashboard_cli
 
-	# Mirror the dashboard's own parser so help text matches.
-	parser = subparsers.add_parser(
-		"dashboard",
-		help="Serve a Plotly Dash dashboard over per-well analysis_outputs/ artifacts",
-	)
-	parser.add_argument("--config", required=True, help="Path to runtime YAML/JSON config")
-	parser.add_argument(
-		"--target-dataset",
-		"--target-datasets",
-		nargs="+",
-		default=None,
-		dest="target_datasets",
-		help="0-based dataset indices to load",
-	)
-	parser.add_argument("--limit-wells", type=_parse_positive_int, default=None, dest="limit_wells")
-	parser.add_argument("--limit-datasets", type=_parse_positive_int, default=None)
-	parser.add_argument("--limit-wells-per-dataset", type=_parse_positive_int, default=None)
-	parser.add_argument("--port", type=_parse_positive_int, default=8050)
-	parser.add_argument("--host", default="127.0.0.1")
-	parser.add_argument(
-		"--lan",
-		action="store_true",
-		help="Bind to 0.0.0.0 and print every LAN URL the server is reachable at",
-	)
-	parser.add_argument("--no-browser", action="store_true")
-	parser.add_argument("--debug", action="store_true")
+	def _add_common_args(parser: argparse.ArgumentParser) -> None:
+		parser.add_argument("--config", required=True, help="Path to runtime YAML/JSON config")
+		parser.add_argument(
+			"--target-dataset",
+			"--target-datasets",
+			nargs="+",
+			default=None,
+			dest="target_datasets",
+			help="0-based dataset indices to load",
+		)
+		parser.add_argument("--limit-wells", type=_parse_positive_int, default=None, dest="limit_wells")
+		parser.add_argument("--limit-datasets", type=_parse_positive_int, default=None)
+		parser.add_argument("--limit-wells-per-dataset", type=_parse_positive_int, default=None)
+		parser.add_argument("--port", type=_parse_positive_int, default=8050)
+		parser.add_argument("--host", default="127.0.0.1")
+		parser.add_argument(
+			"--lan",
+			action="store_true",
+			help="Bind to 0.0.0.0 and print every LAN URL the server is reachable at",
+		)
+		parser.add_argument("--no-browser", action="store_true")
+		parser.add_argument("--debug", action="store_true")
 
 	def _handler(args: argparse.Namespace) -> int:
 		argv: list[str] = ["--config", str(args.config)]
@@ -1081,7 +1078,19 @@ def _register_dashboard_parser(
 			argv.append("--debug")
 		return int(dashboard_cli.main(argv))
 
+	parser = subparsers.add_parser(
+		"dashboard",
+		help="Serve a Plotly Dash dashboard over per-well analysis_outputs/ artifacts",
+	)
+	_add_common_args(parser)
 	parser.set_defaults(handler=_handler)
+
+	alias_parser = subparsers.add_parser(
+		"dash",
+		help="Alias for `dashboard` — same args, shorter to type.",
+	)
+	_add_common_args(alias_parser)
+	alias_parser.set_defaults(handler=_handler)
 
 
 def _configure_runtime_logging_from_args(args: argparse.Namespace) -> None:

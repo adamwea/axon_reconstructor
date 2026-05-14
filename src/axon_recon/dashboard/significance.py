@@ -17,7 +17,7 @@ import pandas as pd
 
 
 SUPPORTED_PAIRWISE_TESTS: tuple[str, ...] = ("mann_whitney", "welch_t", "tukey_hsd")
-SUPPORTED_OMNIBUS_TESTS: tuple[str, ...] = ("kruskal_wallis",)
+SUPPORTED_OMNIBUS_TESTS: tuple[str, ...] = ("kruskal_wallis", "two_way_anova", "mixed_effects")
 SUPPORTED_CORRECTIONS: tuple[str, ...] = ("none", "bonferroni", "holm", "bh")
 
 DEFAULT_THRESHOLDS: tuple[float, ...] = (0.05, 0.01, 0.001)
@@ -142,6 +142,142 @@ def kruskal_wallis_omnibus(
 		return None
 	p_value = float(getattr(result, "pvalue", float("nan")))
 	return p_value if np.isfinite(p_value) else None
+
+
+def two_way_anova(
+	df: pd.DataFrame,
+	*,
+	primary_col: str,
+	secondary_col: str,
+	value_col: str,
+) -> dict[str, float] | None:
+	"""Type-II two-way ANOVA returning p-values for primary, secondary, and
+	their interaction. Returns None if the test can't be run (missing columns,
+	too few observations, or fewer than 2 levels per factor).
+
+	The output dict keys are ``primary``, ``secondary``, ``interaction``.
+	Useful when the user wants to ask "does the trajectory of Y across primary
+	differ between secondary levels?" — the interaction p-value answers that
+	directly.
+	"""
+	for col in (primary_col, secondary_col, value_col):
+		if col not in df.columns:
+			return None
+	working = df[[primary_col, secondary_col, value_col]].copy()
+	working[value_col] = pd.to_numeric(working[value_col], errors="coerce")
+	working = working.dropna(subset=[primary_col, secondary_col, value_col])
+	if len(working) < 4:
+		return None
+	# Need ≥ 2 levels per factor.
+	if working[primary_col].nunique() < 2 or working[secondary_col].nunique() < 2:
+		return None
+	try:
+		import statsmodels.formula.api as smf
+		import statsmodels.api as sm
+	except Exception:
+		return None
+	# Sanitize column names for formula compatibility (statsmodels uses patsy
+	# which trips on spaces / special chars / leading digits).
+	working = working.rename(columns={primary_col: "_primary", secondary_col: "_secondary", value_col: "_value"})
+	# Cast factors to categorical (R-style C() wrapper alternative).
+	working["_primary"] = working["_primary"].astype("category")
+	working["_secondary"] = working["_secondary"].astype("category")
+	try:
+		model = smf.ols("_value ~ C(_primary) * C(_secondary)", data=working).fit()
+		anova_table = sm.stats.anova_lm(model, typ=2)
+	except (ValueError, TypeError, Exception):
+		return None
+	out: dict[str, float] = {}
+	# anova_lm row labels match the formula terms.
+	for term_key, out_key in (
+		("C(_primary)", "primary"),
+		("C(_secondary)", "secondary"),
+		("C(_primary):C(_secondary)", "interaction"),
+	):
+		if term_key in anova_table.index:
+			try:
+				p = float(anova_table.loc[term_key, "PR(>F)"])
+			except (KeyError, ValueError, TypeError):
+				continue
+			if np.isfinite(p):
+				out[out_key] = p
+	return out or None
+
+
+def mixed_effects_anova(
+	df: pd.DataFrame,
+	*,
+	primary_col: str,
+	secondary_col: str,
+	value_col: str,
+	group_col: str,
+) -> dict[str, float] | None:
+	"""Mixed-effects model with a random intercept on ``group_col``
+	(typically `well_id` to handle repeated measurements of the same well
+	across primary levels). Fixed effects are primary × secondary;
+	returns marginal Wald p-values for primary, secondary, and the
+	interaction term.
+
+	Falls back to None (callers should treat as "test couldn't run") when
+	statsmodels isn't installed, the model fails to fit, or there are too
+	few observations / levels.
+	"""
+	for col in (primary_col, secondary_col, value_col, group_col):
+		if col not in df.columns:
+			return None
+	working = df[[primary_col, secondary_col, value_col, group_col]].copy()
+	working[value_col] = pd.to_numeric(working[value_col], errors="coerce")
+	working = working.dropna(subset=[primary_col, secondary_col, value_col, group_col])
+	if len(working) < 6:
+		return None
+	if working[primary_col].nunique() < 2 or working[secondary_col].nunique() < 2:
+		return None
+	# Random-intercept grouping needs ≥ 2 levels with ≥ 2 observations.
+	group_counts = working.groupby(group_col).size()
+	if (group_counts >= 2).sum() < 2:
+		return None
+	try:
+		import statsmodels.formula.api as smf
+	except Exception:
+		return None
+	working = working.rename(
+		columns={primary_col: "_primary", secondary_col: "_secondary", value_col: "_value", group_col: "_group"}
+	)
+	working["_primary"] = working["_primary"].astype("category")
+	working["_secondary"] = working["_secondary"].astype("category")
+	try:
+		model = smf.mixedlm(
+			"_value ~ C(_primary) * C(_secondary)",
+			data=working,
+			groups=working["_group"],
+		).fit(method="lbfgs", disp=False)
+	except (ValueError, TypeError, Exception):
+		return None
+	pvalues = getattr(model, "pvalues", None)
+	if pvalues is None:
+		return None
+	# statsmodels mixed-effects reports per-coefficient p-values; aggregate
+	# them to per-factor by taking the minimum p-value across all dummies for
+	# the factor. Not as principled as a proper F-test but informative.
+	out: dict[str, float] = {}
+	for label, prefix in (
+		("primary", "C(_primary)["),
+		("secondary", "C(_secondary)["),
+		("interaction", "C(_primary)["),  # interaction terms include the colon
+	):
+		if label == "interaction":
+			matches = [name for name in pvalues.index if "C(_primary)[" in name and "C(_secondary)[" in name]
+		else:
+			matches = [name for name in pvalues.index if name.startswith(prefix) and "C(_secondary)[" not in (name if label == "primary" else "")]
+		if not matches:
+			continue
+		try:
+			finite_p = [float(pvalues[m]) for m in matches if np.isfinite(float(pvalues[m]))]
+		except (ValueError, TypeError):
+			continue
+		if finite_p:
+			out[label] = float(min(finite_p))
+	return out or None
 
 
 def apply_correction(
