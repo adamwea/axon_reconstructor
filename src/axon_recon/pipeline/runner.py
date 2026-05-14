@@ -456,6 +456,7 @@ def _spikesort_phase_resource_classes_from_labels(
 		"sort": "sort_resource_class",
 		"summarize_sort": "summarize_sort_resource_class",
 		"snapshot_sorter_output": "snapshot_sorter_output_resource_class",
+		"restore_sorter_output": "restore_sorter_output_resource_class",
 		"concat_analyzer": "concat_analyzer_resource_class",
 		"bombcell_label": "bombcell_label_resource_class",
 		"merge_slay": "merge_slay_resource_class",

@@ -428,6 +428,7 @@ class SpikesortStageConfig:
 	sort_resource_class: str | None
 	summarize_sort_resource_class: str | None
 	snapshot_sorter_output_resource_class: str | None
+	restore_sorter_output_resource_class: str | None
 	concat_analyzer_resource_class: str | None
 	bombcell_label_resource_class: str | None
 	merge_slay_resource_class: str | None
@@ -791,6 +792,7 @@ def parse_spikesort_stage_config(
 	)
 	summarize_sort_phase_cfg = _as_section(phases_cfg.get("summarize_sort", {}))
 	snapshot_sorter_output_phase_cfg = _as_section(phases_cfg.get("snapshot_sorter_output", {}))
+	restore_sorter_output_phase_cfg = _as_section(phases_cfg.get("restore_sorter_output", {}))
 	concat_analyzer_phase_cfg = _as_section(phases_cfg.get("concat_analyzer", {}))
 	concat_analyzer_extensions_cfg = concat_analyzer_phase_cfg.get("extensions", None)
 	bombcell_phase_cfg_raw = phases_cfg.get("bombcell_label", None)
@@ -833,6 +835,9 @@ def parse_spikesort_stage_config(
 	summarize_sort_resource_class = _phase_resource_class(summarize_sort_phase_cfg, "summarize_sort")
 	snapshot_sorter_output_resource_class = _phase_resource_class(
 		snapshot_sorter_output_phase_cfg, "snapshot_sorter_output"
+	)
+	restore_sorter_output_resource_class = _phase_resource_class(
+		restore_sorter_output_phase_cfg, "restore_sorter_output"
 	)
 	concat_analyzer_resource_class = _phase_resource_class(concat_analyzer_phase_cfg, "concat_analyzer")
 	bombcell_label_resource_class = _phase_resource_class(bombcell_phase_cfg, "bombcell_label")
@@ -3360,6 +3365,7 @@ def parse_spikesort_stage_config(
 		sort_resource_class=sort_resource_class,
 		summarize_sort_resource_class=summarize_sort_resource_class,
 		snapshot_sorter_output_resource_class=snapshot_sorter_output_resource_class,
+		restore_sorter_output_resource_class=restore_sorter_output_resource_class,
 		concat_analyzer_resource_class=concat_analyzer_resource_class,
 		bombcell_label_resource_class=bombcell_label_resource_class,
 		merge_slay_resource_class=merge_slay_resource_class,
