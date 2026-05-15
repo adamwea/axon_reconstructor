@@ -1,0 +1,27 @@
+#!/bin/bash
+#SBATCH --qos=shared
+#SBATCH --constraint=gpu
+#SBATCH --account=m2043_g
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=32
+#SBATCH --gpus=1
+#SBATCH --mem=56G
+#SBATCH --time=06:00:00
+
+# NERSC shared GPU policy: -q shared -C gpu -G N -A <_g acct>, cpus_per_task >= 32 per GPU.
+# Expects IDX and WELL via sbatch --export=ALL,IDX=...,WELL=...
+set -euo pipefail
+cd "$REPO_ROOT"
+
+export MPICH_GPU_SUPPORT_ENABLED=1
+
+srun -n 1 -c 32 --cpu-bind=cores --threads-per-core=1 --gpus=1 \
+	shifter --image=adammwea/axon-recon:pipeline-v2 \
+		axon-recon stages spikesort.merge_SLAy \
+			--config dev/debug_NERSC/debug.runtime.yml \
+			--task-profile perlmutter_gpu \
+			--task-backend mpi \
+			--cpus-per-task 16 \
+			--target-dataset "$IDX" \
+			--target-wells "$WELL"

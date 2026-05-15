@@ -280,9 +280,56 @@ datasets:
           genotype: WT
           treatment: none
 
-  # Not added: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260302/M06804/AxonTracking/000077/data.raw.h5
-  # The path date also lines up with DIV 12, but there is no M06804 Axon Tracking row on the
-  # pasted 2026-03-02 sheet data, so I left this filesystem-only path out instead of inventing a row.
+  # 2026-05-14: previously omitted because the 2026-03-02 sheet didn't have an
+  # M06804 AxonTracking row. Reinstated to fill the DIV-12 gap for M06804
+  # (we already have this chip at DIV 6 / 15 / 29). Well attributes mirror the
+  # existing 260224/M06804/000032 entry (same chip → same plating/media layout).
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260302/M06804/AxonTracking/000077/data.raw.h5
+    include_in_runtime: true
+    DIV: 12
+    wells:
+      - well_id: well000
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+          treatment: none
+      - well_id: well001
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+          treatment: none
+      - well_id: well002
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: DMEM
+          genotype: WT
+          treatment: none
+      - well_id: well003
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+          treatment: none
+      - well_id: well004
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+          treatment: none
+      - well_id: well005
+        include_in_runtime: true
+        attributes:
+          plating_density: 60000
+          media: NBP
+          genotype: WT
+          treatment: none
 
   - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260305/M08073/AxonTracking/000096/data.raw.h5
     include_in_runtime: true
@@ -472,10 +519,58 @@ datasets:
           genotype: WT
           treatment: none
 
-  # Not added: /mnt/h/adamm/local_RBS_data/raw_data/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
-  # The sheet only mentions run 147 as Adam's test scan in the note on run 146. The filesystem
-  # date 2026-03-13 would imply DIV 23 from the plated date, not DIV 22, and the chip id also
-  # does not map to a normal Axon Tracking row in the pasted sheet, so I left this path out.
+  # 2026-05-14: previously omitted — sheet describes run 147 as a one-off test
+  # scan on chip M07036 (which doesn't appear in the main AxonTracking row set).
+  # Reinstated as a stub; well attributes are TODO since this chip isn't in the
+  # plating sheet. DIV=23 derived from filesystem date 2026-03-13 vs. plating
+  # date. Dataset is include_in_runtime=false until attributes are confirmed —
+  # otherwise group-by analyses would mis-cluster with the M08073/M06804 series.
+  - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260313/M07036/AxonTracking/000147/data.raw.h5
+    include_in_runtime: false
+    DIV: 23
+    wells:
+      - well_id: well000
+        include_in_runtime: false  # TODO: fill in plating_density / media from sheet
+        attributes:
+          plating_density: null
+          media: null
+          genotype: WT
+          treatment: none
+      - well_id: well001
+        include_in_runtime: false
+        attributes:
+          plating_density: null
+          media: null
+          genotype: WT
+          treatment: none
+      - well_id: well002
+        include_in_runtime: false
+        attributes:
+          plating_density: null
+          media: null
+          genotype: WT
+          treatment: none
+      - well_id: well003
+        include_in_runtime: false
+        attributes:
+          plating_density: null
+          media: null
+          genotype: WT
+          treatment: none
+      - well_id: well004
+        include_in_runtime: false
+        attributes:
+          plating_density: null
+          media: null
+          genotype: WT
+          treatment: none
+      - well_id: well005
+        include_in_runtime: false
+        attributes:
+          plating_density: null
+          media: null
+          genotype: WT
+          treatment: none
 
   - raw_data_h5_path: /pscratch/sd/a/adammwea/raw_data/Media_Density_T5_02182026_AR/Media_Density_T5_02182026_AR/260316/M08073/AxonTracking/000165/data.raw.h5
     include_in_runtime: true

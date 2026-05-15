@@ -1,0 +1,677 @@
+INFO     2026-05-14T10:56:42 | run=debug.runtime-20260514T175642Z               
+         event=run_started pid=160772                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:42 | run=debug.runtime-20260514T175642Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=160772   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:42 | run=debug.runtime-20260514T175642Z               
+         event=run_started pid=833380                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:42 | run=debug.runtime-20260514T175642Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=833380   
+         stages: starting spikesort.restore_sorter_output                       
+ERROR    pipeline run failed                                                    
+         ╭───────────────── Traceback (most recent call last) ─────────────────╮
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ li.py:1161 in main                                                  │
+         │                                                                     │
+         │   1158 │   logger.info("pipeline run started", extra={"event": "run │
+         │   1159 │   status = "error"                                         │
+         │   1160 │   try:                                                     │
+         │ ❱ 1161 │   │   rc = int(handler(args))                              │
+         │   1162 │   │   status = "ok" if rc == 0 else "error"                │
+         │   1163 │   │   if rc == 0:                                          │
+         │   1164 │   │   │   logger.info("pipeline run completed", extra={"ev │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ li.py:984 in _run_stage_sequence_from_args                          │
+         │                                                                     │
+         │    981 │   │   │   nested_args.stage = stage_name                   │
+         │    982 │   │   │   nested_args.task_allocation_override =           │
+         │        _build_task_allocation_override_from_args(args)              │
+         │    983 │   │   │   nested_args.active_profile_override = getattr(ar │
+         │        "active_profile_override", None)                             │
+         │ ❱  984 │   │   │   rc = int(handler(nested_args))                   │
+         │    985 │   │   │   if rc != 0:                                      │
+         │    986 │   │   │   │   logger.error("stages: stage %s failed with c │
+         │        extra={"event": "stage_failed"})                             │
+         │    987 │   │   │   │   return rc                                    │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/cli.py:84 in _run_restore_sorter_output_from_args   │
+         │                                                                     │
+         │    81                                                               │
+         │    82                                                               │
+         │    83 def _run_restore_sorter_output_from_args(args: argparse.Names │
+         │ ❱  84 │   return _run_restore_sorter_output_orchestrator_from_args( │
+         │    85                                                               │
+         │    86                                                               │
+         │    87 def _run_bombcell_from_args(args: argparse.Namespace) -> int: │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/orchestrators/snapshot_sorter_output.py:130 in      │
+         │ _run_restore_sorter_output_from_args                                │
+         │                                                                     │
+         │   127 │   │   return 2                                              │
+         │   128 │   target_datasets_override = _target_datasets_override_from │
+         │   129 │   return _print_spikesort_aggregate(                        │
+         │ ❱ 130 │   │   run_spikesort_restore_sorter_output_from_runtime(     │
+         │   131 │   │   │   config_path=str(args.config),                     │
+         │   132 │   │   │   limit_segments_override=getattr(args, "limit_segm │
+         │   133 │   │   │   limit_datasets_override=getattr(args, "limit_data │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/orchestrators/snapshot_sorter_output.py:92 in       │
+         │ run_spikesort_restore_sorter_output_from_runtime                    │
+         │                                                                     │
+         │    89 ) -> MultiTargetStageResult:                                  │
+         │    90 │   from ....runner import run_spikesort_restore_sorter_outpu │
+         │       run_runtime                                                   │
+         │    91 │                                                             │
+         │ ❱  92 │   return run_runtime(                                       │
+         │    93 │   │   config_path=str(config_path),                         │
+         │    94 │   │   limit_segments_override=limit_segments_override,      │
+         │    95 │   │   limit_datasets_override=limit_datasets_override,      │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:3704 in run_spikesort_restore_sorter_output_from_runtime   │
+         │                                                                     │
+         │   3701 │   force_replot_override: bool | None = None,               │
+         │   3702 │   task_allocation_override: dict[str, Any] | None = None,  │
+         │   3703 ) -> MultiTargetStageResult:                                 │
+         │ ❱ 3704 │   return _run_spikesort_concat_binary_phase_from_runtime(  │
+         │   3705 │   │   config_path=config_path,                             │
+         │   3706 │   │   stage_name="spikesort.restore_sorter_output",        │
+         │   3707 │   │   runner_fn=restore_spikesort_sorter_output,           │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:3467 in _run_spikesort_concat_binary_phase_from_runtime    │
+         │                                                                     │
+         │   3464 │   │   limit_wells_per_dataset_attr=debug_limit_wells_per_d │
+         │   3465 │   )                                                        │
+         │   3466 │   phase_resource_classes = _spikesort_phase_resource_class │
+         │        (str(debug_phase_label),))                                   │
+         │ ❱ 3467 │   parallelism = _resolve_runtime_stage_parallelism(        │
+         │   3468 │   │   bundle=bundle,                                       │
+         │   3469 │   │   stage_name="spikesort",                              │
+         │   3470 │   │   target_count=len(targets),                           │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:297 in _resolve_runtime_stage_parallelism                  │
+         │                                                                     │
+         │    294 │   active_profile_override: str | None = None,              │
+         │    295 ):                                                           │
+         │    296 │   try:                                                     │
+         │ ❱  297 │   │   parallelism = resolve_stage_parallelism(             │
+         │    298 │   │   │   bundle=bundle,                                   │
+         │    299 │   │   │   stage_name=stage_name,                           │
+         │    300 │   │   │   target_count=int(target_count),                  │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ onfig.py:409 in resolve_stage_parallelism                           │
+         │                                                                     │
+         │   406 │   │   if str(resource_class).strip()                        │
+         │   407 │   )                                                         │
+         │   408 │   if not resolved_phase_resource_classes:                   │
+         │ ❱ 409 │   │   raise ValueError(                                     │
+         │   410 │   │   │   f"resolve_stage_parallelism for stage={stage_name │
+         │       phase_resource_classes provided. "                            │
+         │   411 │   │   │   "Caller must supply phase_resource_classes from t │
+         │   412 │   │   )                                                     │
+         ╰─────────────────────────────────────────────────────────────────────╯
+         ValueError: resolve_stage_parallelism for stage='spikesort': no        
+         phase_resource_classes provided. Caller must supply                    
+         phase_resource_classes from the enabled phase budgets.                 
+ERROR    pipeline run failed                                                    
+         ╭───────────────── Traceback (most recent call last) ─────────────────╮
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ li.py:1161 in main                                                  │
+         │                                                                     │
+         │   1158 │   logger.info("pipeline run started", extra={"event": "run │
+         │   1159 │   status = "error"                                         │
+         │   1160 │   try:                                                     │
+         │ ❱ 1161 │   │   rc = int(handler(args))                              │
+         │   1162 │   │   status = "ok" if rc == 0 else "error"                │
+         │   1163 │   │   if rc == 0:                                          │
+         │   1164 │   │   │   logger.info("pipeline run completed", extra={"ev │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ li.py:984 in _run_stage_sequence_from_args                          │
+         │                                                                     │
+         │    981 │   │   │   nested_args.stage = stage_name                   │
+         │    982 │   │   │   nested_args.task_allocation_override =           │
+         │        _build_task_allocation_override_from_args(args)              │
+         │    983 │   │   │   nested_args.active_profile_override = getattr(ar │
+         │        "active_profile_override", None)                             │
+         │ ❱  984 │   │   │   rc = int(handler(nested_args))                   │
+         │    985 │   │   │   if rc != 0:                                      │
+         │    986 │   │   │   │   logger.error("stages: stage %s failed with c │
+         │        extra={"event": "stage_failed"})                             │
+         │    987 │   │   │   │   return rc                                    │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/cli.py:84 in _run_restore_sorter_output_from_args   │
+         │                                                                     │
+         │    81                                                               │
+         │    82                                                               │
+         │    83 def _run_restore_sorter_output_from_args(args: argparse.Names │
+         │ ❱  84 │   return _run_restore_sorter_output_orchestrator_from_args( │
+         │    85                                                               │
+         │    86                                                               │
+         │    87 def _run_bombcell_from_args(args: argparse.Namespace) -> int: │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/orchestrators/snapshot_sorter_output.py:130 in      │
+         │ _run_restore_sorter_output_from_args                                │
+         │                                                                     │
+         │   127 │   │   return 2                                              │
+         │   128 │   target_datasets_override = _target_datasets_override_from │
+         │   129 │   return _print_spikesort_aggregate(                        │
+         │ ❱ 130 │   │   run_spikesort_restore_sorter_output_from_runtime(     │
+         │   131 │   │   │   config_path=str(args.config),                     │
+         │   132 │   │   │   limit_segments_override=getattr(args, "limit_segm │
+         │   133 │   │   │   limit_datasets_override=getattr(args, "limit_data │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/orchestrators/snapshot_sorter_output.py:92 in       │
+         │ run_spikesort_restore_sorter_output_from_runtime                    │
+         │                                                                     │
+         │    89 ) -> MultiTargetStageResult:                                  │
+         │    90 │   from ....runner import run_spikesort_restore_sorter_outpu │
+         │       run_runtime                                                   │
+         │    91 │                                                             │
+         │ ❱  92 │   return run_runtime(                                       │
+         │    93 │   │   config_path=str(config_path),                         │
+         │    94 │   │   limit_segments_override=limit_segments_override,      │
+         │    95 │   │   limit_datasets_override=limit_datasets_override,      │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:3704 in run_spikesort_restore_sorter_output_from_runtime   │
+         │                                                                     │
+         │   3701 │   force_replot_override: bool | None = None,               │
+         │   3702 │   task_allocation_override: dict[str, Any] | None = None,  │
+         │   3703 ) -> MultiTargetStageResult:                                 │
+         │ ❱ 3704 │   return _run_spikesort_concat_binary_phase_from_runtime(  │
+         │   3705 │   │   config_path=config_path,                             │
+         │   3706 │   │   stage_name="spikesort.restore_sorter_output",        │
+         │   3707 │   │   runner_fn=restore_spikesort_sorter_output,           │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:3467 in _run_spikesort_concat_binary_phase_from_runtime    │
+         │                                                                     │
+         │   3464 │   │   limit_wells_per_dataset_attr=debug_limit_wells_per_d │
+         │   3465 │   )                                                        │
+         │   3466 │   phase_resource_classes = _spikesort_phase_resource_class │
+         │        (str(debug_phase_label),))                                   │
+         │ ❱ 3467 │   parallelism = _resolve_runtime_stage_parallelism(        │
+         │   3468 │   │   bundle=bundle,                                       │
+         │   3469 │   │   stage_name="spikesort",                              │
+         │   3470 │   │   target_count=len(targets),                           │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:297 in _resolve_runtime_stage_parallelism                  │
+         │                                                                     │
+         │    294 │   active_profile_override: str | None = None,              │
+         │    295 ):                                                           │
+         │    296 │   try:                                                     │
+         │ ❱  297 │   │   parallelism = resolve_stage_parallelism(             │
+         │    298 │   │   │   bundle=bundle,                                   │
+         │    299 │   │   │   stage_name=stage_name,                           │
+         │    300 │   │   │   target_count=int(target_count),                  │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ onfig.py:409 in resolve_stage_parallelism                           │
+         │                                                                     │
+         │   406 │   │   if str(resource_class).strip()                        │
+         │   407 │   )                                                         │
+         │   408 │   if not resolved_phase_resource_classes:                   │
+         │ ❱ 409 │   │   raise ValueError(                                     │
+         │   410 │   │   │   f"resolve_stage_parallelism for stage={stage_name │
+         │       phase_resource_classes provided. "                            │
+         │   411 │   │   │   "Caller must supply phase_resource_classes from t │
+         │   412 │   │   )                                                     │
+         ╰─────────────────────────────────────────────────────────────────────╯
+         ValueError: resolve_stage_parallelism for stage='spikesort': no        
+         phase_resource_classes provided. Caller must supply                    
+         phase_resource_classes from the enabled phase budgets.                 
+CRITICAL uncaught exception                                                     
+         ╭───────────────── Traceback (most recent call last) ─────────────────╮
+         │ /home/miniconda3/bin/axon-recon:6 in <module>                       │
+         │                                                                     │
+         │   3 from axon_recon.pipeline.cli import main                        │
+         │   4 if __name__ == '__main__':                                      │
+         │   5 │   sys.argv[0] = sys.argv[0].removesuffix('.exe')              │
+         │ ❱ 6 │   sys.exit(main())                                            │
+         │   7                                                                 │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ li.py:1161 in main                                                  │
+         │                                                                     │
+         │   1158 │   logger.info("pipeline run started", extra={"event": "run │
+         │   1159 │   status = "error"                                         │
+         │   1160 │   try:                                                     │
+         │ ❱ 1161 │   │   rc = int(handler(args))                              │
+         │   1162 │   │   status = "ok" if rc == 0 else "error"                │
+         │   1163 │   │   if rc == 0:                                          │
+         │   1164 │   │   │   logger.info("pipeline run completed", extra={"ev │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ li.py:984 in _run_stage_sequence_from_args                          │
+         │                                                                     │
+         │    981 │   │   │   nested_args.stage = stage_name                   │
+         │    982 │   │   │   nested_args.task_allocation_override =           │
+         │        _build_task_allocation_override_from_args(args)              │
+         │    983 │   │   │   nested_args.active_profile_override = getattr(ar │
+         │        "active_profile_override", None)                             │
+         │ ❱  984 │   │   │   rc = int(handler(nested_args))                   │
+         │    985 │   │   │   if rc != 0:                                      │
+         │    986 │   │   │   │   logger.error("stages: stage %s failed with c │
+         │        extra={"event": "stage_failed"})                             │
+         │    987 │   │   │   │   return rc                                    │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/cli.py:84 in _run_restore_sorter_output_from_args   │
+         │                                                                     │
+         │    81                                                               │
+         │    82                                                               │
+         │    83 def _run_restore_sorter_output_from_args(args: argparse.Names │
+         │ ❱  84 │   return _run_restore_sorter_output_orchestrator_from_args( │
+         │    85                                                               │
+         │    86                                                               │
+         │    87 def _run_bombcell_from_args(args: argparse.Namespace) -> int: │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/orchestrators/snapshot_sorter_output.py:130 in      │
+         │ _run_restore_sorter_output_from_args                                │
+         │                                                                     │
+         │   127 │   │   return 2                                              │
+         │   128 │   target_datasets_override = _target_datasets_override_from │
+         │   129 │   return _print_spikesort_aggregate(                        │
+         │ ❱ 130 │   │   run_spikesort_restore_sorter_output_from_runtime(     │
+         │   131 │   │   │   config_path=str(args.config),                     │
+         │   132 │   │   │   limit_segments_override=getattr(args, "limit_segm │
+         │   133 │   │   │   limit_datasets_override=getattr(args, "limit_data │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/orchestrators/snapshot_sorter_output.py:92 in       │
+         │ run_spikesort_restore_sorter_output_from_runtime                    │
+         │                                                                     │
+         │    89 ) -> MultiTargetStageResult:                                  │
+         │    90 │   from ....runner import run_spikesort_restore_sorter_outpu │
+         │       run_runtime                                                   │
+         │    91 │                                                             │
+         │ ❱  92 │   return run_runtime(                                       │
+         │    93 │   │   config_path=str(config_path),                         │
+         │    94 │   │   limit_segments_override=limit_segments_override,      │
+         │    95 │   │   limit_datasets_override=limit_datasets_override,      │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:3704 in run_spikesort_restore_sorter_output_from_runtime   │
+         │                                                                     │
+         │   3701 │   force_replot_override: bool | None = None,               │
+         │   3702 │   task_allocation_override: dict[str, Any] | None = None,  │
+         │   3703 ) -> MultiTargetStageResult:                                 │
+         │ ❱ 3704 │   return _run_spikesort_concat_binary_phase_from_runtime(  │
+         │   3705 │   │   config_path=config_path,                             │
+         │   3706 │   │   stage_name="spikesort.restore_sorter_output",        │
+         │   3707 │   │   runner_fn=restore_spikesort_sorter_output,           │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:3467 in _run_spikesort_concat_binary_phase_from_runtime    │
+         │                                                                     │
+         │   3464 │   │   limit_wells_per_dataset_attr=debug_limit_wells_per_d │
+         │   3465 │   )                                                        │
+         │   3466 │   phase_resource_classes = _spikesort_phase_resource_class │
+         │        (str(debug_phase_label),))                                   │
+         │ ❱ 3467 │   parallelism = _resolve_runtime_stage_parallelism(        │
+         │   3468 │   │   bundle=bundle,                                       │
+         │   3469 │   │   stage_name="spikesort",                              │
+         │   3470 │   │   target_count=len(targets),                           │
+Traceback (most recent call last):
+  File "/home/miniconda3/bin/axon-recon", line 6, in <module>
+    sys.exit(main())
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:297 in _resolve_runtime_stage_parallelism                  │
+         │                                                                     │
+         │    294 │   active_profile_override: str | None = None,              │
+         │    295 ):                                                           │
+         │    296 │   try:                                                     │
+         │ ❱  297 │   │   parallelism = resolve_stage_parallelism(             │
+         │    298 │   │   │   bundle=bundle,                                   │
+         │    299 │   │   │   stage_name=stage_name,                           │
+         │    300 │   │   │   target_count=int(target_count),                  │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ onfig.py:409 in resolve_stage_parallelism                           │
+         │                                                                     │
+         │   406 │   │   if str(resource_class).strip()                        │
+         │   407 │   )                                                         │
+         │   408 │   if not resolved_phase_resource_classes:                   │
+         │ ❱ 409 │   │   raise ValueError(                                     │
+         │   410 │   │   │   f"resolve_stage_parallelism for stage={stage_name │
+         │       phase_resource_classes provided. "                            │
+         │   411 │   │   │   "Caller must supply phase_resource_classes from t │
+         │   412 │   │   )                                                     │
+         ╰─────────────────────────────────────────────────────────────────────╯
+         ValueError: resolve_stage_parallelism for stage='spikesort': no        
+         phase_resource_classes provided. Caller must supply                    
+         phase_resource_classes from the enabled phase budgets.                 
+             ^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/cli.py", line 1161, in main
+    rc = int(handler(args))
+             ^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/cli.py", line 984, in _run_stage_sequence_from_args
+    rc = int(handler(nested_args))
+             ^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/stages/spikesort/cli.py", line 84, in _run_restore_sorter_output_from_args
+    return _run_restore_sorter_output_orchestrator_from_args(args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/stages/spikesort/orchestrators/snapshot_sorter_output.py", line 130, in _run_restore_sorter_output_from_args
+    run_spikesort_restore_sorter_output_from_runtime(
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/stages/spikesort/orchestrators/snapshot_sorter_output.py", line 92, in run_spikesort_restore_sorter_output_from_runtime
+    return run_runtime(
+           ^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/runner.py", line 3704, in run_spikesort_restore_sorter_output_from_runtime
+    return _run_spikesort_concat_binary_phase_from_runtime(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/runner.py", line 3467, in _run_spikesort_concat_binary_phase_from_runtime
+    parallelism = _resolve_runtime_stage_parallelism(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/runner.py", line 297, in _resolve_runtime_stage_parallelism
+    parallelism = resolve_stage_parallelism(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/config.py", line 409, in resolve_stage_parallelism
+    raise ValueError(
+ValueError: resolve_stage_parallelism for stage='spikesort': no phase_resource_classes provided. Caller must supply phase_resource_classes from the enabled phase budgets.
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=833387                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=833387   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=833392                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=833392   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=160761                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=833379                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=833386                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=160761   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=833382                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=833390                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=833384                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=160766                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=160774                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=160770                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=160764                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=833379   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=160762                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=160768                                           
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=833386   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=2092597                                          
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=833382   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=2092593                                          
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=2092591                                          
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=2092589                                          
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=833384   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=833390   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=2092586                                          
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=160766   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=160774   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=160764   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=160770   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=160768   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=2092587                                          
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=160762   
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=2092593  
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=2092591  
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=2092597  
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=2092595                                          
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=2092589  
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=2092586  
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         event=run_started pid=2092599                                          
+         pipeline run started                                                   
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=2092587  
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=2092595  
+         stages: starting spikesort.restore_sorter_output                       
+INFO     2026-05-14T10:56:43 | run=debug.runtime-20260514T175643Z               
+         stage=spikesort.restore_sorter_output event=stage_started pid=2092599  
+         stages: starting spikesort.restore_sorter_output                       
+CRITICAL uncaught exception                                                     
+         ╭───────────────── Traceback (most recent call last) ─────────────────╮
+         │ /home/miniconda3/bin/axon-recon:6 in <module>                       │
+         │                                                                     │
+         │   3 from axon_recon.pipeline.cli import main                        │
+         │   4 if __name__ == '__main__':                                      │
+         │   5 │   sys.argv[0] = sys.argv[0].removesuffix('.exe')              │
+         │ ❱ 6 │   sys.exit(main())                                            │
+         │   7                                                                 │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ li.py:1161 in main                                                  │
+         │                                                                     │
+         │   1158 │   logger.info("pipeline run started", extra={"event": "run │
+         │   1159 │   status = "error"                                         │
+         │   1160 │   try:                                                     │
+         │ ❱ 1161 │   │   rc = int(handler(args))                              │
+         │   1162 │   │   status = "ok" if rc == 0 else "error"                │
+         │   1163 │   │   if rc == 0:                                          │
+         │   1164 │   │   │   logger.info("pipeline run completed", extra={"ev │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ li.py:984 in _run_stage_sequence_from_args                          │
+         │                                                                     │
+         │    981 │   │   │   nested_args.stage = stage_name                   │
+         │    982 │   │   │   nested_args.task_allocation_override =           │
+         │        _build_task_allocation_override_from_args(args)              │
+         │    983 │   │   │   nested_args.active_profile_override = getattr(ar │
+         │        "active_profile_override", None)                             │
+         │ ❱  984 │   │   │   rc = int(handler(nested_args))                   │
+         │    985 │   │   │   if rc != 0:                                      │
+         │    986 │   │   │   │   logger.error("stages: stage %s failed with c │
+         │        extra={"event": "stage_failed"})                             │
+         │    987 │   │   │   │   return rc                                    │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/cli.py:84 in _run_restore_sorter_output_from_args   │
+         │                                                                     │
+         │    81                                                               │
+         │    82                                                               │
+         │    83 def _run_restore_sorter_output_from_args(args: argparse.Names │
+         │ ❱  84 │   return _run_restore_sorter_output_orchestrator_from_args( │
+         │    85                                                               │
+         │    86                                                               │
+         │    87 def _run_bombcell_from_args(args: argparse.Namespace) -> int: │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/orchestrators/snapshot_sorter_output.py:130 in      │
+         │ _run_restore_sorter_output_from_args                                │
+         │                                                                     │
+         │   127 │   │   return 2                                              │
+         │   128 │   target_datasets_override = _target_datasets_override_from │
+         │   129 │   return _print_spikesort_aggregate(                        │
+         │ ❱ 130 │   │   run_spikesort_restore_sorter_output_from_runtime(     │
+         │   131 │   │   │   config_path=str(args.config),                     │
+         │   132 │   │   │   limit_segments_override=getattr(args, "limit_segm │
+         │   133 │   │   │   limit_datasets_override=getattr(args, "limit_data │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/s │
+         │ tages/spikesort/orchestrators/snapshot_sorter_output.py:92 in       │
+         │ run_spikesort_restore_sorter_output_from_runtime                    │
+         │                                                                     │
+         │    89 ) -> MultiTargetStageResult:                                  │
+         │    90 │   from ....runner import run_spikesort_restore_sorter_outpu │
+         │       run_runtime                                                   │
+         │    91 │                                                             │
+         │ ❱  92 │   return run_runtime(                                       │
+         │    93 │   │   config_path=str(config_path),                         │
+         │    94 │   │   limit_segments_override=limit_segments_override,      │
+         │    95 │   │   limit_datasets_override=limit_datasets_override,      │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:3704 in run_spikesort_restore_sorter_output_from_runtime   │
+         │                                                                     │
+         │   3701 │   force_replot_override: bool | None = None,               │
+         │   3702 │   task_allocation_override: dict[str, Any] | None = None,  │
+         │   3703 ) -> MultiTargetStageResult:                                 │
+         │ ❱ 3704 │   return _run_spikesort_concat_binary_phase_from_runtime(  │
+         │   3705 │   │   config_path=config_path,                             │
+         │   3706 │   │   stage_name="spikesort.restore_sorter_output",        │
+         │   3707 │   │   runner_fn=restore_spikesort_sorter_output,           │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:3467 in _run_spikesort_concat_binary_phase_from_runtime    │
+         │                                                                     │
+         │   3464 │   │   limit_wells_per_dataset_attr=debug_limit_wells_per_d │
+         │   3465 │   )                                                        │
+         │   3466 │   phase_resource_classes = _spikesort_phase_resource_class │
+         │        (str(debug_phase_label),))                                   │
+         │ ❱ 3467 │   parallelism = _resolve_runtime_stage_parallelism(        │
+         │   3468 │   │   bundle=bundle,                                       │
+         │   3469 │   │   stage_name="spikesort",                              │
+         │   3470 │   │   target_count=len(targets),                           │
+Traceback (most recent call last):
+  File "/home/miniconda3/bin/axon-recon", line 6, in <module>
+    sys.exit(main())
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/r │
+         │ unner.py:297 in _resolve_runtime_stage_parallelism                  │
+         │                                                                     │
+         │    294 │   active_profile_override: str | None = None,              │
+         │    295 ):                                                           │
+         │    296 │   try:                                                     │
+         │ ❱  297 │   │   parallelism = resolve_stage_parallelism(             │
+         │    298 │   │   │   bundle=bundle,                                   │
+         │    299 │   │   │   stage_name=stage_name,                           │
+         │    300 │   │   │   target_count=int(target_count),                  │
+         │                                                                     │
+         │ /home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/c │
+         │ onfig.py:409 in resolve_stage_parallelism                           │
+         │                                                                     │
+         │   406 │   │   if str(resource_class).strip()                        │
+         │   407 │   )                                                         │
+         │   408 │   if not resolved_phase_resource_classes:                   │
+         │ ❱ 409 │   │   raise ValueError(                                     │
+         │   410 │   │   │   f"resolve_stage_parallelism for stage={stage_name │
+         │       phase_resource_classes provided. "                            │
+         │   411 │   │   │   "Caller must supply phase_resource_classes from t │
+         │   412 │   │   )                                                     │
+         ╰─────────────────────────────────────────────────────────────────────╯
+         ValueError: resolve_stage_parallelism for stage='spikesort': no        
+         phase_resource_classes provided. Caller must supply                    
+         phase_resource_classes from the enabled phase budgets.                 
+             ^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/cli.py", line 1161, in main
+    rc = int(handler(args))
+             ^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/cli.py", line 984, in _run_stage_sequence_from_args
+    rc = int(handler(nested_args))
+             ^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/stages/spikesort/cli.py", line 84, in _run_restore_sorter_output_from_args
+    return _run_restore_sorter_output_orchestrator_from_args(args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/stages/spikesort/orchestrators/snapshot_sorter_output.py", line 130, in _run_restore_sorter_output_from_args
+    run_spikesort_restore_sorter_output_from_runtime(
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/stages/spikesort/orchestrators/snapshot_sorter_output.py", line 92, in run_spikesort_restore_sorter_output_from_runtime
+    return run_runtime(
+           ^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/runner.py", line 3704, in run_spikesort_restore_sorter_output_from_runtime
+    return _run_spikesort_concat_binary_phase_from_runtime(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/runner.py", line 3467, in _run_spikesort_concat_binary_phase_from_runtime
+    parallelism = _resolve_runtime_stage_parallelism(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/runner.py", line 297, in _resolve_runtime_stage_parallelism
+    parallelism = resolve_stage_parallelism(
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/miniconda3/lib/python3.11/site-packages/axon_recon/pipeline/config.py", line 409, in resolve_stage_parallelism
+    raise ValueError(
+ValueError: resolve_stage_parallelism for stage='spikesort': no phase_resource_classes provided. Caller must supply phase_resource_classes from the enabled phase budgets.
+srun: error: nid004189: task 14: Exited with exit code 1
+srun: Terminating StepId=52954894.2
+[2026-05-14T17:56:44.139] error: *** STEP 52954894.2 ON nid004188 CANCELLED AT 2026-05-14T17:56:44 DUE TO TASK FAILURE ***
+srun: error: nid004188: task 1: Exited with exit code 1
+srun: error: nid004191: tasks 24-31: Terminated
+srun: error: nid004189: tasks 8-13,15: Exited with exit code 143
+srun: error: nid004188: tasks 0,2-7: Exited with exit code 143
+srun: error: nid004190: tasks 16-23: Exited with exit code 143
+srun: Force Terminated StepId=52954894.2
