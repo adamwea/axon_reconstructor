@@ -52,6 +52,11 @@ ACCEPTABLE_SKIP_REASONS: frozenset[str] = frozenset(
 	}
 )
 
+# Phase summary "status" values that mean the phase completed normally and
+# should NOT appear in the skips column. Different phases historically emit
+# different verbs ("ok", "success", "completed"); accept all of them.
+_HEALTHY_PHASE_STATUSES: frozenset[str] = frozenset({"ok", "success", "completed"})
+
 
 STAGE_ORDER: tuple[str, ...] = ("preprocess", "spikesort", "reconstruct", "analysis")
 
@@ -456,7 +461,8 @@ def _read_marker_skip(marker_path: Path, *, label: str) -> SkipRecord | None:
 
 	Returns None when:
 	  - the marker doesn't exist (caller already knows: stage_done=False),
-	  - the marker exists but the JSON has status missing or status="ok",
+	  - the marker exists but the JSON has status missing or status in
+	    {"ok", "success", "completed"} (all treated as healthy completion),
 	  - the JSON is malformed (treat as ok-status to avoid false positives).
 	"""
 	if not marker_path.is_file():
@@ -469,11 +475,11 @@ def _read_marker_skip(marker_path: Path, *, label: str) -> SkipRecord | None:
 	if not isinstance(payload, dict):
 		return None
 	status = payload.get("status")
-	if status is None or str(status).strip().lower() == "ok":
+	if status is None or str(status).strip().lower() in _HEALTHY_PHASE_STATUSES:
 		return None
 	reason_raw = payload.get("reason")
 	reason = str(reason_raw).strip() if reason_raw is not None else None
-	# status=="error" / "failed" / anything else non-"ok" non-"skipped" → not acceptable.
+	# status=="error" / "failed" / anything else non-healthy non-"skipped" → not acceptable.
 	if str(status).strip().lower() == "skipped":
 		acceptable = _classify_skip_reason(reason)
 	else:
