@@ -416,6 +416,8 @@ stages:
     #- cleanup_preprocessing_outputs
     #- wipe_src_scratch
     phases:
+
+      # TODO Claude: move this phase to a dedicated stage. Maybe call it init. No need to force restart this when testing preprocess iterations, and it adds unnecessary overhead to the critical path of preprocess when enabled.
       copy_src_to_scratch:
         enabled: true
         resource_class: h5_to_binary
@@ -435,6 +437,7 @@ stages:
         common_electrodes_relpath: common_electrodes.npy
         common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json
 
+      # TODO Claude: delete this phase entirely. No backwards compat. No fallbacks. No legacy code. Just delete it. At one point I thought this might be helpful, but it's not needed at all.
       prepare_raw_binaries:
         enabled: false
         resource_class: h5_to_binary
@@ -504,6 +507,9 @@ stages:
           layouts: true
           channel_layouts_subdir: channel_layouts
 
+      # TODO Claude: In spikesort stage, we now bootstrap the concat binary as a prep phase to sort. We don't do this here anymore because beig overhead, and lazy wasnt an option for pre-sort.
+      # Move all cocat logic to spikesort stage. rename the bootstrap_concat_binary phase to just concat_binary.
+      # keep trace plotting and raster plotting disabled by default, but these are useful diagnostics to have in spikesort stage.
       concat_segments:
         enabled: false
         resource_class: bootstrap_concat_binary
@@ -517,6 +523,7 @@ stages:
           save_progress_bar: true
           print_n_jobs_used: true
 
+      # TODO Claude: As stated above, move to spikesort stage.
       plot_concat_traces:
         enabled: false
         resource_class: plot_unit
@@ -529,6 +536,7 @@ stages:
             n_reps: 3
           concat_trace_relpath: concat_cluster_reps_{stream_id}.png
 
+      # TODO Claude: As stated above, move to spikesort stage.
       plot_concat_channel_layout:
         enabled: false
         resource_class: plot_unit
@@ -537,12 +545,15 @@ stages:
           layouts: true
           channel_layouts_subdir: channel_layouts
 
+      # TODO Claude: This can stay in preprocessing stage, but plot isnt quite right, but just hasnt been a priroity. Fix it if you can. ideally we see all the channels across all the segments, and in each plotted segment division on the raster,
+      # we should see channels turn on and off as they drop in and out of the recording.
       plot_raster_threshold:
         enabled: false
         resource_class: plot_unit
         summary_json_relpath: context/plot_raster_threshold_summary.json
         rel_output_root: raster_threshold
 
+      # TODO Claude: I dont think this actually does anyting right now... we can just get rid of it.
       report_preprocessing:
         enabled: false
         resource_class: plot_report_grid
@@ -550,11 +561,13 @@ stages:
         report_relpath: report/preprocessing_report.md
         json_summary_relpath: report/preprocessing_report.json
 
+      # TODO Claude: I also dont really know what this does... also get rid of it.
       cleanup_preprocessing_outputs:
         enabled: false
         resource_class: disk_cleanup
         summary_json_relpath: context/cleanup_preprocessing_outputs_summary.json
 
+      # Claude TODO: Similar to above, move this to a seperate final stage. Cleanup. We will eventually optionally run all clean up phases from this stage i think. Preprocess stage just no longer needs a stage-wise cleanup since it's so light now.
       wipe_src_scratch:
         enabled: false
         resource_class: disk_cleanup
@@ -610,7 +623,10 @@ stages:
     - cleanup_analyzers
     debug_outputs: false
     phases:
-      #resolve_sources:
+
+      # TODO Claude: As described above, this phase has been working well in the spikesort stage, it basically leverages preprocessing stage concat segments logic.
+      # Keep the behavior of this stage, just rename it and consolidate it with the concat_segments phase in processing stage.
+      # as described above, rename to just concat_binary.
       bootstrap_concat_binary:
         enabled: true
         resource_class: bootstrap_concat_binary
@@ -778,6 +794,8 @@ stages:
         #   templates: {}
         #   noise_levels: {}
 
+      # TODO Claude: Just disable this phase for now. As we've discussed in our plans, we're migrating this basic idea to recon stage to be done with
+      # merged templates if possible, still it's a useful phase to be done potentialy. So just disable and remove it from the default sequence for now, but we can re-enable and iterate on it in the future as needed.
       bombcell_label:
         # Slice 3: bombcell_label now consumes the canonical analyzer built by
         # spikesort.concat_analyzer (slice 2) and honors dry_run. The phase no
@@ -907,6 +925,8 @@ stages:
             enabled: true
             relpath: bombcell_label_summary.json
 
+      # TODO Claude: Just disable this phase. As we've discussed in our plans, we're migrating this basic idea to recon stage to be done with
+      # merged templates if possible, still it's a useful phase to be done potentialy. So just disable and remove it from the default sequence for now, but we can re-enable and iterate on it in the future as needed.
       merge_SLAy:
 
         # ---------------------------------------------------------------------
@@ -1081,7 +1101,7 @@ stages:
             ae_post: 30
             #ae_chan: 8 #
             #ae_chan: 300 # oom in some cases on NERSC, which is pretty insane.
-            ae_chan: 150
+            ae_chan: 100
             ae_noise: true
             ae_shft: false #
             #ae_epochs: 10
@@ -1294,7 +1314,7 @@ stages:
         segments:
           enabled: true
           required: true
-          use_existing_analyzer: true   # reuse cached segment analyzers when present
+          use_existing_analyzer: false   # reuse cached segment analyzers when present
           build_if_missing: true        # rebuild from inputs when cache is empty
           # Input 1: directory of per-segment recording JSONs
           preprocessed_sources_reldir: /preprocess_outputs/preprocessed_segments
@@ -1435,6 +1455,8 @@ stages:
           min_similarity: 0.40
           top_k_per_unit: 3
           max_pairs: 12
+
+      # TODO Claude: This is a legacy phase, please delete. We're adopting plot_tempaltes_v2 now.
       plot_templates:
         enabled: false
         resource_class: plot_unit
@@ -1678,6 +1700,8 @@ stages:
         # write pdf slide deck of all circle style template plots for all units.
         relpath: template_report.pdf
         write_pdf: true
+
+      # TODO Claude: This is a legacy phase, please delete.
       per_unit_processing:
         enabled: false
         resource_class: template_build
@@ -1721,6 +1745,8 @@ stages:
             latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
             latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
             debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
+
+      # TODO Claude: This is a legacy phase, please delete.
       reports:
         enabled: false
         resource_class: plot_report_grid
@@ -1862,6 +1888,8 @@ stages:
                   template: square
                   global_color_scale: true # whether to use a global color scale across all units in the grid, or individual color scales per unit. Global color scale allows for better comparison of amplitude values across units, while individual color scales can enhance visibility of spatial patterns within each unit.
                   subplot_background_color: black # background color for each subplot in the grid; separate from the underlying map plot background configured on the corresponding plot output block.
+
+      # TODO Claude: rename this to axon_velocity_gtrs. in the future we aim to introduce more than one reconstruction method, so it will be helpful to have the phase name reflect the specific method used for GTR generation.
       generate_gtrs:
         enable: true
         resource_class: axon_reconstruction
