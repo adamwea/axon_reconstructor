@@ -144,6 +144,61 @@ broken behavior) and `roadmap.md` (which is new ambitions).
   `dev/debug_NERSC/jobs/sans_bombcell_rerun/sbatches/*.sbatch` (every sbatch
   currently has to redundantly pass `--profile perlmutter_gpu`).
 
+### Finalize the phase roster before any destructive cleanups land
+- **Status**: open
+- **Tags**: ordering, scoping, blocker
+- **Where**: `stages.*.phase_sequence` in every runtime YAML (canonical:
+  `src/axon_recon/default.runtime.yml`; downstream: `dev/debug_NERSC/debug.runtime.yml`).
+  Each `phase_sequence` references phases defined under
+  `stages.<stage>.phases.<phase>:` in the same YAML and implemented by a
+  `_run_<stage>_<phase>_target` runner in `src/axon_recon/pipeline/stages/<stage>/runner.py`.
+- **Why it's debt**: several upcoming cleanups (the force-restart collapse
+  below, the `debug_mode` YAML purge above, the `resources.profiles` removal
+  above, the `--force-restart` issues.md entry, and the
+  `_cleanup_spikesort_outputs_for_force_restart` allowlist this turn) all
+  touch the same surface: per-phase YAML blocks, per-phase output dirs, and
+  per-phase cleanup helpers. Each phase we keep is dozens of lines of YAML
+  + code to migrate; each phase we kill is dozens of lines deleted with zero
+  migration cost. Doing those cleanups BEFORE the roster is settled means
+  we pay the migration tax on phases we're about to delete anyway, and we
+  re-touch the same files twice.
+  Known candidates that need a keep/kill/reshape decision before the
+  destructive passes land:
+  - `spikesort.summarize_sort` — currently skipped in `phase_sequence` (yml
+    line ~603); has its own resource class entry and output file. Keep or
+    fold into `sort`?
+  - `spikesort.bombcell_label` / `spikesort.bombcell_label_pass2` — pass2 is
+    disabled-by-default because of the KiloSortSortingExtractor inner-join
+    bug (see `roadmap.md` "Post-templates bombcell + SLAy pass"). Decision:
+    keep pass1 + reshape pass2 into a templates-aware post-recon phase, or
+    delete the existing pass2 wiring entirely and rebuild from scratch when
+    the templates-aware version lands.
+  - `spikesort.cleanup_concat_binary` / `spikesort.cleanup_analyzers` —
+    once force-restart wipes the stage dir uniformly, are these still
+    earning their keep, or do they become trivial helpers folded into the
+    stage runner?
+  - `reconstruct.analyzers` — collapsed to segment-only this week (commit
+    `c205d14`); the concat-analyzer half of the phase should be physically
+    deleted from code, not just disabled.
+  - Any `_pass2`-style phase across stages that we previously prototyped
+    and shipped disabled.
+- **Suggested cleanup**: produce one document under `dev/notes/plans/` that
+  lists every phase across the four stages, marks each as keep / kill /
+  reshape, and (for reshapes) links to the relevant roadmap/issues entry.
+  Drop the kill list FIRST (one commit per phase removed: YAML block +
+  stage runner branch + tests + output-dir cleanup logic + any
+  cross-references). Then proceed to the force-restart collapse,
+  `debug_mode` purge, and `resources.profiles` removal with confidence
+  that we're only migrating phases that will survive. S touch for the
+  planning doc; M-L per phase removed. Order: this → debug_mode YAML
+  purge → force-restart collapse → resources.profiles removal.
+- **See also**: this turn's commits on `_cleanup_spikesort_outputs_for_force_restart`
+  expanded the cleanup allowlist as a stopgap; one entry per phase added or
+  removed will eventually rewrite that helper. `roadmap.md` "Post-templates
+  bombcell + SLAy pass" is the main reshape candidate. `issues.md`
+  "`--force-restart` does not reliably clean prior artifacts" is the
+  user-facing motivation.
+
 ### Collapse `--force-restart` semantics to "delete the relevant output folder, full stop"
 - **Status**: open
 - **Tags**: duplicate-logic, obsolete-config, repo-footprint, ergonomics
@@ -192,9 +247,12 @@ broken behavior) and `roadmap.md` (which is new ambitions).
     YAML knob and every `getattr(stage_config, "..._on_force_restart", ...)`
     call site. The phase output dir IS the unit of restart granularity.
 - **Touch size**: L. Hits 4 stage runners + all stage YAMLs + tests. Tests
-  asserting partial-restart behavior should be deleted, not migrated. Worth
-  scoping a plan; ordering hint: do this AFTER the `debug_mode` YAML cleanup
-  (above) so we're not editing the same YAML blocks twice.
+  asserting partial-restart behavior should be deleted, not migrated.
+- **Ordering**: BLOCKED on "Finalize the phase roster before any destructive
+  cleanups land" (above) — every phase we kill in that step is one fewer
+  phase whose cleanup helper we have to migrate here. Then ordered AFTER
+  the `debug_mode` YAML cleanup so we're not editing the same YAML blocks
+  twice. Worth its own scoped plan when those prerequisites are clear.
 - **See also**: today's commit on `_cleanup_spikesort_outputs_for_force_restart`
   expanded the allowlist as a stopgap; that whole function should go away when
   this lands. The stale-bombcell SLAy mtime fallback in
