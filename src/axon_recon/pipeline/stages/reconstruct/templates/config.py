@@ -38,7 +38,6 @@ from .models.inputs import (
 	QualityChecksConfig,
 	ReportsConfig,
 	ResolveSourcesPhaseConfig,
-	TemplateAnalysisPhaseConfig,
 	TemplateArtifactConfig,
 	TemplateBuildTemplatesPhaseConfig,
 	TemplateExtractPartialTemplatesPhaseConfig,
@@ -46,15 +45,11 @@ from .models.inputs import (
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
 	TemplateComputeSimilarityPhaseConfig,
-	TemplatePerUnitProcessingPhaseConfig,
 	TemplatePlotTemplatesV2PhaseConfig,
 	TemplatePlotV2ColorbarConfig,
 	TemplatePlotV2ScaleBarConfig,
 	TemplatePlotV2TextConfig,
 	TemplatePlotConfig,
-	TemplatePlotsPhaseConfig,
-	TemplatePropagationOrderingPhaseConfig,
-	TemplateQualityChecksPhaseConfig,
 	TemplateReportTemplatesPhaseConfig,
 	TemplatesAnalyzersPhaseConfig,
 	TemplateScaleCircleConfig,
@@ -96,7 +91,6 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 	"templates.extract_partial_templates": "extract_partial_templates",
 	"build": "build_templates",
 	"build_templates": "build_templates",
-	"per_unit_processing.build_templates": "build_templates",
 	"similarity": "compute_template_similarity",
 	"compute_similarity": "compute_template_similarity",
 	"compute_template_similarity": "compute_template_similarity",
@@ -107,7 +101,6 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 	"template_plots_v2": "plot_templates_v2",
 	"report_templates": "report_templates",
 	"template_report": "report_templates",
-	"per_unit_processing": "per_unit_processing",
 }
 
 _RECONSTRUCT_ONLY_PHASES: frozenset[str] = frozenset(
@@ -282,16 +275,9 @@ def _output_paths(*suffixes: str) -> tuple[str, ...]:
 
 
 def _phase_plot_output_paths(*suffixes: str) -> tuple[str, ...]:
-	paths: list[str] = []
-	for suffix in suffixes:
-		s = suffix.strip(".")
-		if s:
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.plots.outputs.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.plots.{s}")
-		else:
-			paths.append("stages.reconstruct.phases.per_unit_processing.plots.outputs")
-			paths.append("stages.reconstruct.phases.per_unit_processing.plots")
-	return tuple(paths)
+	# Legacy `phases.per_unit_processing.plots.*` resolution has been retired.
+	# Callers fall back to canonical `outputs.per_unit_outputs.*` paths.
+	return ()
 
 
 def _phase_build_output_paths(*suffixes: str) -> tuple[str, ...]:
@@ -301,13 +287,9 @@ def _phase_build_output_paths(*suffixes: str) -> tuple[str, ...]:
 		if s:
 			paths.append(f"stages.reconstruct.phases.build_templates.outputs.{s}")
 			paths.append(f"stages.reconstruct.phases.build_templates.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.build_templates.outputs.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.build_templates.{s}")
 		else:
 			paths.append("stages.reconstruct.phases.build_templates.outputs")
 			paths.append("stages.reconstruct.phases.build_templates")
-			paths.append("stages.reconstruct.phases.per_unit_processing.build_templates.outputs")
-			paths.append("stages.reconstruct.phases.per_unit_processing.build_templates")
 	return tuple(paths)
 
 
@@ -325,18 +307,9 @@ def _phase_reports_paths(*suffixes: str) -> tuple[str, ...]:
 
 
 def _phase_quality_paths(*suffixes: str) -> tuple[str, ...]:
-	paths: list[str] = []
-	for suffix in suffixes:
-		s = suffix.strip(".")
-		if s:
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.quality_checks.outputs.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.quality_checks.config.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.quality_checks.{s}")
-		else:
-			paths.append("stages.reconstruct.phases.per_unit_processing.quality_checks.outputs")
-			paths.append("stages.reconstruct.phases.per_unit_processing.quality_checks.config")
-			paths.append("stages.reconstruct.phases.per_unit_processing.quality_checks")
-	return tuple(paths)
+	# Legacy `phases.per_unit_processing.quality_checks.*` resolution has been retired.
+	# Callers fall back to canonical `outputs.*.quality_checks.*` paths.
+	return ()
 
 
 def _phase_analyzer_output_paths(*suffixes: str) -> tuple[str, ...]:
@@ -358,16 +331,8 @@ def _phase_per_unit_output_paths(*suffixes: str) -> tuple[str, ...]:
 		s = suffix.strip(".")
 		if s:
 			paths.append(f"stages.reconstruct.phases.build_templates.outputs.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.outputs.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.plots.outputs.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.build_templates.outputs.{s}")
-			paths.append(f"stages.reconstruct.phases.per_unit_processing.quality_checks.outputs.{s}")
 		else:
 			paths.append("stages.reconstruct.phases.build_templates.outputs")
-			paths.append("stages.reconstruct.phases.per_unit_processing.outputs")
-			paths.append("stages.reconstruct.phases.per_unit_processing.plots.outputs")
-			paths.append("stages.reconstruct.phases.per_unit_processing.build_templates.outputs")
-			paths.append("stages.reconstruct.phases.per_unit_processing.quality_checks.outputs")
 	return tuple(paths)
 
 
@@ -567,7 +532,6 @@ def _get_merge_block(runtime_config: RuntimeConfig) -> dict[str, Any]:
 		runtime_config,
 		(
 			"stages.reconstruct.phases.build_templates.merge",
-			"stages.reconstruct.phases.per_unit_processing.build_templates.merge",
 			"stages.reconstruct.merge",
 			"stages.reconstruct.execution.merge",
 		),
@@ -1828,7 +1792,6 @@ def parse_reconstruct_templates_config(
 	debug_limit_datasets = _as_optional_positive_int(debug_mode_cfg.get("limit_datasets", None))
 	debug_limit_wells = _as_optional_positive_int(debug_mode_cfg.get("limit_wells", None))
 	debug_limit_wells_per_dataset = _as_optional_positive_int(debug_mode_cfg.get("limit_wells_per_dataset", None))
-	per_unit_processing_cfg = _phase_block(phases_cfg, "per_unit_processing")
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
 	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
@@ -1933,8 +1896,6 @@ def parse_reconstruct_templates_config(
 	stage_upsampling_cfg = stage_cfg.get("upsampling", {}) if isinstance(stage_cfg.get("upsampling", {}), dict) else {}
 	execution_upsampling_cfg = execution_cfg.get("upsampling", {}) if isinstance(execution_cfg.get("upsampling", {}), dict) else {}
 	phase_build_cfg = _phase_block(phases_cfg, "build_templates")
-	if not phase_build_cfg:
-		phase_build_cfg = _phase_block(phases_cfg, "per_unit_processing", "build_templates")
 	phase_build_upsampling_cfg = _phase_block(phase_build_cfg, "execution_upsampling")
 	if not phase_build_upsampling_cfg:
 		phase_build_upsampling_cfg = _phase_block(phase_build_cfg, "upsampling")
@@ -1946,19 +1907,11 @@ def parse_reconstruct_templates_config(
 	stage_quality_checks_cfg = stage_cfg.get("quality_checks", {}) if isinstance(stage_cfg.get("quality_checks", {}), dict) else {}
 	quality_checks_cfg_raw = dict(quality_checks_cfg_raw)
 	quality_checks_cfg_raw.update(stage_quality_checks_cfg)
-	phase_quality_checks_cfg = _phase_block(phases_cfg, "per_unit_processing", "quality_checks", "config")
-	if not phase_quality_checks_cfg:
-		phase_quality_checks_cfg = _phase_block(phases_cfg, "per_unit_processing", "quality_checks")
-	quality_checks_cfg_raw.update(phase_quality_checks_cfg)
 	quality_checks = _build_quality_checks_config(quality_checks_cfg_raw)
 	analysis_cfg = execution_cfg.get("analysis", {}) if isinstance(execution_cfg.get("analysis", {}), dict) else {}
 	stage_analysis_cfg = stage_cfg.get("analysis", {}) if isinstance(stage_cfg.get("analysis", {}), dict) else {}
 	analysis_cfg = dict(analysis_cfg)
 	analysis_cfg.update(stage_analysis_cfg)
-	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
-	phase_prop_order_cfg = _phase_block(phase_analysis_cfg, "propagation_ordering")
-	if phase_prop_order_cfg:
-		analysis_cfg["propagation_ordering"] = dict(phase_prop_order_cfg)
 	prop_order_analysis_cfg = analysis_cfg.get("propagation_ordering", {}) if isinstance(analysis_cfg.get("propagation_ordering", {}), dict) else {}
 	prop_order_analysis_enabled = _as_bool(prop_order_analysis_cfg.get("enable", False), False)
 	analysis_ordering_latency_mode = (
@@ -3932,12 +3885,9 @@ def parse_reconstruct_templates_config(
 		concat=concat_phase_cfg,
 		segments=segments_phase_cfg,
 	)
-	phase_quality_cfg_raw = _phase_block(phases_cfg, "per_unit_processing", "quality_checks")
-	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
 	phase_compute_similarity_cfg = _phase_block(phases_cfg, "compute_template_similarity")
 	phase_plot_templates_v2_cfg = _phase_block(phases_cfg, "plot_templates_v2")
 	phase_report_templates_cfg = _phase_block(phases_cfg, "report_templates")
-	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
 	phase_compute_similarity_outputs_cfg = _phase_block(phase_compute_similarity_cfg, "outputs")
 	phase_compute_similarity_matrix_cfg = _phase_block(phase_compute_similarity_outputs_cfg, "matrix")
 	if not phase_compute_similarity_matrix_cfg:
@@ -3947,16 +3897,6 @@ def parse_reconstruct_templates_config(
 		phase_compute_similarity_pair_plots_cfg = _phase_block(phase_compute_similarity_cfg, "pair_plots")
 	phase_compute_similarity_method_options_cfg = _phase_block(phase_compute_similarity_cfg, "method_options")
 	phase_compute_similarity_candidate_cfg = _phase_block(phase_compute_similarity_cfg, "candidate_selection")
-	plot_phase_resources_cfg = _phase_block(phase_plots_cfg, "resources")
-	plot_phase_unit_workers = _parse_optional_positive_int(
-		plot_phase_resources_cfg.get("unit_workers", phase_plots_cfg.get("unit_workers", None))
-	)
-	plot_phase_unit_procs = _parse_optional_positive_int(
-		plot_phase_resources_cfg.get("unit_procs", phase_plots_cfg.get("unit_procs", None))
-	)
-	plot_phase_unit_batch_size = _parse_optional_positive_int(
-		plot_phase_resources_cfg.get("unit_batch_size", phase_plots_cfg.get("unit_batch_size", None))
-	)
 	phase_extract_partial_templates_cfg = _phase_block(phases_cfg, "extract_partial_templates")
 	extract_partial_templates_phase = TemplateExtractPartialTemplatesPhaseConfig(
 		enabled=_as_bool(phase_extract_partial_templates_cfg.get("enabled", True), True),
@@ -4121,21 +4061,6 @@ def parse_reconstruct_templates_config(
 			dpi=_as_float(phase_compute_similarity_pair_plots_cfg.get("dpi", 220.0), 220.0),
 		),
 	)
-	per_unit_plots_phase = TemplatePlotsPhaseConfig(
-		enabled=_as_bool(phase_plots_cfg.get("enabled", True), True),
-		summary_json_relpath=str(
-			phase_plots_cfg.get("summary_json_relpath", "context/plot_templates_summary.json")
-		),
-		resource_class=_phase_resource_class(phase_plots_cfg, "per_unit_processing_plots"),
-		debug_prints=_as_bool(
-			phase_plots_cfg.get("debug_prints", phase_plots_cfg.get("debug_plotting_prints", False)),
-			False,
-		),
-		unit_workers=plot_phase_unit_workers,
-		unit_procs=plot_phase_unit_procs,
-		unit_batch_size=plot_phase_unit_batch_size,
-		outputs=per_unit,
-	)
 	plot_templates_v2_phase = _parse_plot_templates_v2_phase_config(
 		phase_plot_templates_v2_cfg,
 		resource_class=_phase_resource_class(phase_plot_templates_v2_cfg, "plot_templates_v2"),
@@ -4153,25 +4078,6 @@ def parse_reconstruct_templates_config(
 		relpath=str(phase_report_templates_cfg.get("relpath", "template_report.pdf")),
 		write_pdf=_as_bool(phase_report_templates_cfg.get("write_pdf", True), True),
 	)
-	per_unit_processing_phase = TemplatePerUnitProcessingPhaseConfig(
-		enabled=_as_bool(per_unit_processing_cfg.get("enabled", True), True),
-		resource_class=_phase_resource_class(per_unit_processing_cfg, "per_unit_processing"),
-		build_templates=build_templates_phase,
-		quality_checks=TemplateQualityChecksPhaseConfig(
-			enabled=_as_bool(phase_quality_cfg_raw.get("enabled", quality_checks.enable), quality_checks.enable),
-			config=quality_checks,
-		),
-		analysis=TemplateAnalysisPhaseConfig(
-			enabled=_as_bool(phase_analysis_cfg.get("enabled", prop_order_analysis_enabled), prop_order_analysis_enabled),
-			propagation_ordering=TemplatePropagationOrderingPhaseConfig(
-				enabled=_as_bool(phase_prop_order_cfg.get("enabled", prop_order_analysis_enabled), prop_order_analysis_enabled),
-				latency_mode=str(phase_prop_order_cfg.get("latency_mode", analysis_ordering_latency_mode)),
-				latency_tie_breaker=str(phase_prop_order_cfg.get("latency_tie_breaker", prop_order_analysis_cfg.get("latency_tie_breaker", "channel_index"))),
-				debug=_as_bool(phase_prop_order_cfg.get("debug", analysis_debug_ordering), analysis_debug_ordering),
-			),
-		),
-		plots=per_unit_plots_phase,
-	)
 	phases = TemplatesPhasesConfig(
 		resolve_sources=resolve_sources_phase,
 		analyzers=analyzers_phase,
@@ -4180,7 +4086,6 @@ def parse_reconstruct_templates_config(
 		compute_template_similarity=compute_template_similarity_phase,
 		plot_templates_v2=plot_templates_v2_phase,
 		report_templates=report_templates_phase,
-		per_unit_processing=per_unit_processing_phase,
 	)
 
 	return ReconstructTemplatesConfig(

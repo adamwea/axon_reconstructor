@@ -309,7 +309,6 @@ def test_reconstruct_and_templates_parsers_preserve_phase_resource_class():
 	assert reconstruct_cfg.phases.report_recons.resource_class == "plot_report_grid"
 	assert templates_cfg.resolve_sources_phase.resource_class == "h5_metadata"
 	assert templates_cfg.phases.build_templates.resource_class == "template_build"
-	assert templates_cfg.phases.per_unit_processing.build_templates.resource_class == "template_build"
 
 
 def test_get_resource_default_uses_active_profile_default_chunk_duration_when_defaults_absent():

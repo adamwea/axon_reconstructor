@@ -247,40 +247,6 @@ class TemplateBuildTemplatesPhaseConfig:
 
 
 @dataclass(frozen=True)
-class TemplateQualityChecksPhaseConfig:
-	enabled: bool = True
-	config: "QualityChecksConfig" = field(default_factory=lambda: QualityChecksConfig())
-
-
-@dataclass(frozen=True)
-class TemplatePropagationOrderingPhaseConfig:
-	enabled: bool = False
-	latency_mode: str = "abs_peak"
-	latency_tie_breaker: str = "channel_index"
-	debug: bool = False
-
-
-@dataclass(frozen=True)
-class TemplateAnalysisPhaseConfig:
-	enabled: bool = True
-	propagation_ordering: TemplatePropagationOrderingPhaseConfig = field(
-		default_factory=TemplatePropagationOrderingPhaseConfig
-	)
-
-
-@dataclass(frozen=True)
-class TemplatePlotsPhaseConfig:
-	enabled: bool = True
-	summary_json_relpath: str = "context/plot_templates_summary.json"
-	resource_class: str | None = None
-	debug_prints: bool = False
-	unit_workers: int | None = None
-	unit_procs: int | None = None
-	unit_batch_size: int | None = None
-	outputs: "PerUnitTemplatesOutputsConfig" = field(default_factory=lambda: PerUnitTemplatesOutputsConfig())
-
-
-@dataclass(frozen=True)
 class TemplatePlotV2TextConfig:
 	show: bool = False
 	text: str = ""
@@ -447,16 +413,6 @@ class TemplateComputeSimilarityPhaseConfig:
 		default_factory=TemplateSimilarityCandidateSelectionConfig
 	)
 	pair_plots: TemplateSimilarityPairPlotsConfig = field(default_factory=TemplateSimilarityPairPlotsConfig)
-
-
-@dataclass(frozen=True)
-class TemplatePerUnitProcessingPhaseConfig:
-	enabled: bool = True
-	resource_class: str | None = None
-	build_templates: TemplateBuildTemplatesPhaseConfig = field(default_factory=TemplateBuildTemplatesPhaseConfig)
-	quality_checks: TemplateQualityChecksPhaseConfig = field(default_factory=TemplateQualityChecksPhaseConfig)
-	analysis: TemplateAnalysisPhaseConfig = field(default_factory=TemplateAnalysisPhaseConfig)
-	plots: TemplatePlotsPhaseConfig = field(default_factory=TemplatePlotsPhaseConfig)
 
 
 @dataclass(frozen=True)
@@ -990,9 +946,6 @@ class TemplatesPhasesConfig:
 		default_factory=TemplatePlotTemplatesV2PhaseConfig
 	)
 	report_templates: TemplateReportTemplatesPhaseConfig = field(default_factory=TemplateReportTemplatesPhaseConfig)
-	per_unit_processing: TemplatePerUnitProcessingPhaseConfig = field(
-		default_factory=TemplatePerUnitProcessingPhaseConfig
-	)
 
 
 @dataclass(frozen=True)

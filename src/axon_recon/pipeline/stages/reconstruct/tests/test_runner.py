@@ -347,7 +347,6 @@ def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path
 			resolve_sources_phase=SimpleNamespace(enabled=True),
 			phases=SimpleNamespace(
 				analyzers=SimpleNamespace(enabled=True),
-				per_unit_processing=SimpleNamespace(enabled=True),
 				extract_partial_templates=SimpleNamespace(enabled=True),
 				build_templates=SimpleNamespace(enabled=True),
 				compute_template_similarity=SimpleNamespace(enabled=True),
@@ -436,7 +435,6 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 			resolve_sources_phase=SimpleNamespace(enabled=True),
 			phases=SimpleNamespace(
 				analyzers=SimpleNamespace(enabled=True),
-				per_unit_processing=SimpleNamespace(enabled=True),
 				extract_partial_templates=SimpleNamespace(enabled=True),
 				build_templates=SimpleNamespace(enabled=True),
 				compute_template_similarity=SimpleNamespace(enabled=True),
@@ -542,7 +540,6 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 			resolve_sources_phase=SimpleNamespace(enabled=True),
 			phases=SimpleNamespace(
 				analyzers=SimpleNamespace(enabled=True),
-				per_unit_processing=SimpleNamespace(enabled=True),
 				extract_partial_templates=SimpleNamespace(enabled=True),
 				build_templates=SimpleNamespace(enabled=True),
 				compute_template_similarity=SimpleNamespace(enabled=True),

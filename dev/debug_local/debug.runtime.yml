@@ -1298,49 +1298,6 @@ stages:
         # write pdf slide deck of all circle style template plots for all units.
         relpath: template_report.pdf
         write_pdf: true
-      per_unit_processing:
-        enabled: false
-        resource_class: template_build
-        outputs:
-          # Base rel dir for all outputs for a given unit. Can be formatted with {unit_id} if desired,
-          # but should not include file name or extension components since those are specified separately for each output type below.
-          unit_reldir: units/{unit_id:04d}/
-        quality_checks:
-          enabled: false
-          config:
-            suppress_warnings: true
-            multiple_peaks_at_channel_templates:
-              enable: true
-              prominence_fraction: 0.30
-              min_separation_samples: 8
-              # Recommended: 2 for strict AP-only detection, 3 if you want a more permissive screen.
-              max_peaks_per_channel: 2
-              plot_violations: true
-          outputs:
-            data_outputs:
-              quality_checks:
-                multiple_peaks_at_channel_templates:
-                  write_json: true
-                  json_relpath: multiple_peaks_at_channel_templates.json
-            quality_checks:
-              # multiple_peaks_at_channel_templates: information about any channels in the template that have multiple peaks in their waveforms,
-              # which can be an indicator of potential issues with the template such as overlapping units or noise contamination.
-              multiple_peaks_at_channel_templates:
-                write_json: true
-                json_relpath: multiple_peaks_at_channel_templates.json
-                plot:
-                  write_png: true
-                  write_svg: false
-                  relpath: multiple_peaks_at_channel_templates
-                  show_multiple_peak_markers: true # when true, draw all detected negative peaks for each violating channel.
-                  delay_peak_marker_color: red # color used for the peak selected for delay ordering/latency calculations.
-        analysis:
-          enabled: true
-          propagation_ordering:
-            enable: true
-            latency_mode: negative_peak # abs_peak or negative_peak; controls canonical channel ordering metric.
-            latency_tie_breaker: channel_index # channel_index (default) sorts equal-latency ties by channel number; stable keeps selected/input order.
-            debug: true # emit per-unit canonical/window/anchor/label-range diagnostics in logs.
       generate_gtrs:
         enable: true
         resource_class: axon_reconstruction

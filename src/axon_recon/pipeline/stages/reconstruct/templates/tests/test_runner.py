@@ -53,7 +53,6 @@ from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
 	TemplateBuildTemplatesPhaseConfig,
 	TemplateCirclesPlotConfig,
 	TemplateComputeSimilarityPhaseConfig,
-	TemplatePerUnitProcessingPhaseConfig,
 	TemplatePlotConfig,
 	TemplatePlotTemplatesV2PhaseConfig,
 	TemplateReportTemplatesPhaseConfig,
@@ -177,64 +176,6 @@ def test_run_reconstruct_templates_pipeline_honors_phase_sequence_order(tmp_path
 	result = run_reconstruct_templates_pipeline(inputs)
 	assert result is expected_result
 	assert calls == ["plot_templates_v2", "resolve_sources"]
-
-
-def test_run_reconstruct_templates_pipeline_explicit_top_level_phases_ignore_disabled_per_unit_parent(
-	tmp_path: Path,
-	monkeypatch,
-) -> None:
-	calls: list[str] = []
-
-	def _phase(name: str):
-		def _run(_inputs: TemplatesInputs) -> dict[str, str]:
-			calls.append(name)
-			return {"phase": name}
-
-		return _run
-
-	expected_result = TemplatesResult(
-		well_out_dir=tmp_path / "well",
-		templates_out_dir=tmp_path / "templates",
-		summary_json=tmp_path / "templates" / "templates_summary.json",
-		units=[],
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_analyzers_phase",
-		_phase("analyzers"),
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_build_templates_phase",
-		_phase("build_templates"),
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_plot_templates_v2_phase",
-		_phase("plot_templates_v2"),
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.run_reconstruct_templates_report_templates_phase",
-		_phase("report_templates"),
-	)
-	monkeypatch.setattr(
-		"axon_recon.pipeline.stages.reconstruct.templates.runner.collect_templates_result_from_outputs",
-		lambda _inputs: expected_result,
-	)
-
-	inputs = TemplatesInputs(
-		h5_path=tmp_path / "dataset.h5",
-		stream_id="well000",
-		mea_output_root=tmp_path / "outputs",
-		output_rel_root="templates_outputs",
-		phase_sequence=("analyzers", "build_templates", "plot_templates_v2", "report_templates"),
-		phases=TemplatesPhasesConfig(
-			plot_templates_v2=TemplatePlotTemplatesV2PhaseConfig(enabled=True),
-			per_unit_processing=TemplatePerUnitProcessingPhaseConfig(enabled=False),
-		),
-		unit_label_filter_required=False,
-	)
-
-	result = run_reconstruct_templates_pipeline(inputs)
-	assert result is expected_result
-	assert calls == ["analyzers", "build_templates", "plot_templates_v2", "report_templates"]
 
 
 def test_run_reconstruct_templates_analyzers_phase_logs_settings_and_writes_run_stats(tmp_path: Path, monkeypatch, caplog) -> None:

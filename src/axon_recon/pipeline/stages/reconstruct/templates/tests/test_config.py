@@ -2652,20 +2652,15 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 			          preprocessed_sources_reldir: /custom/segments
 			          waveform_extraction:
 			            max_spikes_per_unit: 11
-			      per_unit_processing:
-			        build_templates:
-			          summary_json_relpath: context/custom_build_summary.json
-			          lazy_load_analyzers: true
-			          emit_unit_source_materialization_log: true
-			          emit_channel_count_per_unit_after_merge_log: true
-			          execution_upsampling:
-			            enabled: true
-			            factor: 3
-			            method: sinc
-			        plots:
-			          outputs:
-			            template:
-			              relpath: canonical/template_plot
+			      build_templates:
+			        summary_json_relpath: context/custom_build_summary.json
+			        lazy_load_analyzers: true
+			        emit_unit_source_materialization_log: true
+			        emit_channel_count_per_unit_after_merge_log: true
+			        execution_upsampling:
+			          enabled: true
+			          factor: 3
+			          method: sinc
 			"""
 		).strip()
 		+ "\n",
@@ -2696,52 +2691,8 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 	assert inputs.phases.build_templates.emit_channel_count_per_unit_after_merge_log is True
 	assert inputs.phases.build_templates.execution_upsampling.enabled is True
 	assert inputs.phases.build_templates.execution_upsampling.factor == 3
-	assert inputs.phases.per_unit_processing.build_templates.summary_json_relpath == "context/custom_build_summary.json"
-	assert inputs.phases.per_unit_processing.build_templates.lazy_load_analyzers is True
-	assert inputs.phases.per_unit_processing.build_templates.emit_unit_source_materialization_log is True
-	assert inputs.phases.per_unit_processing.build_templates.emit_channel_count_per_unit_after_merge_log is True
-	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.enabled is True
-	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 3
 	assert inputs.execution_upsampling.factor == 3
-	assert inputs.per_unit_outputs.template.relpath == "canonical/template_plot"
-	assert inputs.phases.per_unit_processing.plots.summary_json_relpath == "context/plot_templates_summary.json"
-
-
-def test_load_templates_config_per_unit_processing_plots_accepts_legacy_debug_plotting_prints_alias(tmp_path: Path) -> None:
-	data_path = tmp_path / "data.yml"
-	data_path.write_text(
-		dedent(
-			"""
-			output_root: /tmp/out
-			datasets:
-			  - raw_data_h5_path: /tmp/input.raw.h5
-			    include_in_runtime: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	runtime_path = tmp_path / "runtime.yml"
-	runtime_path.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  reconstruct:
-			    phases:
-			      per_unit_processing:
-			        plots:
-			          debug_plotting_prints: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
-
-	assert inputs.phases.per_unit_processing.plots.debug_prints is True
+	assert inputs.per_unit_outputs.template.relpath == "legacy/template_should_lose"
 
 
 def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_path: Path) -> None:
@@ -2766,25 +2717,22 @@ def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_pa
 			data: {data_path}
 			stages:
 			  reconstruct:
-			    phases:
-			      per_unit_processing:
-			        plots:
-			          enabled: true
-			          outputs:
-			            circles:
-			              output:
-			                write_png: true
-			                write_svg: true
-			                dpi: 420
-			                relpath: canonical/template_circles
-			              display:
-			                channel_scope: recorded_channels
-			                size_by: latency
-			                color_by: amplitude
-			                show_scale_circle: true
-			              color_bar:
-			                units: ms
-			                show_axes_title: false
+			    outputs:
+			      per_unit_outputs:
+			        template_circles:
+			          output:
+			            write_png: true
+			            write_svg: true
+			            dpi: 420
+			            relpath: canonical/template_circles
+			          display:
+			            channel_scope: recorded_channels
+			            size_by: latency
+			            color_by: amplitude
+			            show_scale_circle: true
+			          color_bar:
+			            units: ms
+			            show_axes_title: false
 			"""
 		).strip()
 		+ "\n",
@@ -2804,49 +2752,6 @@ def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_pa
 	assert circles.show_scale_circle is True
 	assert circles.color_bar_units == "ms"
 	assert circles.color_bar_show_axes_title is False
-
-
-def test_load_templates_config_per_unit_processing_plots_parses_resources_block(tmp_path: Path) -> None:
-	data_path = tmp_path / "data.yml"
-	data_path.write_text(
-		dedent(
-			"""
-			output_root: /tmp/out
-			datasets:
-			  - raw_data_h5_path: /tmp/input.raw.h5
-			    include_in_runtime: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	runtime_path = tmp_path / "runtime.yml"
-	runtime_path.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  reconstruct:
-			    phases:
-			      per_unit_processing:
-			        plots:
-			          enabled: true
-			          resources:
-			            unit_workers: 6
-			            unit_procs: 4
-			            unit_batch_size: 2
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
-
-	assert inputs.phases.per_unit_processing.plots.unit_workers == 6
-	assert inputs.phases.per_unit_processing.plots.unit_procs == 4
-	assert inputs.phases.per_unit_processing.plots.unit_batch_size == 2
 
 
 def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Path) -> None:
@@ -2969,49 +2874,6 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 	assert v2.scale_circle.units == "uV"
 	assert v2.scale_bar.show is True
 	assert v2.scale_bar.length_um == 100
-
-
-def test_load_templates_config_per_unit_processing_plots_parses_nested_block(tmp_path: Path) -> None:
-	data_path = tmp_path / "data.yml"
-	data_path.write_text(
-		dedent(
-			"""
-			output_root: /tmp/out
-			datasets:
-			  - raw_data_h5_path: /tmp/input.raw.h5
-			    include_in_runtime: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	runtime_path = tmp_path / "runtime.yml"
-	runtime_path.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  reconstruct:
-			    phases:
-			      per_unit_processing:
-			        plots:
-			          enabled: false
-			          summary_json_relpath: context/legacy_plot_templates_summary.json
-			          outputs:
-			            template:
-			              relpath: legacy/template_plot
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
-
-	assert inputs.phases.per_unit_processing.plots.enabled is False
-	assert inputs.phases.per_unit_processing.plots.summary_json_relpath == "context/legacy_plot_templates_summary.json"
-	assert inputs.per_unit_outputs.template.relpath == "legacy/template_plot"
 
 
 def test_load_templates_config_parses_report_templates_phase_block(tmp_path: Path) -> None:
@@ -3147,50 +3009,6 @@ def test_load_templates_config_parses_compute_template_similarity_phase_block(tm
 	assert phase.pair_plots.write_png is True
 	assert phase.pair_plots.relpath_root == "reports/template_similarity/pairs"
 	assert phase.pair_plots.dpi == 160
-
-
-def test_load_templates_config_build_templates_falls_back_to_legacy_nested_phase_block(tmp_path: Path) -> None:
-	data_path = tmp_path / "data.yml"
-	data_path.write_text(
-		dedent(
-			"""
-			output_root: /tmp/out
-			datasets:
-			  - raw_data_h5_path: /tmp/input.raw.h5
-			    include_in_runtime: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	runtime_path = tmp_path / "runtime.yml"
-	runtime_path.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  reconstruct:
-			    phases:
-			      per_unit_processing:
-			        build_templates:
-			          summary_json_relpath: context/legacy_build_summary.json
-			          execution_upsampling:
-			            enabled: true
-			            factor: 5
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
-
-	assert inputs.phases.build_templates.summary_json_relpath == "context/legacy_build_summary.json"
-	assert inputs.phases.build_templates.execution_upsampling.enabled is True
-	assert inputs.phases.build_templates.execution_upsampling.factor == 5
-	assert inputs.phases.per_unit_processing.build_templates.summary_json_relpath == "context/legacy_build_summary.json"
-	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 5
 
 
 def test_load_templates_config_parses_grouped_per_source_analyzer_controls(tmp_path: Path) -> None:
@@ -3495,52 +3313,6 @@ def test_load_templates_config_prefers_phase_analyzer_cache_over_flat_outputs(tm
 	assert inputs.analyzer_cache.concat_analyzer_subdir == "canonical_concat"
 	assert inputs.analyzer_cache.segment_analyzers_subdir == "canonical_segments"
 	assert inputs.analyzer_cache.cleanup_on_success is False
-
-
-def test_load_templates_config_prefers_phase_unit_reldir_over_flat_outputs(tmp_path: Path) -> None:
-	data_path = tmp_path / "data.yml"
-	data_path.write_text(
-		dedent(
-			"""
-			output_root: /tmp/out
-			datasets:
-			  - raw_data_h5_path: /tmp/input.raw.h5
-			    include_in_runtime: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	runtime_path = tmp_path / "runtime.yml"
-	runtime_path.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  reconstruct:
-			    outputs:
-			      per_unit_outputs:
-			        unit_reldir: legacy_units/{{unit_id:04d}}/
-			        template:
-			          relpath: legacy/template
-			    phases:
-			      per_unit_processing:
-			        outputs:
-			          unit_reldir: canonical_units/{{unit_id:04d}}/
-			        plots:
-			          outputs:
-			            template:
-			              relpath: canonical/template
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
-	assert inputs.per_unit_outputs.unit_reldir == "canonical_units/{unit_id:04d}/"
-	assert inputs.per_unit_outputs.template.relpath == "canonical/template"
 
 
 def test_load_templates_config_force_rereport_enforces_reports_only_mode(tmp_path: Path) -> None:

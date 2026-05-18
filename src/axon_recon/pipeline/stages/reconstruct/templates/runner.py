@@ -920,8 +920,6 @@ def run_reconstruct_templates_pipeline(inputs: TemplatesInputs) -> TemplatesResu
 			return _resource_class(getattr(inputs.phases, "plot_templates_v2", None))
 		if phase == "report_templates":
 			return _resource_class(inputs.phases.report_templates)
-		if phase == "per_unit_processing":
-			return _resource_class(inputs.phases.per_unit_processing)
 		return None
 
 	def _templates_phase_worker_allocation(phase_name: str) -> tuple[int, str, str | None]:
@@ -980,7 +978,6 @@ def _normalize_reconstruct_templates_phase_name(raw: Any) -> str:
 		"plots_v2": "plot_templates_v2",
 		"template_plots_v2": "plot_templates_v2",
 		"template_report": "report_templates",
-		"per_unit_processing.build_templates": "build_templates",
 	}
 	return aliases.get(token, token)
 
@@ -1001,8 +998,6 @@ def _reconstruct_templates_phase_enabled(inputs: TemplatesInputs, phase_name: st
 		return bool(False if phase_cfg is None else phase_cfg.enabled)
 	if phase == "report_templates":
 		return bool(phases.report_templates.enabled)
-	if phase == "per_unit_processing":
-		return bool(phases.per_unit_processing.enabled)
 	return False
 
 
@@ -1020,8 +1015,6 @@ def _reconstruct_templates_phase_runner(phase_name: str) -> Callable[[TemplatesI
 		return run_reconstruct_templates_plot_templates_v2_phase
 	if phase == "report_templates":
 		return run_reconstruct_templates_report_templates_phase
-	if phase == "per_unit_processing":
-		return run_reconstruct_templates_per_unit_processing_phase
 	raise ValueError(f"Unknown templates phase: {phase_name!r}")
 
 
@@ -1806,69 +1799,9 @@ def _collect_templates_phase_unit_ids(
 	return _apply_unit_label_filter(inputs, unit_ids, well_out_dir, context="collect_unit_ids")
 
 
-def _report_scope_config(reports: Any, scope: str | None) -> Any:
-	if scope is None:
-		return reports
-	disabled_locations = replace(reports.locations, write_json=False, write_png=False, write_svg=False)
-	disabled_wf_grid = replace(reports.wf_overlay_grid, write_pdf=False, write_png=False, write_svg=False)
-	disabled_footprint_grids = replace(
-		reports.footprint_grids,
-		circles_map_grid=replace(reports.footprint_grids.circles_map_grid, write_pdf=False, write_png=False, write_svg=False),
-		amplitude_map_grid=replace(reports.footprint_grids.amplitude_map_grid, write_pdf=False, write_png=False, write_svg=False),
-		latency_map_grid=replace(reports.footprint_grids.latency_map_grid, write_pdf=False, write_png=False, write_svg=False),
-	)
-	disabled_multi_source = replace(reports.plot_multi_source_pdf, enabled=False)
-	if scope == "locations":
-		return replace(
-			reports,
-			locations=reports.locations,
-			wf_overlay_grid=disabled_wf_grid,
-			footprint_grids=disabled_footprint_grids,
-			plot_multi_source_pdf=disabled_multi_source,
-		)
-	if scope == "wf_overlay_grid":
-		return replace(
-			reports,
-			locations=disabled_locations,
-			wf_overlay_grid=reports.wf_overlay_grid,
-			footprint_grids=disabled_footprint_grids,
-			plot_multi_source_pdf=disabled_multi_source,
-		)
-	if scope == "footprint_grids":
-		return replace(
-			reports,
-			locations=disabled_locations,
-			wf_overlay_grid=disabled_wf_grid,
-			footprint_grids=reports.footprint_grids,
-			plot_multi_source_pdf=disabled_multi_source,
-		)
-	if scope == "multi_source_pdf":
-		return replace(
-			reports,
-			locations=disabled_locations,
-			wf_overlay_grid=disabled_wf_grid,
-			footprint_grids=disabled_footprint_grids,
-			plot_multi_source_pdf=reports.plot_multi_source_pdf,
-		)
-	if scope == "none":
-		return replace(
-			reports,
-			locations=disabled_locations,
-			wf_overlay_grid=disabled_wf_grid,
-			footprint_grids=disabled_footprint_grids,
-			plot_multi_source_pdf=disabled_multi_source,
-		)
-	return reports
-
-
-def _disable_reports_config(reports: Any) -> Any:
-	return _report_scope_config(reports, "none")
-
-
 def _debug_prints_enabled(inputs: TemplatesInputs) -> bool:
 	return bool(
 		getattr(getattr(inputs.phases, "plot_templates_v2", None), "debug_prints", False)
-		or getattr(getattr(inputs.phases.per_unit_processing, "plots", None), "debug_prints", False)
 	)
 
 
@@ -2067,14 +2000,6 @@ def run_reconstruct_templates_plot_templates_v2_phase(inputs: TemplatesInputs) -
 	)
 
 	return run_reconstruct_templates_plot_templates_v2_phase(inputs)
-
-
-def run_reconstruct_templates_per_unit_processing_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.per_unit_processing import (
-		run_reconstruct_templates_per_unit_processing_phase,
-	)
-
-	return run_reconstruct_templates_per_unit_processing_phase(inputs)
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:

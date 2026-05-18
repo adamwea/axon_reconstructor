@@ -58,7 +58,6 @@ def test_parse_stage_list_tokens_supports_analysis_aliases(raw_token: str, expec
         "template",
         "templates.resolve_sources",
         "templates.analyzers",
-        "templates.per_unit_processing.extract_template_segments",
         "templates.build_templates",
         "templates.compute_template_similarity",
         "templates.plot_templates",
@@ -137,8 +136,6 @@ def test_parse_stage_list_tokens_rejects_removed_preprocess_aliases(raw_token: s
 @pytest.mark.parametrize(
     "raw_token",
     [
-        "templates.per_unit_processing.build_templates",
-        "templates.per_unit_processing.plot_templates",
         "template.compute_template_similarity",
         "template.report_templates",
     ],
