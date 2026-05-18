@@ -13,14 +13,36 @@
 ## Slice protocol (every commit-sized unit of work)
 
 1. **Re-read the relevant guardrail** for the slice's surface area (parallelism / scope flags / force_restart / stage_phase / package / output_locations / dry_run).
-2. **Plan the diff** before editing: list files touched, anticipated test impact, smoke-test requirement (see §"When a smoke test is required" below).
+2. **Plan the diff** before editing: list files touched, anticipated test impact, smoke-test requirement (see §"When a smoke test is required" below), whether the slice will produce visual diagnostics that need user review.
 3. **Edit in scope.** Don't refactor adjacent code, don't add features the slice didn't authorize, don't add error handling for impossible cases. The `Doing tasks` section of the system prompt is the authority on this.
 4. **Run targeted tests** for the modules touched. Pre-existing failures don't count against the slice; new failures block the commit.
 5. **Run a smoke test** when required (see §below). Use `--dry-run` for fast wiring confirmation when applicable (see `guardrails/dry_run.md`).
-6. **Commit** with a `claude:` subject prefix; descriptive body explaining what changed and why. Include a `Co-Authored-By: Claude Opus 4.7 …` line.
-7. **Append a line to `dev/notes/commit_log.md`** noting the slice + the plan/tracker it advanced.
-8. **Update memory** if the slice changed anything in `current_state.md` or resolved an `open_questions.md` item.
-9. **Update guardrails** if you discovered a new invariant or clarified an existing one — same `claude:` commit prefix.
+6. **Generate visual diagnostics when the slice's claim depends on them** (see §"Visual diagnostics" below). Save under `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/`. Add an entry to `dev/notes/memory/diagnostics_to_review.md` BEFORE commit.
+7. **Commit** with a `claude:` subject prefix; descriptive body explaining what changed and why. Include a `Co-Authored-By: Claude Opus 4.7 …` line. If the slice added a diagnostic entry, reference it in the commit body.
+8. **Append a line to `dev/notes/commit_log.md`** noting the slice + the plan/tracker it advanced.
+9. **Update memory** if the slice changed anything in `current_state.md` or resolved an `open_questions.md` item.
+10. **Update guardrails** if you discovered a new invariant or clarified an existing one — same `claude:` commit prefix.
+
+## Visual diagnostics
+
+A passing test suite is necessary but not sufficient. Some things can only be confirmed visually (waveform shapes, template overlays, sort-quality plots, before/after comparison figures, channel-grid sanity, …). When a slice's claim of correctness depends on "the picture looks right" rather than "the count is N", produce a diagnostic artifact and flag it for the user.
+
+**Generate a diagnostic when:**
+- The slice introduces a new phase that produces a visual output (a plot, a heatmap, a footprint figure). Save its FIRST real-data output as a diagnostic; the user verifies the visual shape is what they expect.
+- A bug fix produces visually different output than before, even when tests pass. Save a before-fix and after-fix figure side-by-side. The user sanity-checks the picture matches the intended behavior.
+- A regression check on a known-good baseline needs a before/after comparison (e.g. ds4/well000 templates pre- and post-concat-rip-out).
+- A new computed table is being introduced (match tables, UID assignments). Save the first one for inspection — schema sanity, sensible row counts.
+
+**Don't generate a diagnostic for:**
+- Every routine plot the pipeline emits during a normal run. Those are pipeline outputs, not Claude-flagged artifacts.
+- Pure computation slices whose validation is numerical (test asserts count == N).
+- Anything covered by an automated assertion that the user trusts.
+
+**Gate levels:**
+- **Soft gate**: the user reviews when they can; downstream slices proceed in the meantime. Default for most diagnostics.
+- **Hard gate**: downstream slices on the same code path WAIT for user approval before starting. Use sparingly — only when getting the picture wrong would invalidate everything downstream (e.g. a new template extraction algorithm's first output: if it's wrong, every plot that uses it is wrong).
+
+**Format**: entries in `dev/notes/memory/diagnostics_to_review.md`. See that file for the schema.
 
 ## Commit cadence & rollback
 

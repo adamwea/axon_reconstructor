@@ -14,6 +14,7 @@ Memory is the **flexible**, **current**, **subjective** layer. It's where Claude
 |---|---|---|
 | [`current_state.md`](current_state.md) | What's shipped, what's in-flight, what's queued. Latest shifter digest, latest smoke results. The "snapshot" view. | Updated continuously; entries decay as state changes. |
 | [`open_questions.md`](open_questions.md) | TBD decisions awaiting user input or empirical data. | Each entry has a resolution criterion; deletes when resolved (moves to plan or tracker). |
+| [`diagnostics_to_review.md`](diagnostics_to_review.md) | Visual / tabular diagnostics Claude generated during slices that need user review. Plots + tables under `/pscratch/.../dev_outputs/<slice>/diagnostics/`; this file is the index. | Entry stays pending until user reviews; pruned ~1 week after approval. |
 | [`notes.md`](notes.md) | Free-form scratch — debugging trails, ideas in flight, half-formed thoughts. | Prune aggressively; this isn't an archive. |
 
 ## Update protocol
