@@ -1,0 +1,53 @@
+# Guardrails
+
+Locked code contracts for axon_recon and its sibling packages. Treat each topic file here as **the source of truth** for the rule it documents. If a slice's edits violate a guardrail, the guardrail wins; if the guardrail is wrong, fix the guardrail first (in its own `claude:` commit), then proceed.
+
+## When to read
+
+- At the start of every session (per `CLAUDE.md`'s entry protocol).
+- Before starting any slice — re-read the topic files whose surface area the slice touches.
+- After any conversation segment where a new contract surfaces — confirm whether it goes in a guardrail or somewhere else (see §"What goes where" below).
+
+## When to update
+
+Update a guardrail when:
+- A new invariant has been agreed and you want it enforced going forward.
+- An existing invariant has been clarified or sharpened (e.g. an edge case got pinned down).
+- A contract has been retired (delete the entry, don't leave dead rules).
+
+Don't update a guardrail when:
+- You're recording in-flight work (→ `memory/current_state.md`).
+- You're noting an open question (→ `memory/open_questions.md`).
+- You're scoping a refactor (→ a `plans/active/*.md` plan, or a `trackers/tech_debt.md` entry).
+
+## What goes where
+
+| Kind of statement | Lives in |
+|---|---|
+| "The code must do X" — locked contract | `guardrails/<topic>.md` |
+| "We're currently doing Y" — present state | `memory/current_state.md` |
+| "We haven't decided Z" — pending question | `memory/open_questions.md` |
+| "We should refactor W someday" — backlog | `trackers/tech_debt.md` / `roadmap.md` / `issues.md` |
+| "Here's the multi-slice plan to do W" — execution roadmap | `plans/active/<plan>.md` |
+
+## Topic files
+
+| File | Scope |
+|---|---|
+| [`parallelism.md`](parallelism.md) | n_jobs resolution, slot.cpu_count, MPI worker behavior, the `resolve_inner_worker_count` contract |
+| [`scope_flags.md`](scope_flags.md) | `--target-datasets`, `--target-wells`, `--targets`, `--limit-*`, `--profile`, `--task-backend` semantics |
+| [`force_restart.md`](force_restart.md) | `--force-restart` = `rmtree(stage_output_dir)`. `--force-replot` semantics. No fallbacks. |
+| [`stage_phase_architecture.md`](stage_phase_architecture.md) | Stage / phase invariants — phase_sequence, phases dict, summary_json, resource_class, output_rel_root |
+| [`package_contracts.md`](package_contracts.md) | Sibling-repo layout, SI-convention compliance for shared packages, no axon_recon-specific deps in `kssynth` / `unitlink` / `SLAy` / `UnitMatchPy` |
+| [`output_locations.md`](output_locations.md) | Logs → pscratch; code → `/global/homes`; what's tracked in repo vs gitignored |
+| [`dry_run.md`](dry_run.md) | Every phase exposes `--dry-run` and short-circuits at input resolution. Universal cheap-smoke-test path. |
+
+## Format (light)
+
+Each topic file has:
+- A one-paragraph **Contract** at the top: the rule in plain English.
+- A **Why** section: enough context to remember why this is the rule.
+- A **Tests / verification** section: what should fail if the contract is violated.
+- A **Open exceptions / follow-ups** section: anything that doesn't quite conform yet, tracked in a plan or tracker.
+
+Concise > comprehensive. Link out to plans/trackers/code for details.

@@ -1,0 +1,188 @@
+# `--dry-run` rollout across every phase
+
+Status: implementation plan. Realizes the `guardrails/dry_run.md` contract: every phase exposes `--dry-run` and short-circuits at input resolution. Same operating contract: one slice at a time, `claude:` commit prefix, append a line to `dev/notes/commit_log.md` after every commit.
+
+**See also:**
+- `guardrails/dry_run.md` — the contract this plan realizes.
+- `guardrails/stage_phase_architecture.md` — the architectural invariants every phase satisfies; `--dry-run` joins the list of universal phase capabilities once this plan lands.
+- `phase_roster_cleanup_plan.md` — the phase roster needs to be settled before broad changes touch every phase. Dry-run rollout can either run AFTER the roster cleanup, or in parallel for phases that are clearly staying.
+
+---
+
+## 0. End-state, in one paragraph
+
+`axon-recon stages <stage>[.<phase>] --dry-run --config <yaml> [--targets ...]` works on every stage and every phase. It resolves inputs, validates prerequisites, writes a `<phase>_summary.json` with `status: dry_run_ok`, and exits in seconds. The user gets a fast wiring-only smoke check for any scope they want to verify before kicking off a real run.
+
+---
+
+## 1. Where the flag lives
+
+Single `--dry-run` argparse entry at the shared CLI level (`pipeline/cli.py`), inherited by every stage / phase subcommand. Parsed into a process-wide override pattern (matching the existing `_TARGET_WELLS_OVERRIDE`, `_NO_PLOT_OVERRIDE`, `_ACTIVE_PROFILE_OVERRIDE`):
+
+```python
+# pipeline/config.py
+_DRY_RUN_OVERRIDE: bool | None = None
+def set_dry_run_override(enabled: bool | None) -> None: ...
+def get_dry_run_override() -> bool | None: ...
+```
+
+Carried into `stage_config.dry_run` via the same plumbing the other overrides use. Cleared in the `finally` block of CLI main().
+
+Phase implementations check the attribute at the top of their work block:
+```python
+if getattr(stage_config, "dry_run", False):
+    return _write_dry_run_summary(
+        phase_name="...",
+        well_out_dir=...,
+        stage_output_root_dir=...,
+        inputs_resolved=[...],
+        outputs_would_produce=[...],
+    )
+```
+
+---
+
+## 2. Shared helper
+
+A single utility writes the dry-run summary. New module:
+
+```
+src/axon_recon/pipeline/dry_run.py
+```
+
+Exposes:
+
+```python
+def write_dry_run_summary(
+    *,
+    phase_name: str,
+    well_out_dir: Path,
+    stage_output_root_dir: Path,
+    summary_json_path: Path,
+    inputs_resolved: list[dict],
+    outputs_would_produce: list[dict],
+    validation: dict | None = None,
+) -> Path:
+    """Writes the standard dry-run summary JSON to summary_json_path.
+    Returns the path. Used by every phase's dry-run short-circuit."""
+```
+
+Summary schema is fixed at the contract level (see `guardrails/dry_run.md` §3); the helper enforces it. New phases can extend with phase-specific fields but the base shape stays.
+
+---
+
+## 3. Implementation slices
+
+One commit per slice. `claude:` prefix.
+
+### Slice 1 — CLI flag + plumbing (no behavior)
+- Add `--dry-run` argparse arg to the shared parser (`pipeline/cli.py`).
+- Add `_DRY_RUN_OVERRIDE` + `set/get_dry_run_override` in `pipeline/config.py` matching the existing override pattern.
+- Wire into CLI main: set the override before dispatching, clear in `finally`.
+- Plumb to stage_config via the existing override-reading code path that builds stage_config from runtime config + overrides.
+- Tests: argparse parses the flag; override is set/cleared correctly; stage_config carries the attribute.
+- No phase changes yet. Existing tests stay green.
+
+### Slice 2 — `write_dry_run_summary` helper + base test
+- Create `src/axon_recon/pipeline/dry_run.py` with the helper from §2.
+- Unit test: `test_dry_run.py` exercises the helper with a synthetic input set, asserts the summary JSON conforms to the contract schema.
+
+### Slice 3 — Preprocess stage phase short-circuits (one commit per phase)
+Per-phase dry-run short-circuits for every currently-enabled preprocess phase. Each commit: pick one phase, add the `if getattr(stage_config, "dry_run", False): return _write_dry_run_summary(...)` block at the top of its main work function, add a per-phase dry-run test asserting (a) the helper was called, (b) the expensive function path was NOT called, (c) summary JSON exists with `status: dry_run_ok`.
+
+Phases (post-`phase_roster_cleanup_plan` shape):
+- `save_rec_metadata`
+- `preprocess_segments`
+- `plot_segment_traces`
+- `plot_segment_channel_layouts`
+- `plot_raster_threshold`
+
+If the phase roster cleanup hasn't landed yet, include the about-to-be-deleted phases too — they get dry-run for the brief window until they're deleted; mechanical cost is small.
+
+### Slice 4 — Spikesort stage phase short-circuits
+Same pattern. Phases (post-cleanup shape):
+- `concat_binary` (renamed from `bootstrap_concat_binary`)
+- `sort`
+- `snapshot_sorter_output`
+- `concat_analyzer`
+- `cleanup_concat_binary`
+- `cleanup_analyzers`
+
+For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load the recording into memory. Just verify the recording manifest exists, the sorter_output dir is writable, params look sane, then write the summary.
+
+### Slice 5 — Reconstruct stage phase short-circuits
+Phases (post-cleanup shape; legacy `plot_templates` / `per_unit_processing` / `reports` already deleted per phase cleanup plan):
+- `resolve_sources`
+- `analyzers`
+- `extract_partial_templates` (or its kssynth replacement — coordinate with `ks_synthesizer_package_plan.md` slice 9 ordering)
+- `build_templates` (or its kssynth replacement)
+- `plot_templates_v2`
+- `report_templates`
+- `axon_velocity_gtrs` (renamed from `generate_gtrs`)
+- `plot_recons`
+- `plot_branch_propagations`
+- `plot_branch_velocities`
+- `plot_unit_summary`
+- `report_recons`
+- `report_recon_grid`
+- `report_full_chip_layout`
+- `report_summaries`
+- `clear_templates_cache`
+
+This is the biggest slice. Consider sub-slices grouped by sub-domain (analyzers/templates, plots, reports).
+
+### Slice 6 — Analysis stage phase short-circuits
+- `compute_metrics`
+- `unitmatch` (when it lands per `unitmatch_phase_plan.md`)
+
+### Slice 7 — New stages from the phase roster cleanup
+Once `init` and `cleanup` stages exist:
+- `init.copy_src_to_scratch`
+- `cleanup.wipe_src_scratch`
+
+These get dry-run as part of their respective creation commits in `phase_roster_cleanup_plan.md` slices 4-6 — fold the dry-run short-circuit into the move-the-phase commit so they ship with dry-run from day one.
+
+### Slice 8 — Integration test
+- New test: `tests/test_dry_run_universal.py` enumerates every phase in every stage's default `phase_sequence`, runs `axon-recon stages <stage>.<phase> --dry-run --config <fixture>`, asserts return code 0 + summary JSON exists with `status: dry_run_ok`. This is the regression gate for any future phase added without dry-run support.
+
+### Slice 9 — Documentation
+- Update `dev/notes/guardrails/dry_run.md` to remove the "Dry-run does not exist today" caveat in §"Open exceptions / follow-ups". Replace with "Universal across all phases as of <commit-hash>; new phases must include the short-circuit per slice-8 enforcement test."
+- Update `dev/notes/memory/current_state.md` noting dry-run is live.
+
+Total estimated touch: ~600-1000 LoC + ~400 LoC tests across ~20 commits (one per phase + helpers + integration). Heavily mechanical once the helper + pattern are established. Each phase commit is 5-15 LoC of source + 20-40 LoC of test.
+
+---
+
+## 4. Tests / verification
+
+Per-phase tests in their respective stage's test dir. The universal integration test (slice 8) is the regression gate.
+
+Smoke verification after slice 8: run `axon-recon stages preprocess --dry-run --config dev/debug_NERSC/debug.runtime.yml --targets 13:0` and confirm:
+- Return code is 0
+- Each phase's `<phase>_summary.json` lands with `status: dry_run_ok`
+- Total runtime is single-digit seconds (NOT minutes — if it's minutes, a phase is doing too much work in dry-run mode)
+
+Repeat for spikesort, reconstruct, analysis on the same target.
+
+---
+
+## 5. Ordering with other plans
+
+- **Independent of**: `ks_synthesizer_package_plan.md` (kssynth package work), `unitmatch_runner_package_plan.md` (unitlink package work). These plans introduce new phases that ALSO need dry-run, but they can include the dry-run short-circuit as part of their own slices using this plan's `write_dry_run_summary` helper.
+- **Coordinated with**: `phase_roster_cleanup_plan.md`. Either:
+  - Run AFTER phase cleanup (cleanest — don't add dry-run to phases about to be deleted), OR
+  - Run IN PARALLEL for phases that are clearly staying.
+  Pragmatic: do this plan's slice 1 (CLI flag + plumbing) and slice 2 (helper) right away — they're zero-risk; then sequence per-stage slices after the corresponding phase-cleanup-plan slices for that stage land.
+- **Unblocks**: future smoke-test workflow. Once dry-run is universal, the smoke-test scoping ladder in `CLAUDE.md` always has step 1 (`--dry-run`) available without exception.
+
+---
+
+## 6. Open questions
+
+1. **Does `--dry-run` skip resource-gate acquisition?** Probably yes — gate acquisition is part of "starting the phase"; dry-run short-circuits before that. But if the gate's contention is itself a wiring concern, maybe we WANT dry-run to acquire-then-release the gate to verify the slot demands are satisfiable. Lean toward "skip the gate entirely" for v1 — the gate's behavior is verified by the resource-gate's own tests, not by phase dry-runs.
+
+2. **Where does the `dry_run` attribute live on `stage_config`?** All existing overrides flow through the stage_config dataclass; dry-run follows the same pattern. The attribute is `bool` (not `bool | None`) — default `False`, set `True` when override is active.
+
+3. **What about `--dry-run --force-restart`?** Per `guardrails/dry_run.md` §sub-rule 7: dry-run lists what would be wiped in the summary's `outputs_would_produce`, but does NOT actually rmtree. The combination is useful for "what's about to get nuked" inspection before a real `--force-restart` run.
+
+4. **Multi-rank dry-run under MPI backend?** Each rank does its own dry-run short-circuit independently; only rank 0 writes the summary JSON (matching the existing rank-0-only summary writer guard in `logging/summary.py`). Verify this works during the spikesort-stage slice (slice 4) since that's the first one where MPI matters.

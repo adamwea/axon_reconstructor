@@ -28,6 +28,19 @@ memray_*.bin
 
 # Runtime logs
 axon_reconstruction*.log
+*.log
+
+# Per-run log directories created by stages, rerun scripts, smoke runs.
+# Logs MUST live in pscratch per dev/notes/guardrails/output_locations.md.
+# These patterns guard against accidental in-repo writes.
+dev/debug_NERSC/logs/
+dev/debug_NERSC/jobs/**/logs/
+dev/debug_NERSC/jobs/**/logs_*/
+dev/**/run_logs/
+dev/**/smoke_logs/
+
+# Bind-mount overlays (legacy; should not exist — siblings live in ~/dev/pkgs/)
+axon_recon_overlay/
 
 # Claude Code harness state (per-checkout, not source)
 .claude/

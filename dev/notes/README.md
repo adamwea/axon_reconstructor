@@ -2,8 +2,12 @@
 
 This directory holds non-source development notes for the axon_recon pipeline:
 plans for in-flight work, guardrails that bound agent behavior, trackers for
-ideas/bugs/cleanup that haven't graduated to plans yet, and the append-only
-commit log.
+ideas/bugs/cleanup that haven't graduated to plans yet, **memory** that carries
+Claude's working state across sessions, and the append-only commit log.
+
+**See also**: the root `CLAUDE.md` is the canonical session entry point. It
+points here and defines the loop protocol (model selection, context-window
+management, smoke-test discipline).
 
 Runtime/data configs and launch wrappers live in sibling directories:
 
@@ -29,8 +33,14 @@ dev/notes/
     completed/                    ← plans whose DoD has landed (commit hash recorded in commit_log.md)
     abandoned/                    ← plans we decided not to pursue (each carries a "why dropped" preamble)
 
-  guardrails/                     ← read-only law: behavior constraints, naming conventions,
-                                    stage/phase contracts. Treat as policy when working in src/.
+  guardrails/                     ← read-only-ish law: locked code contracts. Treat as policy when working in src/.
+                                    Update in a dedicated `claude:` commit when a contract genuinely changes.
+                                    Topics: parallelism, scope_flags, force_restart, stage_phase_architecture,
+                                    package_contracts, output_locations, dry_run. See guardrails/README.md.
+
+  memory/                         ← Claude's cross-session working memory. Flexible, current, frequently refined.
+                                    Distinct from guardrails (which are locked contracts).
+                                    Files: current_state.md, open_questions.md, notes.md. See memory/README.md.
 
   trackers/                       ← living backlog. Entries are ideas/bugs/debt that don't yet
                                     justify their own plan doc. When an entry matures into a plan,
