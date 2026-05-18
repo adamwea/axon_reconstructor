@@ -689,24 +689,15 @@ def _prepare_reconstruct_phase_environment(
 				list(inputs.unit_ids or []),
 			)
 		else:
-			preserved_templates_cache: Path | None = None
-			templates_cache_dir = reconstruction_out_dir / "cache" / "templates"
-			if templates_cache_dir.exists():
-				preserved_templates_cache = reconstruction_out_dir.parent / f".{reconstruction_out_dir.name}_templates_cache_preserved"
-				if preserved_templates_cache.exists():
-					shutil.rmtree(preserved_templates_cache)
-				shutil.move(str(templates_cache_dir), str(preserved_templates_cache))
+			# Stage-level --force-restart: wipe the whole reconstruct output dir.
+			# Per the agreed contract (stage force-restart = rmtree(stage_output);
+			# phase force-restart = rmtree(phase_output); nothing more clever), we
+			# do NOT preserve cache/templates across the restart. Templates rebuild
+			# is part of the cost of asking for "start over". Disk/cpu I/O is the
+			# right tax for the simplicity dividend.
 			LOGGER.info("Reconstruct full restart: clearing output root %s", reconstruction_out_dir)
 			shutil.rmtree(reconstruction_out_dir)
 	reconstruction_out_dir.mkdir(parents=True, exist_ok=True)
-	if clear_output_root and full_restart and not preserve_stage_reports:
-		preserved_templates_cache = reconstruction_out_dir.parent / f".{reconstruction_out_dir.name}_templates_cache_preserved"
-		if preserved_templates_cache.exists():
-			restored_templates_cache = reconstruction_out_dir / "cache" / "templates"
-			restored_templates_cache.parent.mkdir(parents=True, exist_ok=True)
-			if restored_templates_cache.exists():
-				shutil.rmtree(restored_templates_cache)
-			shutil.move(str(preserved_templates_cache), str(restored_templates_cache))
 	if clear_output_root and preserve_stage_reports and full_restart:
 		for unit_id in inputs.unit_ids or []:
 			unit_dir = resolve_unit_output_paths(
