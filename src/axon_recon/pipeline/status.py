@@ -357,12 +357,14 @@ def _read_slay_label_column(well_root: Path) -> LabelColumn:
 	absorbed input units drop out of the post-merge unit set.
 
 	Input-label source priority:
-	  1. bombcell_labels.json's labels_by_unit (when bombcell ran)
-	  2. sorter_output_snapshot/cluster_KSLabel.tsv (when bombcell did not run
-	     — SLAy reads cluster_group.tsv directly off the canonical sorter_output,
-	     which at SLAy invocation time is whatever was last written there; if
-	     bombcell didn't run it's still the KS-raw labels, so the snapshot is a
-	     faithful proxy)
+	  1. bombcell_labels.json's labels_by_unit, but ONLY when the bombcell
+	     artifact is newer than the sort snapshot (i.e. bombcell ran in the
+	     current sort cycle and actually fed labels into SLAy).
+	  2. sorter_output_snapshot/cluster_KSLabel.tsv — used when bombcell did
+	     not run in the current cycle, or when bombcell_labels.json is older
+	     than the snapshot (orphaned artifact from a previous run where
+	     bombcell was enabled — SLAy in the current run actually saw KS labels
+	     off cluster_group.tsv, so the snapshot is the faithful proxy).
 
 	``extras`` reports:
 	  - ``merges``: total merge groups SLAy applied
@@ -384,7 +386,17 @@ def _read_slay_label_column(well_root: Path) -> LabelColumn:
 
 	labels_by_unit: dict[str, str] = {}
 	upstream_mtime = sort_mtime
+	# Only trust bombcell as the label source when it post-dates the sort snapshot.
+	# A bombcell artifact older than the snapshot is a stale leftover from a previous
+	# run whose bombcell phase has since been removed from the phase_sequence;
+	# SLAy in the current run actually read KS labels off cluster_group.tsv, so
+	# replaying with the stale bombcell labels would inject phantom "noise" units.
+	bc_is_fresh = False
 	if bc_path.is_file():
+		bc_mtime = bc_path.stat().st_mtime
+		snapshot_mtime = snapshot_tsv.stat().st_mtime if snapshot_tsv.is_file() else 0
+		bc_is_fresh = bc_mtime >= snapshot_mtime
+	if bc_is_fresh:
 		try:
 			bc_payload = json.loads(bc_path.read_text(encoding="utf-8"))
 		except (json.JSONDecodeError, OSError):

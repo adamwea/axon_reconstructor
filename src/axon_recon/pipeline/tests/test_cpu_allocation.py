@@ -744,7 +744,8 @@ def test_resolve_inner_worker_count_serial_returns_one_regardless() -> None:
 
 
 def test_resolve_inner_worker_count_no_active_slot_falls_back_to_override() -> None:
-	# No task_slot_context active.
+	# No task_slot_context active. With no hints at all we fall back to 1 (safe
+	# default for the headless case where nothing was configured).
 	result = resolve_inner_worker_count(
 		nested_shape="si_njobs",
 		phase_cpus_per_task=None,
@@ -752,14 +753,28 @@ def test_resolve_inner_worker_count_no_active_slot_falls_back_to_override() -> N
 		work_item_count=None,
 	)
 	assert result == 1
-	# Even with overrides, base is 1, so min(1, override) == 1.
+	# Explicit hints (yaml override, phase_cpus_per_task, work_item_count) ARE
+	# honored when the slot ContextVar isn't bound — typical for workers spawned
+	# across process boundaries by the MPI task backend or by srun → shifter →
+	# python, where the parent's contextvar doesn't propagate. Without this
+	# fallback the bootstrap_concat_binary phase silently runs single-threaded
+	# even when the YAML / profile have explicitly asked for >1.
 	result_with_override = resolve_inner_worker_count(
 		nested_shape="si_njobs",
 		phase_cpus_per_task=None,
 		yaml_n_jobs_override=8,
 		work_item_count=None,
 	)
-	assert result_with_override == 1
+	assert result_with_override == 8
+	# When multiple hints disagree, the smallest still wins — same min() contract
+	# as when a slot IS bound.
+	result_with_two_hints = resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=16,
+		yaml_n_jobs_override=64,
+		work_item_count=None,
+	)
+	assert result_with_two_hints == 16
 
 
 def test_resolve_inner_worker_count_minimum_is_one_with_tiny_slot() -> None:

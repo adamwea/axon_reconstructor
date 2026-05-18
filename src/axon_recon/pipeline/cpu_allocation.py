@@ -168,16 +168,29 @@ def resolve_inner_worker_count(
 		result = 1
 	else:
 		slot = _CURRENT_TASK_SLOT.get()
+		slot_cpus: int | None = None
 		if slot is not None and int(slot.cpu_count) > 0:
-			base = int(slot.cpu_count)
-		else:
-			base = 1
+			slot_cpus = int(slot.cpu_count)
+		# When the task slot ContextVar is bound (in-process workers), it is
+		# authoritative for the CPU budget. When it is NOT bound — typical for
+		# workers spawned across process boundaries by the MPI backend or by
+		# srun → shifter → python — we previously defaulted base=1 which made
+		# every subsequent `min(base, override)` collapse to 1 and silently
+		# disabled parallelism in write_binary_recording / set_global_job_kwargs.
+		# Now: if no slot is bound, derive the base from the explicit hints
+		# (yaml override, phase cpus_per_task, work_item_count) and let the
+		# same min(...) clamps cap them. If none of the hints are set either,
+		# fall back to 1 (the previous safe default).
+		candidates: list[int] = []
+		if slot_cpus is not None:
+			candidates.append(slot_cpus)
 		if isinstance(phase_cpus_per_task, int) and int(phase_cpus_per_task) > 0:
-			base = min(base, int(phase_cpus_per_task))
+			candidates.append(int(phase_cpus_per_task))
 		if isinstance(yaml_n_jobs_override, int) and int(yaml_n_jobs_override) > 0:
-			base = min(base, int(yaml_n_jobs_override))
+			candidates.append(int(yaml_n_jobs_override))
 		if isinstance(work_item_count, int) and int(work_item_count) > 0:
-			base = min(base, int(work_item_count))
+			candidates.append(int(work_item_count))
+		base = min(candidates) if candidates else 1
 		result = max(1, int(base))
 	if stage_name is not None and phase_name is not None:
 		slot = _CURRENT_TASK_SLOT.get()

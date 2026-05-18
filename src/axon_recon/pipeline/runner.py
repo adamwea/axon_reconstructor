@@ -350,6 +350,11 @@ def _attach_task_allocation_plan(
 		effective_bundle = bundle
 	try:
 		resources_config = parse_resources_config_for_bundle(effective_bundle)
+	except ValueError:
+		# Validation errors (e.g. --profile points at an undefined profile name)
+		# must propagate so the user sees the actionable message instead of
+		# silently falling back to no task plan.
+		raise
 	except Exception:
 		return parallelism
 	_active_prof = get_active_profile(resources_config)

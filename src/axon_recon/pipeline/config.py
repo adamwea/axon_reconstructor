@@ -174,7 +174,10 @@ def parse_resources_config_for_bundle(bundle: "PipelineRuntimeBundle"):
 	of the spikesort_full gate-deadlock on gpu_sort_slots=0).
 	"""
 	resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
-	override = bundle.active_profile_override
+	# getattr-with-default so non-frozen dummy bundles in tests don't need to
+	# carry the field; the override is None for any real bundle that wasn't
+	# created via load_pipeline_runtime_bundle with a CLI override anyway.
+	override = getattr(bundle, "active_profile_override", None)
 	if override is None:
 		return resources_config
 	profile_name = str(override).strip()

@@ -236,9 +236,26 @@ def _copy_path_to_destination(*, src: Path, dst: Path) -> None:
 
 
 def _cleanup_spikesort_outputs_for_force_restart(*, stage_output_root_dir: Path, um_kwargs: dict[str, Any] | None) -> list[str]:
+	# Wipe everything that's downstream of the sort step. This covers both
+	# the current chain's phase outputs (they'll get rebuilt) AND orphaned
+	# sibling dirs from previous runs where the phase_sequence was different
+	# (e.g. bombcell_label_outputs/ lingering after bombcell was removed from
+	# the sequence — its stale labels otherwise contaminate downstream
+	# status reporting and any phase that probes the well dir for existing
+	# artifacts). The `cache/` dir is intentionally NOT wiped here because
+	# bootstrap_concat_binary has already run by the time the sort phase
+	# invokes this cleanup, and the binary recording it materialized in
+	# cache/bootstrap_concat_binary/recording/ is what sort is about to read.
+	# bootstrap manages its own force_restart cleanup via
+	# bootstrap_concat_binary_overwrite_on_force_restart.
 	cleanup_names: set[str] = {
 		"sorter_output",
+		"sorter_output_snapshot",
 		"analyzer_output",
+		"concat_analyzer",
+		"bombcell_label_outputs",
+		"bombcell_label_pass2_outputs",
+		"merge_SLAy",
 	}
 
 	if isinstance(um_kwargs, dict):
@@ -256,6 +273,19 @@ def _cleanup_spikesort_outputs_for_force_restart(*, stage_output_root_dir: Path,
 			continue
 		shutil.rmtree(target, ignore_errors=True)
 		removed_paths.append(str(target))
+
+	# Stage-level summary JSONs at the spikesort_outputs root level are also
+	# stage-scoped (spikesort_summary.json, snapshot_sorter_output_summary.json,
+	# concat_analyzer_summary.json, restore_sorter_output_summary.json, etc.).
+	# Phases that re-run will overwrite their own; phases not in the current
+	# sequence would otherwise leave behind misleading "ok" markers from prior
+	# runs. Wipe any *_summary.json at the stage root.
+	for summary_path in stage_output_root_dir.glob("*_summary.json"):
+		try:
+			summary_path.unlink()
+			removed_paths.append(str(summary_path.resolve()))
+		except OSError:
+			continue
 
 	return removed_paths
 

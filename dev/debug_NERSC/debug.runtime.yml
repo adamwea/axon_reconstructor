@@ -603,7 +603,7 @@ stages:
     #- summarize_sort
     - snapshot_sorter_output
     - concat_analyzer
-    - bombcell_label
+    #- bombcell_label
     - merge_SLAy
     #- bombcell_label_pass2
     - cleanup_concat_binary
@@ -783,7 +783,7 @@ stages:
         # spikesort.concat_analyzer (slice 2) and honors dry_run. The phase no
         # longer caches sorter_output or builds its own analyzer; run
         # spikesort.concat_analyzer first.
-        enabled: true
+        enabled: false
         #resource_class: spikeinterface_analyzer_concat
         resource_class: bombcell_label
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
@@ -1062,8 +1062,8 @@ stages:
             post_samples: 62
             min_spikes: 50
             #max_spikes: -1
-            #max_spikes: 1000
-            max_spikes: 2000
+            max_spikes: 1000
+            #max_spikes: 2000
             #good_lbls: [good, non_soma_good]
             good_lbls: [good, non_soma_good, mua] # include mua units as "good" for the purposes of eligible merges; these units are not labeled non-somatic and can merge with somatic goods without violating the non-somatic split
             window_size: 0.1

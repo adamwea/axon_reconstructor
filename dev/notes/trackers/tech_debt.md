@@ -108,3 +108,38 @@ broken behavior) and `roadmap.md` (which is new ambitions).
   function edit + test. Eliminates the need for `--no-config-mounts` in 90%+
   of the cases where it's currently required.
 - **See also**: see `debug/trackers/issues.md` "NAS mount … stale".
+
+### Minimize / eliminate `resources.profiles` in favor of srun / MPI / native affinity
+- **Status**: open
+- **Tags**: obsolete-config, duplicate-logic, infra
+- **Where**: `src/axon_recon/pipeline/resources.py` (`ResourcesConfig.profiles`,
+  `active_profile`, `parse_resources_config`); `src/axon_recon/pipeline/config.py`
+  (`parse_resources_config_for_bundle`, `_ACTIVE_PROFILE_OVERRIDE`); `cli.py`
+  (`--profile` / `--task-profile`); `dev/debug_NERSC/debug.runtime.yml`
+  (`resources.profiles.perlmutter_cpu` / `perlmutter_gpu` etc.).
+- **Why it's debt**: YAML-defined task profiles (`cpus_per_task`,
+  `tasks_per_node`, slot caps, …) duplicate information slurm/MPI/cgroups
+  already enforce on the running process. Keeping them in sync with the actual
+  srun flags (`-c`, `--gpus`, `--mem`) is a constant footgun: the spikesort_full
+  gate-deadlock (gpu_sort_slots=0) and the bootstrap `n_jobs=1` regression
+  (resolved-from-profile=16 but slot ContextVar not propagated through the MPI
+  worker) both trace to profile/CLI drift. Every new sbatch has to remember to
+  pass `--profile perlmutter_gpu`, and every YAML edit has to be cross-checked
+  against the sbatch flags. The profile concept also imposes a process-wide
+  override pattern that we now have to thread through every fresh
+  `parse_resources_config` call site.
+- **Suggested cleanup**: collapse to a single runtime that reads its own
+  affinity (`os.sched_getaffinity(0)`), `SLURM_CPUS_PER_TASK`, `SLURM_GPUS_*`,
+  cgroup limits, and MPI rank/size, then derives `cpus_per_task` / slot caps
+  from those. Drop the YAML `profiles` block, drop `active_profile` / `--profile`,
+  drop `_ACTIVE_PROFILE_OVERRIDE` and the bundle's `active_profile_override`
+  field. Resource classes stay (they encode phase-level RAM/slot DEMANDS, which
+  isn't redundant with srun), but the profile-level supply side comes from the
+  environment. Add a native local-affinity reader for non-slurm runs (already
+  partially present in `cpu_allocation._default_affinity_getter`). Touch is L
+  — the change is mechanical but spans the resource-gate, the CPU allocation
+  resolver, every sbatch script, and the YAML schema. Worth scoping a plan
+  before starting.
+- **See also**: commit `c205d14` (added `--profile` override as a workaround);
+  `dev/debug_NERSC/jobs/sans_bombcell_rerun/sbatches/*.sbatch` (every sbatch
+  currently has to redundantly pass `--profile perlmutter_gpu`).
