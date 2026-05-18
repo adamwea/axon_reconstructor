@@ -1707,12 +1707,14 @@ def _iter_templates_phase_analyzers(
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
 	load_stats: dict[str, Any] | None = None,
 ) -> Any:
-	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
+	# Concat analyzer support is retired in recon (see
+	# spikeinterface_extract.load_spikeinterface_analyzers). Hard-disable
+	# regardless of YAML / dataclass values — any caller asking for the
+	# "concat" scope is calling stale code and we let it raise downstream.
+	include_concat = False
 	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
 	if source_scope == "concat":
 		include_segments = False
-	elif source_scope == "segments":
-		include_concat = False
 	return iter_spikeinterface_analyzers(
 		well_out_dir=well_out_dir,
 		concat_analyzer_relpath=(inputs.phases.analyzers.concat.analyzer_relpath or inputs.concat_analyzer_relpath),
@@ -1760,12 +1762,14 @@ def _load_templates_phase_analyzers(
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
 	return_stats: bool = False,
 ) -> Any:
-	include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
+	# Concat analyzer support is retired in recon (see
+	# spikeinterface_extract.load_spikeinterface_analyzers). Hard-disable
+	# regardless of YAML / dataclass values — any caller asking for the
+	# "concat" scope is calling stale code and we let it raise downstream.
+	include_concat = False
 	include_segments = bool(inputs.include_segments) and bool(inputs.phases.analyzers.segments.enabled)
 	if source_scope == "concat":
 		include_segments = False
-	elif source_scope == "segments":
-		include_concat = False
 	return load_spikeinterface_analyzers(
 		well_out_dir=well_out_dir,
 		concat_analyzer_relpath=(inputs.phases.analyzers.concat.analyzer_relpath or inputs.concat_analyzer_relpath),
@@ -2268,7 +2272,11 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 						raw_data_h5_path=inputs.h5_path,
 						stream_id=str(inputs.stream_id),
 						unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
-						include_concat=bool(inputs.include_concat),
+						# Concat analyzer support has been retired from recon (see
+					# spikeinterface_extract.load_spikeinterface_analyzers). Force
+					# False here so any lingering inputs.include_concat=True from
+					# legacy YAML can't re-enable the dead path.
+					include_concat=False,
 						include_segments=bool(inputs.include_segments),
 						require_concat=bool(inputs.require_concat_analyzer),
 						require_segments=bool(inputs.require_segment_analyzers),
@@ -2330,7 +2338,11 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 					raw_data_h5_path=inputs.h5_path,
 					stream_id=str(inputs.stream_id),
 					unit_ids=(list(inputs.unit_ids) if inputs.unit_ids is not None else None),
-					include_concat=bool(inputs.include_concat),
+					# Concat analyzer support has been retired from recon (see
+					# spikeinterface_extract.load_spikeinterface_analyzers). Force
+					# False here so any lingering inputs.include_concat=True from
+					# legacy YAML can't re-enable the dead path.
+					include_concat=False,
 					include_segments=bool(inputs.include_segments),
 					require_concat=bool(inputs.require_concat_analyzer),
 					require_segments=bool(inputs.require_segment_analyzers),

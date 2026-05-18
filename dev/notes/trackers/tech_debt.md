@@ -109,6 +109,22 @@ broken behavior) and `roadmap.md` (which is new ambitions).
   of the cases where it's currently required.
 - **See also**: see `debug/trackers/issues.md` "NAS mount … stale".
 
+### Remove concat analyzer plumbing from recon stage
+- **Status**: open (production path already force-disabled this turn)
+- **Tags**: dead-code, repo-footprint, recon
+- **Where**: 287 references across:
+  - `src/axon_recon/pipeline/stages/reconstruct/templates/integrations/spikeinterface_extract.py` (~132 hits — `concat_analyzer_relpath`, `concat_sorting_relpath`, `concat_policy`, `concat_use_existing_analyzer`, `concat_build_if_missing`, `_build_concat_analyzer_from_sorting_and_recording`, `concat_analyzer_obj`, every "concat" branch in `load_spikeinterface_analyzers`)
+  - `templates/runner.py` (~49 hits)
+  - `templates/config.py` (~44 hits — `concat_phase_cfg`, `legacy_include_concat`, every `concat` sub-block parse)
+  - `templates/core/merge.py` (~15 hits — `materialize_templates_from_spikeinterface`'s `concat_analyzer` selection)
+  - `templates/models/inputs.py` (~6 hits — dataclass fields `include_concat`, `require_concat_analyzer`, `concat_*_relpath`, `preprocessed_concat_reldir`)
+  - `phases/analyzers.py` (~33 hits — phase config builder for the `concat` sub-block)
+  - `phases/build_templates.py` (~8 hits)
+  - tests under `templates/tests/` (~11+ tests that still pin `include_concat=True` and assert concat-loading behavior)
+- **Why it's debt**: the concat analyzer was built by `spikesort.concat_analyzer` BEFORE `merge_SLAy` mutated `sorter_output` in place, so its embedded sorting captured pre-SLAy unit IDs. When recon's templates phase used `analyzers[0].sorting.unit_ids` as the authoritative unit list, it iterated pre-SLAy IDs, and the downstream label filter against the post-SLAy `cluster_KSLabel.tsv` silently dropped absorbed-by-merge IDs → systematic post-merge template undercount. This turn (commit pending) force-disables `include_concat` at every recon production wrapper (`_iter_templates_phase_analyzers`, `_load_templates_phase_analyzers`, `materialize_templates_from_spikeinterface` call sites) and flips the YAML legacy default from `True` to `False`, but leaves the parameter plumbing in place so the tests still pass.
+- **Suggested cleanup**: delete every concat-related parameter, dataclass field, YAML config builder, and code branch listed above. Update tests: keep ones that exercise segment-only behavior (drop the `include_concat=True` kwarg), delete ones whose entire purpose is asserting concat-loading outcomes (`test_load_spikeinterface_analyzers_builds_dense_concat_from_sorting_and_preprocessed_concat`, `test_load_spikeinterface_analyzers_rebuilds_concat_without_reusing_existing_analyzer`, etc.). The `spikesort.concat_analyzer` PHASE upstream of recon is a separate concern — that phase still builds a concat analyzer file on disk, even though recon ignores it; whether to also delete the spikesort.concat_analyzer phase belongs in the "Finalize the phase roster" decision doc above. Touch is L (a few hundred mechanical line deletions + ~6 tests dropped, no algorithmic change). Worth its own scoped plan.
+- **See also**: the bombcell pass2 KS-extractor inner-join bug in `roadmap.md` ("Post-templates bombcell + SLAy pass") describes a related artifact-management issue: SLAy mutates `cluster_KSLabel.tsv` / `cluster_group.tsv` but not `cluster_Amplitude.tsv` / `cluster_ContamPct.tsv`, so loaders that inner-join those TSVs end up with the pre-merge unit set. Both bugs trace to the same root: assuming the `cluster_*.tsv` family is a coherent post-merge view when SLAy only updates some of it.
+
 ### Minimize / eliminate `resources.profiles` in favor of srun / MPI / native affinity
 - **Status**: open
 - **Tags**: obsolete-config, duplicate-logic, infra

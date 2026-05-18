@@ -2068,6 +2068,19 @@ def load_spikeinterface_analyzers(
 	return_stats: bool = False,
 ) -> Any:
 	import spikeinterface.full as si  # type: ignore[import-not-found]
+	# NOTE: this low-level loader can still load concat analyzers if asked,
+	# because tests pin its API. The recon production pipeline disables
+	# include_concat at the wrapper boundary (_iter_templates_phase_analyzers,
+	# _load_templates_phase_analyzers, materialize_templates_from_spikeinterface)
+	# so no recon code path requests concat. Concat analyzers built by
+	# spikesort.concat_analyzer captured pre-SLAy unit IDs (the phase runs
+	# before merge_SLAy mutates sorter_output) and using them as the
+	# unit-id source in recon caused systematic post-merge template
+	# undercount. Segment analyzers are registered against the canonical
+	# (post-SLAy) sorting via read_kilosort at recon runtime, so they're
+	# the authoritative source. Full removal of the dead concat code paths
+	# and tests is tracked in dev/notes/trackers/tech_debt.md
+	# ("Remove concat analyzer plumbing from recon stage").
 	requested_names: set[str] | None = None
 	if requested_source_names is not None:
 		requested_names = {

@@ -1870,7 +1870,14 @@ def parse_reconstruct_templates_config(
 	spk_tpl_sources.update(stage_spikeinterface_cfg)
 	spk_tpl_extract = spk_tpl_sources.get("template_extraction", {}) if isinstance(spk_tpl_sources.get("template_extraction", {}), dict) else {}
 	spk_tpl_extract_sources = spk_tpl_extract.get("sources", {}) if isinstance(spk_tpl_extract.get("sources", {}), dict) else {}
-	legacy_include_concat = _as_bool(spk_tpl_extract_sources.get("include_concat", True), True)
+	# Default is False: the recon stage no longer consumes a concat analyzer.
+	# Segment analyzers registered against the canonical post-SLAy sorting
+	# are the authoritative source of unit IDs + template sources. Any YAML
+	# that explicitly sets analyzers.concat.enabled=true (or the legacy
+	# inputs.spikeinterface.template_extraction.sources.include_concat=true)
+	# will trigger a hard error at load_spikeinterface_analyzers entry, since
+	# the loader's concat code path has been retired.
+	legacy_include_concat = _as_bool(spk_tpl_extract_sources.get("include_concat", False), False)
 	legacy_include_segments = _as_bool(spk_tpl_extract_sources.get("include_segments", True), True)
 	legacy_require_concat_analyzer = _as_bool(
 		spk_tpl_extract_sources.get(
