@@ -247,6 +247,18 @@ def _short_h5(raw_h5: Path) -> str:
 	return raw_h5.name
 
 
+def _chip_from_short_label(short_label: str) -> str:
+	"""Extract the chip id (middle component) from a `<date>/<chip>/<rec>` label.
+
+	Returns the original label when the layout doesn't match — keeps sort
+	keys total without erroring on non-canonical paths.
+	"""
+	parts = str(short_label).split("/")
+	if len(parts) >= 3:
+		return parts[1]
+	return str(short_label)
+
+
 def _iter_included_datasets(data_cfg: dict, target_datasets: set[int] | None) -> Iterable[tuple[int, dict]]:
 	for i, dataset in enumerate(data_cfg.get("datasets", []) or []):
 		if not isinstance(dataset, dict):
@@ -728,13 +740,18 @@ def _format_skip_annotation(well: WellStatus) -> str:
 	return "; ".join(parts)
 
 
-def format_default_tables(report: StatusReport) -> str:
+def format_default_tables(report: StatusReport, *, sort_by: str = "dataset") -> str:
 	"""Per-stage table: dataset × wells (ok/total + missing well list + skip flags).
 
 	The trailing `skipped_wells` column lists wells whose marker file says
 	`status="skipped"`. An `(ok)` tag follows known-acceptable reasons
 	(e.g. `no_qualifying_units`); `(!!)` flags reasons outside the
 	allowlist so the operator can decide whether to exclude the well.
+
+	``sort_by``: ``"dataset"`` (default — preserves the data-config order) or
+	``"chip-well"`` (groups datasets by chip id, then orders within a chip
+	by DIV and dataset index — useful for reading down one chip's evolution
+	over time without hopping rows).
 	"""
 	lines: list[str] = []
 	lines.append(f"# status scan vs {report.output_root}")
@@ -776,7 +793,17 @@ def format_default_tables(report: StatusReport) -> str:
 		incomplete_count = 0
 		skip_count = 0
 		unacceptable_skip_count = 0
-		for dataset in stage.datasets:
+		datasets_iter = stage.datasets
+		if str(sort_by) == "chip-well":
+			datasets_iter = sorted(
+				stage.datasets,
+				key=lambda d: (
+					_chip_from_short_label(d.short_label),
+					d.div if d.div is not None and d.div >= 0 else -1,
+					int(d.index),
+				),
+			)
+		for dataset in datasets_iter:
 			total = len(dataset.wells)
 			ok = sum(1 for well in dataset.wells if well.stage_done)
 			missing = [well.well_id for well in dataset.wells if not well.stage_done]
@@ -831,10 +858,17 @@ def format_default_tables(report: StatusReport) -> str:
 	return "\n".join(lines)
 
 
-def format_verbose_tables(report: StatusReport) -> str:
+def format_verbose_tables(report: StatusReport, *, sort_by: str = "dataset") -> str:
 	"""Per-stage table expanded to one row per (dataset, well) with a numbered
 	phase legend. Each row's ``phases`` column is a compact glyph string where
 	position N corresponds to phase N in the legend (1-indexed).
+
+	``sort_by``: ``"dataset"`` (default — dataset-major, all wells of dataset 0
+	then dataset 1, etc.) or ``"chip-well"`` (well-major within chip — group
+	rows by ``(chip_id, well_id)`` and order each group by DIV / dataset
+	index, so each chip-well's evolution over time reads down consecutive
+	rows). Useful for visually watching unit counts grow/shrink for a single
+	chip-well as the recording sequence progresses.
 	"""
 	lines: list[str] = []
 	lines.append(f"# status scan vs {report.output_root}")
@@ -864,31 +898,46 @@ def format_verbose_tables(report: StatusReport) -> str:
 			headers += ["ks_labels", "bombcell_labels", "slay_labels"]
 			aligns += ["L", "L", "L"]
 
-		rows: list[list[str]] = []
-		for dataset in stage.datasets:
-			div_str = str(dataset.div) if dataset.div is not None and dataset.div >= 0 else "-"
-			for well in dataset.wells:
-				done_glyph = "✓" if well.stage_done else "·"
-				phase_glyphs = "".join(
-					("✓" if well.phase_done.get(name, False) else "·") for name in phase_names
+		# Flatten to one row per (dataset, well) so we can re-sort the whole
+		# stage by chip/well when --sort-by chip-well is requested.
+		flat: list[tuple[DatasetStatus, WellStatus]] = [
+			(dataset, well)
+			for dataset in stage.datasets
+			for well in dataset.wells
+		]
+		if str(sort_by) == "chip-well":
+			flat.sort(
+				key=lambda pair: (
+					_chip_from_short_label(pair[0].short_label),
+					str(pair[1].well_id),
+					pair[0].div if pair[0].div is not None and pair[0].div >= 0 else -1,
+					int(pair[0].index),
 				)
-				skip_str = _format_skip_annotation(well) if well.has_skips else "-"
-				row: list[str] = [
-					str(dataset.index),
-					div_str,
-					dataset.short_label,
-					well.well_id,
-					done_glyph,
-					phase_glyphs,
-					skip_str,
+			)
+		rows: list[list[str]] = []
+		for dataset, well in flat:
+			div_str = str(dataset.div) if dataset.div is not None and dataset.div >= 0 else "-"
+			done_glyph = "✓" if well.stage_done else "·"
+			phase_glyphs = "".join(
+				("✓" if well.phase_done.get(name, False) else "·") for name in phase_names
+			)
+			skip_str = _format_skip_annotation(well) if well.has_skips else "-"
+			row: list[str] = [
+				str(dataset.index),
+				div_str,
+				dataset.short_label,
+				well.well_id,
+				done_glyph,
+				phase_glyphs,
+				skip_str,
+			]
+			if label_cols:
+				row += [
+					_format_label_column(well.ks_labels),
+					_format_label_column(well.bombcell_labels),
+					_format_label_column(well.slay_labels),
 				]
-				if label_cols:
-					row += [
-						_format_label_column(well.ks_labels),
-						_format_label_column(well.bombcell_labels),
-						_format_label_column(well.slay_labels),
-					]
-				rows.append(row)
+			rows.append(row)
 		lines.extend(_render_aligned_table(headers, rows, aligns=aligns))
 	return "\n".join(lines)
 

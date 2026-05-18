@@ -742,6 +742,7 @@ def _run_status_from_args(args: argparse.Namespace) -> int:
 	target_wells = _parse_target_well_ids_from_args(args)
 	stages = getattr(args, "status_stages", None)
 	verbose = bool(getattr(args, "verbose", False))
+	sort_by = str(getattr(args, "status_sort_by", "dataset"))
 	report = status_module.scan_status(
 		Path(str(args.config)).expanduser().resolve(),
 		target_datasets=target_datasets,
@@ -750,9 +751,9 @@ def _run_status_from_args(args: argparse.Namespace) -> int:
 		collect_phases=verbose,
 	)
 	if verbose:
-		print(status_module.format_verbose_tables(report))
+		print(status_module.format_verbose_tables(report, sort_by=sort_by))
 	else:
-		print(status_module.format_default_tables(report))
+		print(status_module.format_default_tables(report, sort_by=sort_by))
 	return 0
 
 
@@ -798,6 +799,18 @@ def _register_status_parser(
 		"--verbose",
 		action="store_true",
 		help="Show per-phase markers per well in addition to the per-dataset rollup",
+	)
+	parser.add_argument(
+		"--sort-by",
+		choices=("dataset", "chip-well"),
+		default="dataset",
+		dest="status_sort_by",
+		help=(
+			"Row ordering. 'dataset' (default) preserves data-config order. "
+			"'chip-well' groups rows by (chip_id, well_id) and orders each "
+			"group by DIV/dataset index so each well's evolution over time "
+			"reads down consecutive rows. Most useful with -v."
+		),
 	)
 	parser.set_defaults(handler=_run_status_from_args)
 
