@@ -2666,10 +2666,6 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 			          outputs:
 			            template:
 			              relpath: canonical/template_plot
-			      reports:
-			        summary_json_relpath: context/custom_reports_summary.json
-			        locations:
-			          enabled: false
 			"""
 		).strip()
 		+ "\n",
@@ -2709,9 +2705,6 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 	assert inputs.execution_upsampling.factor == 3
 	assert inputs.per_unit_outputs.template.relpath == "canonical/template_plot"
 	assert inputs.phases.plot_templates.summary_json_relpath == "context/plot_templates_summary.json"
-
-	assert inputs.phases.reports.summary_json_relpath == "context/custom_reports_summary.json"
-	assert inputs.phases.reports.locations.enabled is False
 
 
 def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_plot_block(tmp_path: Path) -> None:

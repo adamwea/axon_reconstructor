@@ -8,7 +8,6 @@ from .api import (
 	run_reconstruct_templates_per_unit_processing,
 	run_reconstruct_templates_plot_templates,
 	run_reconstruct_templates_report_templates,
-	run_reconstruct_templates_reports,
 	run_reconstruct_templates_resolve_sources,
 )
 
@@ -20,6 +19,5 @@ __all__ = [
 	"run_reconstruct_templates_per_unit_processing",
 	"run_reconstruct_templates_plot_templates",
 	"run_reconstruct_templates_report_templates",
-	"run_reconstruct_templates_reports",
 	"run_reconstruct_templates_resolve_sources",
 ]

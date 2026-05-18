@@ -103,7 +103,6 @@ def test_extract_partial_templates_runs_before_build_templates(monkeypatch, tmp_
 		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
 		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
 		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
-		"templates_reports": "run_reconstruct_templates_reports_phase",
 		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
 		"plot_recons": "run_reconstruct_plot_recons_phase",
 		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",

@@ -46,7 +46,6 @@ from .models.inputs import (
 	TemplateCirclesOverlapControlsConfig,
 	TemplateCirclesPlotConfig,
 	TemplateComputeSimilarityPhaseConfig,
-	TemplateLeafPhaseConfig,
 	TemplatePerUnitProcessingPhaseConfig,
 	TemplatePlotTemplatesV2PhaseConfig,
 	TemplatePlotV2ColorbarConfig,
@@ -56,7 +55,6 @@ from .models.inputs import (
 	TemplatePlotsPhaseConfig,
 	TemplatePropagationOrderingPhaseConfig,
 	TemplateQualityChecksPhaseConfig,
-	TemplateReportsPhaseConfig,
 	TemplateReportTemplatesPhaseConfig,
 	TemplatesAnalyzersPhaseConfig,
 	TemplateScaleCircleConfig,
@@ -87,7 +85,6 @@ DEFAULT_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
 	"compute_template_similarity",
 	"plot_templates",
 	"report_templates",
-	"reports",
 )
 
 _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
@@ -113,7 +110,6 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 	"report_templates": "report_templates",
 	"template_report": "report_templates",
 	"per_unit_processing": "per_unit_processing",
-	"reports": "reports",
 }
 
 _RECONSTRUCT_ONLY_PHASES: frozenset[str] = frozenset(
@@ -3948,7 +3944,6 @@ def parse_reconstruct_templates_config(
 	phase_plot_templates_v2_cfg = _phase_block(phases_cfg, "plot_templates_v2")
 	phase_report_templates_cfg = _phase_block(phases_cfg, "report_templates")
 	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
-	phase_reports_cfg = _phase_block(phases_cfg, "reports")
 	phase_compute_similarity_outputs_cfg = _phase_block(phase_compute_similarity_cfg, "outputs")
 	phase_compute_similarity_matrix_cfg = _phase_block(phase_compute_similarity_outputs_cfg, "matrix")
 	if not phase_compute_similarity_matrix_cfg:
@@ -4184,42 +4179,6 @@ def parse_reconstruct_templates_config(
 		),
 		plots=plot_templates_phase,
 	)
-	reports_phase = TemplateReportsPhaseConfig(
-		enabled=_as_bool(phase_reports_cfg.get("enabled", True), True),
-		summary_json_relpath=str(phase_reports_cfg.get("summary_json_relpath", "context/reports_summary.json")),
-		resource_class=_phase_resource_class(phase_reports_cfg, "reports"),
-		config=reports,
-		locations=TemplateLeafPhaseConfig(
-			enabled=_as_bool(
-				_phase_block(phase_reports_cfg, "locations").get(
-					"enabled",
-					bool(reports.locations.write_json or reports.locations.write_png or reports.locations.write_svg),
-				),
-				bool(reports.locations.write_json or reports.locations.write_png or reports.locations.write_svg),
-			),
-		),
-		wf_overlay_grid=TemplateLeafPhaseConfig(
-			enabled=_as_bool(
-				_phase_block(phase_reports_cfg, "wf_overlay_grid").get(
-					"enabled",
-					bool(reports.wf_overlay_grid.write_pdf or reports.wf_overlay_grid.write_png or reports.wf_overlay_grid.write_svg),
-				),
-				bool(reports.wf_overlay_grid.write_pdf or reports.wf_overlay_grid.write_png or reports.wf_overlay_grid.write_svg),
-			),
-		),
-		footprint_grids=TemplateLeafPhaseConfig(
-			enabled=_as_bool(
-				_phase_block(phase_reports_cfg, "footprint_grids").get("enabled", True),
-				True,
-			),
-		),
-		multi_source_pdf=TemplateLeafPhaseConfig(
-			enabled=_as_bool(
-				_phase_block(phase_reports_cfg, "multi_source_pdf").get("enabled", reports.plot_multi_source_pdf.enabled),
-				reports.plot_multi_source_pdf.enabled,
-			),
-		),
-	)
 	phases = TemplatesPhasesConfig(
 		resolve_sources=resolve_sources_phase,
 		analyzers=analyzers_phase,
@@ -4230,7 +4189,6 @@ def parse_reconstruct_templates_config(
 		plot_templates_v2=plot_templates_v2_phase,
 		report_templates=report_templates_phase,
 		per_unit_processing=per_unit_processing_phase,
-		reports=reports_phase,
 	)
 
 	return ReconstructTemplatesConfig(

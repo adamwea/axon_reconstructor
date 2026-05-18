@@ -85,7 +85,6 @@ from .stages.reconstruct.api import (
 	run_reconstruct_templates_plot_templates,
 	run_reconstruct_templates_plot_templates_v2,
 	run_reconstruct_templates_report_templates,
-	run_reconstruct_templates_reports,
 	run_reconstruct_templates_resolve_sources,
 )
 from .stages.reconstruct.config import (
@@ -542,8 +541,6 @@ def _reconstruct_runtime_phase_resource_classes(
 			"templates_plot_templates_v2",
 			"report_templates",
 			"templates_report_templates",
-			"reports",
-			"templates_reports",
 		}
 		if direct_phase_name in template_phase_names:
 			if reconstruct_templates_config is None:
@@ -4961,37 +4958,6 @@ def run_reconstruct_templates_report_templates_from_runtime(
 		config_path=config_path,
 		stage_name="reconstruct.report_templates",
 		runner_fn=run_reconstruct_templates_report_templates,
-		unit_id_override=unit_id_override,
-		unit_ids_override=unit_ids_override,
-		unit_limit_override=unit_limit_override,
-		limit_segments_override=limit_segments_override,
-		limit_datasets_override=limit_datasets_override,
-		target_datasets_override=target_datasets_override,
-		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-		task_allocation_override=task_allocation_override,
-	)
-
-
-def run_reconstruct_templates_reports_from_runtime(
-	*,
-	config_path: str,
-	unit_id_override: int | None = None,
-	unit_ids_override: list[int] | None = None,
-	unit_limit_override: int | None = None,
-	limit_segments_override: int | None = None,
-	limit_datasets_override: int | None = None,
-	target_datasets_override: list[int] | None = None,
-	limit_wells_per_dataset_override: int | None = None,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-	task_allocation_override: dict[str, Any] | None = None,
-) -> MultiTargetStageResult:
-	return _run_reconstruct_substage_from_runtime(
-		config_path=config_path,
-		stage_name="reconstruct.reports",
-		runner_fn=run_reconstruct_templates_reports,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,

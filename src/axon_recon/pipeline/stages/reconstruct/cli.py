@@ -22,7 +22,6 @@ from ...runner import (
 	run_reconstruct_templates_plot_templates_from_runtime,
 	run_reconstruct_templates_plot_templates_v2_from_runtime,
 	run_reconstruct_templates_report_templates_from_runtime,
-	run_reconstruct_templates_reports_from_runtime,
 	run_reconstruct_templates_resolve_sources_from_runtime,
 )
 
@@ -253,10 +252,6 @@ def _run_reconstruct_plot_templates_v2_from_args(args: argparse.Namespace) -> in
 
 def _run_reconstruct_report_templates_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(run_reconstruct_templates_report_templates_from_runtime(**_reconstruct_runtime_kwargs(args)))
-
-
-def _run_reconstruct_reports_from_args(args: argparse.Namespace) -> int:
-	return _print_reconstruct_aggregate(run_reconstruct_templates_reports_from_runtime(**_reconstruct_runtime_kwargs(args)))
 
 
 def _run_generate_gtrs_from_args(args: argparse.Namespace) -> int:

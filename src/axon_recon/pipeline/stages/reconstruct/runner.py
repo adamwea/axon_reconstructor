@@ -121,7 +121,6 @@ DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"templates_compute_template_similarity",
 	"templates_plot_templates",
 	"templates_report_templates",
-	"templates_reports",
 	"generate_gtrs",
 	"plot_recons",
 	"plot_branch_propagations",
@@ -1264,16 +1263,6 @@ def run_reconstruct_templates_report_templates_phase(inputs: ReconstructionInput
 	return run_reconstruct_templates_report_templates_phase(inputs.templates_inputs)
 
 
-def run_reconstruct_templates_reports_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.reports import (
-		run_reconstruct_templates_reports_phase,
-	)
-
-	if inputs.templates_inputs is None:
-		raise ValueError("reconstruct.templates_reports requires templates_inputs to be populated on ReconstructionInputs")
-	return run_reconstruct_templates_reports_phase(inputs.templates_inputs)
-
-
 def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
 	from axon_recon.pipeline.stages.reconstruct.phases.clear_templates_cache import (
 		run_reconstruct_clear_templates_cache_phase,
@@ -1377,8 +1366,6 @@ def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 		"templates.plot_templates_v2": "templates_plot_templates_v2",
 		"report_templates": "templates_report_templates",
 		"templates.report_templates": "templates_report_templates",
-		"reports": "templates_reports",
-		"templates.reports": "templates_reports",
 		"clear_cache": "clear_templates_cache",
 		"plot_reconstructions": "plot_recons",
 		"report_reconstructions": "report_recons",
@@ -1409,8 +1396,6 @@ def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: s
 		return bool(False if phase_cfg is None else phase_cfg.enabled)
 	if phase == "templates_report_templates":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.report_templates.enabled)
-	if phase == "templates_reports":
-		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.reports.enabled)
 	if phase == "generate_gtrs":
 		return bool(inputs.phases.generate_gtrs.enabled)
 	if phase == "plot_recons":
@@ -1469,8 +1454,6 @@ def _reconstruct_stage_phase_resource_class(inputs: ReconstructionInputs, phase_
 		return _resource_class(phase_cfg)
 	if phase == "templates_report_templates":
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.report_templates)
-	if phase == "templates_reports":
-		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.reports)
 	if phase == "generate_gtrs":
 		return _resource_class(inputs.phases.generate_gtrs)
 	if phase == "plot_recons":
@@ -1505,7 +1488,6 @@ def _display_reconstruct_stage_phase_name(phase_name: str) -> str:
 		"templates_plot_templates": "plot_templates",
 		"templates_plot_templates_v2": "plot_templates_v2",
 		"templates_report_templates": "report_templates",
-		"templates_reports": "reports",
 	}
 	return str(aliases.get(phase, phase))
 
@@ -1551,8 +1533,6 @@ def _reconstruct_stage_phase_runner(phase_name: str):
 		return run_reconstruct_templates_plot_templates_v2_phase
 	if phase == "templates_report_templates":
 		return run_reconstruct_templates_report_templates_phase
-	if phase == "templates_reports":
-		return run_reconstruct_templates_reports_phase
 	if phase == "generate_gtrs":
 		return run_reconstruct_generate_gtrs_phase
 	if phase == "plot_recons":

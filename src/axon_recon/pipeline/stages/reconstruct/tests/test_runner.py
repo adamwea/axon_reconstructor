@@ -67,7 +67,6 @@ from axon_recon.pipeline.stages.reconstruct.runner import (
 	run_reconstruct_templates_plot_templates_phase,
 	run_reconstruct_templates_plot_templates_v2_phase,
 	run_reconstruct_templates_report_templates_phase,
-	run_reconstruct_templates_reports_phase,
 	run_reconstruct_templates_resolve_sources_phase,
 )
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import (
@@ -264,7 +263,6 @@ def test_reconstruct_phase_resolver_handles_templates_phases() -> None:
 	assert _normalize_reconstruct_stage_phase_name("plot_templates_v2") == "templates_plot_templates_v2"
 	assert _reconstruct_stage_phase_runner("templates_plot_templates_v2") is run_reconstruct_templates_plot_templates_v2_phase
 	assert _reconstruct_stage_phase_runner("templates_report_templates") is run_reconstruct_templates_report_templates_phase
-	assert _reconstruct_stage_phase_runner("templates_reports") is run_reconstruct_templates_reports_phase
 	assert _reconstruct_stage_phase_runner("report_recon_grid") is run_reconstruct_report_recon_grid_phase
 	assert _reconstruct_stage_phase_runner("clear_templates_cache") is run_reconstruct_clear_templates_cache_phase
 
@@ -323,7 +321,6 @@ def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path
 		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
 		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
 		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
-		"templates_reports": "run_reconstruct_templates_reports_phase",
 		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
 		"plot_recons": "run_reconstruct_plot_recons_phase",
 		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",
@@ -413,7 +410,6 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
 		"templates_plot_templates": "run_reconstruct_templates_plot_templates_phase",
 		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
-		"templates_reports": "run_reconstruct_templates_reports_phase",
 		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
 		"plot_recons": "run_reconstruct_plot_recons_phase",
 		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",

@@ -24,7 +24,6 @@ from axon_recon.pipeline.runner import (
     run_reconstruct_templates_compute_template_similarity_from_runtime,
     run_reconstruct_templates_plot_templates_from_runtime,
     run_reconstruct_templates_report_templates_from_runtime,
-    run_reconstruct_templates_reports_from_runtime,
     run_reconstruct_templates_resolve_sources_from_runtime,
 )
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
@@ -473,12 +472,6 @@ def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(m
             "reconstruct.report_templates",
             "report_templates",
         ),
-        (
-            run_reconstruct_templates_reports_from_runtime,
-            "run_reconstruct_templates_reports",
-            "reconstruct.reports",
-            "reports",
-        ),
     ],
 )
 def test_run_reconstruct_phase_from_runtime_marks_target_ok(
@@ -629,7 +622,6 @@ def test_run_reconstruct_analyzers_from_runtime_accepts_non_unit_phase_result(mo
         (run_reconstruct_templates_compute_template_similarity_from_runtime, "reconstruct.compute_template_similarity"),
         (run_reconstruct_templates_plot_templates_from_runtime, "reconstruct.plot_templates"),
         (run_reconstruct_templates_report_templates_from_runtime, "reconstruct.report_templates"),
-        (run_reconstruct_templates_reports_from_runtime, "reconstruct.reports"),
         (run_reconstruct_generate_gtrs_from_runtime, "reconstruct.generate_gtrs"),
         (run_reconstruct_plot_recons_from_runtime, "reconstruct.plot_recons"),
         (run_reconstruct_plot_branch_propagations_from_runtime, "reconstruct.plot_branch_propagations"),

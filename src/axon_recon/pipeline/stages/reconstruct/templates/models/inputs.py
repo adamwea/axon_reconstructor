@@ -460,23 +460,6 @@ class TemplatePerUnitProcessingPhaseConfig:
 
 
 @dataclass(frozen=True)
-class TemplateLeafPhaseConfig:
-	enabled: bool = True
-
-
-@dataclass(frozen=True)
-class TemplateReportsPhaseConfig:
-	enabled: bool = True
-	summary_json_relpath: str = "context/reports_summary.json"
-	resource_class: str | None = None
-	config: "ReportsConfig" = field(default_factory=lambda: ReportsConfig())
-	locations: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
-	wf_overlay_grid: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
-	footprint_grids: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
-	multi_source_pdf: TemplateLeafPhaseConfig = field(default_factory=TemplateLeafPhaseConfig)
-
-
-@dataclass(frozen=True)
 class FootprintMapConfig:
 	write_png: bool = True
 	write_svg: bool = False
@@ -1011,7 +994,6 @@ class TemplatesPhasesConfig:
 	per_unit_processing: TemplatePerUnitProcessingPhaseConfig = field(
 		default_factory=TemplatePerUnitProcessingPhaseConfig
 	)
-	reports: TemplateReportsPhaseConfig = field(default_factory=TemplateReportsPhaseConfig)
 
 
 @dataclass(frozen=True)

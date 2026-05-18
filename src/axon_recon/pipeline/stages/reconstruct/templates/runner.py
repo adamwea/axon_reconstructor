@@ -104,7 +104,6 @@ DEFAULT_INTERNAL_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
 	"compute_template_similarity",
 	"plot_templates",
 	"report_templates",
-	"reports",
 )
 
 
@@ -927,8 +926,6 @@ def run_reconstruct_templates_pipeline(inputs: TemplatesInputs) -> TemplatesResu
 			return _resource_class(getattr(inputs.phases, "plot_templates_v2", None))
 		if phase == "report_templates":
 			return _resource_class(inputs.phases.report_templates)
-		if phase == "reports":
-			return _resource_class(inputs.phases.reports)
 		if phase == "per_unit_processing":
 			return _resource_class(inputs.phases.per_unit_processing)
 		return None
@@ -1013,8 +1010,6 @@ def _reconstruct_templates_phase_enabled(inputs: TemplatesInputs, phase_name: st
 		return bool(False if phase_cfg is None else phase_cfg.enabled)
 	if phase == "report_templates":
 		return bool(phases.report_templates.enabled)
-	if phase == "reports":
-		return bool(phases.reports.enabled)
 	if phase == "per_unit_processing":
 		return bool(phases.per_unit_processing.enabled)
 	return False
@@ -1036,8 +1031,6 @@ def _reconstruct_templates_phase_runner(phase_name: str) -> Callable[[TemplatesI
 		return run_reconstruct_templates_plot_templates_v2_phase
 	if phase == "report_templates":
 		return run_reconstruct_templates_report_templates_phase
-	if phase == "reports":
-		return run_reconstruct_templates_reports_phase
 	if phase == "per_unit_processing":
 		return run_reconstruct_templates_per_unit_processing_phase
 	raise ValueError(f"Unknown templates phase: {phase_name!r}")
@@ -2136,14 +2129,6 @@ def run_reconstruct_templates_per_unit_processing_phase(inputs: TemplatesInputs)
 	)
 
 	return run_reconstruct_templates_per_unit_processing_phase(inputs)
-
-
-def run_reconstruct_templates_reports_phase(inputs: TemplatesInputs, *, report_scope: str | None = None) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.reports import (
-		run_reconstruct_templates_reports_phase,
-	)
-
-	return run_reconstruct_templates_reports_phase(inputs, report_scope=report_scope)
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
