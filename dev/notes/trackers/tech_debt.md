@@ -143,3 +143,60 @@ broken behavior) and `roadmap.md` (which is new ambitions).
 - **See also**: commit `c205d14` (added `--profile` override as a workaround);
   `dev/debug_NERSC/jobs/sans_bombcell_rerun/sbatches/*.sbatch` (every sbatch
   currently has to redundantly pass `--profile perlmutter_gpu`).
+
+### Collapse `--force-restart` semantics to "delete the relevant output folder, full stop"
+- **Status**: open
+- **Tags**: duplicate-logic, obsolete-config, repo-footprint, ergonomics
+- **Where**: every stage runner's force-restart handling. Today's hotspots:
+  - `src/axon_recon/pipeline/stages/spikesort/runner.py` —
+    `_cleanup_spikesort_outputs_for_force_restart` (explicit allowlist of
+    dirs/files), plus per-phase `*_delete_outputs_on_force_restart` flags
+    (`bootstrap_concat_binary_overwrite_on_force_restart`,
+    `sort_delete_outputs_on_force_restart`,
+    `bombcell_label_delete_outputs_on_force_restart`,
+    `slay_delete_outputs_on_force_restart`,
+    `merge_delete_outputs_on_force_restart`,
+    `slay_force_restart_retrain_model`, …) scattered across `runner.py` and
+    the YAML.
+  - Equivalent per-phase flags + per-phase cleanup heuristics in
+    `stages/preprocess/runner.py`, `stages/reconstruct/runner.py`,
+    `stages/analysis/runner.py`.
+  - `force_replot` is a sibling escape hatch with its own partial-cleanup
+    semantics; same blast radius.
+- **Why it's debt**: today, `--force-restart` means N different things
+  depending on which phase reads which YAML flag. Some phases delete only
+  some sub-paths, some preserve "partial" caches (model caches, snapshot dirs,
+  per-segment intermediates) and try to resume from them, some honor the flag
+  only when a sibling phase also writes a marker. The complexity has produced
+  a stream of "stale leftover artifact" bugs (e.g. `bombcell_label_outputs/`
+  surviving a `--force-restart` and contaminating the SLAy status reporter)
+  and the per-phase YAML flags duplicate information the stage's
+  `phase_sequence` already implies. Net result: users can't trust
+  `--force-restart` to actually start over, and contributors have to read
+  ~5 different cleanup helpers to know what a flag actually does.
+- **Suggested cleanup**: enforce the simplest possible rule everywhere:
+  - **Stage force-restart for a well** → `rmtree(<well>/<stage_output_root>/)`
+    before anything else runs, then proceed. No exceptions, no "preserve
+    cache".
+  - **Phase force-restart for a well** → `rmtree(<well>/<stage_output_root>/<phase_output_dir>/)`
+    before the phase runs. The phase output dir is whatever the phase's
+    `rel_output_root` / `relpath` resolves to.
+  - Anything more clever (partial restarts, per-step caches kept across
+    force-restart, "force-restart but only the model retrain") gets DELETED
+    from code, the YAML, and the tests. No fallback paths. No backward-compat
+    shims. Phases that need a fresh cache just rebuild it from scratch every
+    time — disk I/O is the right tax for the simplicity dividend.
+  - `force_replot` likely gets the same treatment (collapse into
+    force-restart-with-a-flag or remove entirely).
+  - Delete every `*_delete_outputs_on_force_restart` / `*_overwrite_on_force_restart`
+    YAML knob and every `getattr(stage_config, "..._on_force_restart", ...)`
+    call site. The phase output dir IS the unit of restart granularity.
+- **Touch size**: L. Hits 4 stage runners + all stage YAMLs + tests. Tests
+  asserting partial-restart behavior should be deleted, not migrated. Worth
+  scoping a plan; ordering hint: do this AFTER the `debug_mode` YAML cleanup
+  (above) so we're not editing the same YAML blocks twice.
+- **See also**: today's commit on `_cleanup_spikesort_outputs_for_force_restart`
+  expanded the allowlist as a stopgap; that whole function should go away when
+  this lands. The stale-bombcell SLAy mtime fallback in
+  `status._read_slay_label_column` (`bc_is_fresh`) becomes dead code once
+  force-restart actually cleans the stage dir — drop it too.
