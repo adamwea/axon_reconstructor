@@ -385,7 +385,7 @@ def _build_segment_analyzer_from_preprocessed_recording(
 	if sorting is None and concat_analyzer is not None:
 		sorting = getattr(concat_analyzer, "sorting", None)
 	if sorting is None:
-		LOGGER.info("Skipping segment analyzer build: concat sorting unavailable for segment=%s", str(seg_name))
+		LOGGER.info("Skipping segment analyzer build: canonical sorting unavailable for segment=%s", str(seg_name))
 		return None
 
 	try:
@@ -2350,6 +2350,14 @@ def load_spikeinterface_analyzers(
 	concat_selection_logged = False
 
 	def _load_concat_sorting_for_segment_registration() -> Any | None:
+		# Loads the canonical post-merge sorting used to register every segment
+		# analyzer. Despite the legacy "concat" naming, this sorting is just
+		# "the canonical sorting" for this well — typically the kilosort folder
+		# that bombcell / merge_SLAy mutated in place. We try, in order:
+		#   1. si.read_sorter_folder   — SI-managed sort output (needs spikeinterface_log.json)
+		#   2. si.load_sorting         — generic SI sorting folder (numpysorting / si_folder)
+		#   3. si.extractors.read_kilosort — raw kilosort folder (no SI metadata needed);
+		#      this is the path that lights up for our canonical sorter_output.
 		nonlocal concat_sorting_obj
 		if concat_sorting_obj is not None:
 			return concat_sorting_obj
@@ -2361,12 +2369,12 @@ def load_spikeinterface_analyzers(
 			if concat_sorting_obj is not None:
 				return concat_sorting_obj
 		if concat_sorting_dir is None:
-			LOGGER.info("Concat sorting unavailable for segment registration: concat sorting path is not configured")
+			LOGGER.info("Canonical sorting unavailable for segment registration: sorting path is not configured")
 			return None
 		if not concat_sorting_dir.exists():
-			LOGGER.info("Concat sorting unavailable for segment registration: path missing: %s", str(concat_sorting_dir))
+			LOGGER.info("Canonical sorting unavailable for segment registration: path missing: %s", str(concat_sorting_dir))
 			return None
-		LOGGER.info("Loading concat sorting for segment registration: %s", str(concat_sorting_dir))
+		LOGGER.info("Loading canonical sorting for segment registration: %s", str(concat_sorting_dir))
 		read_sorter_folder = getattr(si, "read_sorter_folder", None)
 		if callable(read_sorter_folder):
 			try:
@@ -2386,10 +2394,31 @@ def load_spikeinterface_analyzers(
 				except Exception:
 					concat_sorting_obj = None
 		if concat_sorting_obj is None:
-			LOGGER.warning("Failed to load concat sorting for segment registration: %s", str(concat_sorting_dir))
+			# Kilosort folder fallback: sorter_output/ is the canonical post-merge
+			# sorting in our pipeline but lacks spikeinterface_log.json. SI's
+			# kilosort extractor reads the raw .npy files directly.
+			try:
+				from spikeinterface.extractors import read_kilosort as _read_kilosort  # type: ignore[import-not-found]
+			except Exception:
+				_read_kilosort = None
+			if _read_kilosort is None:
+				extractors_mod = getattr(si, "extractors", None)
+				_read_kilosort = getattr(extractors_mod, "read_kilosort", None) if extractors_mod is not None else None
+			if callable(_read_kilosort):
+				try:
+					concat_sorting_obj = _read_kilosort(concat_sorting_dir)
+				except Exception:
+					LOGGER.warning(
+						"read_kilosort fallback failed for canonical sorting: %s",
+						str(concat_sorting_dir),
+						exc_info=True,
+					)
+					concat_sorting_obj = None
+		if concat_sorting_obj is None:
+			LOGGER.warning("Failed to load canonical sorting for segment registration: %s", str(concat_sorting_dir))
 			return None
 		load_stats["concat"]["sorting_loaded_for_segment_registration"] = True
-		LOGGER.info("Loaded concat sorting for segment registration: %s", str(concat_sorting_dir))
+		LOGGER.info("Loaded canonical sorting for segment registration: %s", str(concat_sorting_dir))
 		return concat_sorting_obj
 
 	def _ensure_concat_analyzer_loaded(*, register_requested_source: bool) -> Any | None:
@@ -2708,7 +2737,7 @@ def load_spikeinterface_analyzers(
 				)
 		elif unloadable_seg_dirs and concat_analyzer_obj is None and concat_sorting_obj is None:
 			LOGGER.info(
-				"Segment fallback build skipped: concat sorting unavailable for source_dir=%s",
+				"Segment fallback build skipped: canonical sorting unavailable for source_dir=%s",
 				str(segments_dir),
 			)
 	if include_segments and (not segments_dir.exists()) and (len([k for k in cached_analyzers.keys() if k != "concat"]) == 0):

@@ -23,8 +23,13 @@ env:
     conda_env_name: axon_recon
 
 resources:
-  active_profile: perlmutter_cpu
-  #active_profile: perlmutter_gpu
+  # Default profile used when no CLI override is given. GPU is the more permissive
+  # default — recon/preproc sbatches override to perlmutter_cpu via --profile.
+  # If you switch this back to perlmutter_cpu, double-check that every GPU sbatch
+  # passes --profile perlmutter_gpu, otherwise spikesort.sort will gate-deadlock
+  # on gpu_sort_slots=0 (was the ds4 timeout root cause).
+  #active_profile: perlmutter_cpu
+  active_profile: perlmutter_gpu
   container_caps:
     #shm_size: 8g # Docker /dev/shm cap for axon-recon-container; raise this for parallel analyzer runs, or set to null to stop forcing --shm-size.
     shm_size: 24g # increase Docker /dev/shm cap for axon-recon-container to 16 GB to support more parallel analyzer runs and reduce the likelihood of out-of-shm errors during memory-intensive analysis phases; adjust as needed based on the expected memory usage of your analyzers and the degree of parallelism you want to enable, or set to null to stop forcing --shm-size.
@@ -1075,7 +1080,8 @@ stages:
             ae_pre: 10
             ae_post: 30
             #ae_chan: 8 #
-            ae_chan: 300
+            #ae_chan: 300 # oom in some cases on NERSC, which is pretty insane.
+            ae_chan: 150
             ae_noise: true
             ae_shft: false #
             #ae_epochs: 10
@@ -1257,89 +1263,69 @@ stages:
         write_json: true # Optional write of resolve summary JSON under templates output root.
         json_relpath: context/resolve_sources_summary.json
       analyzers:
+        # ====================================================================
+        # SEGMENT-ONLY analyzer phase.
+        #
+        # Build one SpikeInterface analyzer per preprocessed segment recording.
+        # Concat analyzers are NOT built or consumed in the recon stage. The
+        # only thing the recon stage needs from spikesort is the canonical
+        # sorting (sorter_output/). Whether or not bombcell / merge_SLAy ran
+        # upstream is irrelevant here — the canonical sorting is the source
+        # of truth regardless of which post-processing phases mutated it.
+        #
+        # Each segment analyzer is registered against TWO inputs:
+        #
+        #   Input 1: preprocessed segment recording
+        #     One JSON per segment under preprocessed_sources_reldir.
+        #     Loaded with si.load_extractor / si.load.
+        #
+        #   Input 2: canonical sorting for the well
+        #     The kilosort folder at sorting_relpath. Loaded via
+        #     si.read_sorter_folder → si.load_sorting → si.extractors.read_kilosort
+        #     (in that order); the read_kilosort fallback is what makes us
+        #     resilient to missing spikeinterface_log.json markers and to
+        #     in-place mutations from bombcell / SLAy.
+        #     Per-segment spike trains are sliced out of this single-segment
+        #     concat sorting using preprocess_outputs/contiguous_epochs.json.
+        # ====================================================================
         enabled: true
         resource_class: spikeinterface_analyzer_segment
         summary_json_relpath: context/analyzers_summary.json
-        defaults:
-          # Job controls applied when templates needs to recompute analyzer
-          # extensions locally (segment and/or concat analyzers in this stage).
-          # Setting n_jobs: null inherits the resolved per-task CPU budget
-          # from the active task profile (cpus_per_task — e.g. 16 on
-          # perlmutter_cpu / perlmutter_gpu). Set an explicit integer to
-          # override. Under the MPI backend every rank gets its own budget
-          # context and resolves this independently → PER-RANK n_jobs.
-          n_jobs: null
-          #chunk_duration: 1s
-          waveforms:
-            ms_before: 2
-            ms_after: 5
-            #dtype: float32
-          template_extraction:
-            # null or -1 means uncapped (use all available spikes per unit per source)
-            max_spikes_per_unit: -1
-            # uniform samples spikes randomly; all disables random subsampling for template extraction.
-            #random_spikes_method: all
-            random_spikes_percentage: 25
-            #min_spikes_per_unit: 250
-            #margin_size: 0
-            random_seed: 0
-            log_before_after_spike_counts: true
-          sparsity:
-            # false means rebuild/use a dense analyzer payload when templates has to prepare one locally.
-            compute_sparsity: false
-            method: radius
-            radius_um: 100.0
-            peak_sign: neg
-            num_spikes_for_sparsity: 100
-        concat:
-          enabled: false
-          required: false
-          # Segment-only template extraction path: keep this disabled when spikesort cleans up the concat recording binary.
-          # Segment analyzer registration still uses sorting_relpath below and does not require the concat analyzer.
-          use_existing_analyzer: false
-          # Leave false in segment-only mode; rebuilding a concat analyzer requires the preprocessed concat recording.
-          build_if_missing: false
-          analyzer_relpath: /spikesort_outputs/analyzer_output
-          sorting_relpath: /spikesort_outputs/sorter_output
-          preprocessed_recording_reldir: /preprocess_outputs/preprocessed_recording
-          waveforms:
-            ms_before: 2
-            ms_after: 5
-            #dtype: float32
-          template_extraction:
-            #max_spikes_per_unit: -1
-            #random_spikes_method: all
-            random_spikes_percentage: 25
-            #min_spikes_per_unit: 250
-            #margin_size: 0
-            random_seed: 0
-            log_before_after_spike_counts: true
-          sparsity:
-            compute_sparsity: false
-            method: radius
-            radius_um: 100.0
-            peak_sign: neg
-            num_spikes_for_sparsity: 100
         segments:
           enabled: true
           required: true
-          use_existing_analyzer: true
-          build_if_missing: true
+          use_existing_analyzer: true   # reuse cached segment analyzers when present
+          build_if_missing: true        # rebuild from inputs when cache is empty
+          # Input 1: directory of per-segment recording JSONs
           preprocessed_sources_reldir: /preprocess_outputs/preprocessed_segments
+          # Input 2: canonical sorting (kilosort folder; SI metadata not required)
+          sorting_relpath: /spikesort_outputs/sorter_output
           waveforms:
             ms_before: 2
             ms_after: 5
-            #dtype: float32
           template_extraction:
-            #max_spikes_per_unit: -1
-            #max_spikes_per_unit: 50
-            #random_spikes_method: all # TODO: this also defaults to 25 % for some reason...
-            #random_spikes_percentage: 75
+            # null or -1 means uncapped (use all available spikes per unit per source)
+            max_spikes_per_unit: -1
             random_spikes_percentage: 100
-            #random_spikes_percentage: 10
-            #random_spikes_percentage: 1
-            #min_spikes_per_unit: 250
-            #margin_size: 0
+            random_seed: 0
+            log_before_after_spike_counts: true
+          sparsity:
+            compute_sparsity: false
+            method: radius
+            radius_um: 100.0
+            peak_sign: neg
+            num_spikes_for_sparsity: 100
+        defaults:
+          # Fallback parameters when templates needs to recompute analyzer
+          # extensions locally. n_jobs: null inherits cpus_per_task from
+          # the active task profile (per-rank under MPI).
+          n_jobs: null
+          waveforms:
+            ms_before: 2
+            ms_after: 5
+          template_extraction:
+            max_spikes_per_unit: -1
+            random_spikes_percentage: 25
             random_seed: 0
             log_before_after_spike_counts: true
           sparsity:
@@ -1352,9 +1338,7 @@ stages:
         outputs:
           analyzer_cache:
             enabled: true
-            #relpath: cache/analyzers
             relpath_root: cache/analyzers
-            concat_analyzer_subdir: concat
             segment_analyzers_subdir: segments
             cleanup_on_success: false
       extract_partial_templates:

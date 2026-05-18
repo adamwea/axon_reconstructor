@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=32
 #SBATCH --gpus=1
 #SBATCH --mem=56G
-#SBATCH --time=06:00:00
+#SBATCH --time=04:00:00
 
 # NERSC shared GPU policy: -q shared -C gpu -G N -A <_g acct>, cpus_per_task >= 32 per GPU.
 # Expects IDX and WELL via sbatch --export=ALL,IDX=...,WELL=...
@@ -16,7 +16,9 @@ cd "$REPO_ROOT"
 
 export MPICH_GPU_SUPPORT_ENABLED=1
 
-srun -n 1 -c 32 --cpu-bind=cores --threads-per-core=1 --gpus=1 \
+# srun pins to 16 physical cores (NERSC reserves 32 logical = 16 physical per GPU);
+# srun -c 32 would request 32 physical and fail "More processors requested than permitted".
+srun -n 1 -c 16 --cpu-bind=cores --threads-per-core=1 --gpus=1 \
 	shifter --image=adammwea/axon-recon:pipeline-v2 \
 		axon-recon stages spikesort.merge_SLAy \
 			--config dev/debug_NERSC/debug.runtime.yml \

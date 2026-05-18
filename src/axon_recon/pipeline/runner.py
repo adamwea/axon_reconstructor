@@ -14,6 +14,7 @@ from axon_recon.pipeline.publish import publish_path_to_final, remap_path_string
 from .config import (
 	PipelineRuntimeBundle,
 	load_pipeline_runtime_bundle,
+	parse_resources_config_for_bundle,
 	resolve_stage_parallelism,
 	select_execution_targets,
 )
@@ -340,17 +341,17 @@ def _attach_task_allocation_plan(
 ) -> Any:
 	if not callable(getattr(getattr(bundle, "runtime_config", None), "get", None)):
 		return parallelism
+	# Per-call override (rare) takes precedence over the bundle-stored override.
+	# Both go through parse_resources_config_for_bundle so the resolved profile name
+	# is validated against resources.profiles consistently.
+	if active_profile_override is not None and active_profile_override != getattr(bundle, "active_profile_override", None):
+		effective_bundle = replace(bundle, active_profile_override=str(active_profile_override).strip() or None)
+	else:
+		effective_bundle = bundle
 	try:
-		resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+		resources_config = parse_resources_config_for_bundle(effective_bundle)
 	except Exception:
 		return parallelism
-	if active_profile_override is not None:
-		profile_name = str(active_profile_override).strip()
-		if profile_name not in resources_config.profiles:
-			raise ValueError(
-				f"resources.active_profile references an undefined profile: {profile_name!r}"
-			)
-		resources_config = replace(resources_config, active_profile=profile_name)
 	_active_prof = get_active_profile(resources_config)
 	task_config = _active_prof.task_allocation if _active_prof is not None else TaskAllocationConfig()
 	if task_allocation_override:
@@ -570,7 +571,11 @@ def _build_stage_resource_budget_manager(
 	resolved_phase_resource_classes = _unique_resource_classes(tuple(phase_resource_classes))
 	if not resolved_phase_resource_classes:
 		return None
-	resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+	# parse_resources_config_for_bundle applies the bundle's active_profile_override
+	# (set by --profile / --task-profile CLI flag) so the gate sees the right
+	# capacity numbers. Bypassing this is the root cause of the spikesort_full
+	# gate-deadlock on gpu_sort_slots=0.
+	resources_config = parse_resources_config_for_bundle(bundle)
 	if resources_config.active_profile is None:
 		return None
 	return ResourceBudgetManager(
@@ -638,7 +643,7 @@ def _distribute_runtime_targets(
 	_phase_budgets: dict[str, Any] | None = None
 	if bundle is not None and callable(getattr(getattr(bundle, "runtime_config", None), "get", None)):
 		try:
-			_resources_for_budgets = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+			_resources_for_budgets = parse_resources_config_for_bundle(bundle)
 			_phase_budgets = dict(_resources_for_budgets.phase_budgets or {})
 		except Exception:
 			_phase_budgets = None
@@ -1760,7 +1765,7 @@ def _resolve_preview_allocation_backend(
 	if plan is not None:
 		return str(getattr(plan, "backend", "local_affinity") or "local_affinity")
 	try:
-		resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+		resources_config = parse_resources_config_for_bundle(bundle)
 		_prof = get_active_profile(resources_config)
 		task_config = _prof.task_allocation if _prof is not None else TaskAllocationConfig()
 		if not bool(getattr(task_config, "enabled", False)):

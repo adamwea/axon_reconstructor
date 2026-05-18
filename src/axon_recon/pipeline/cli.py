@@ -376,10 +376,14 @@ def _parse_int_or_auto(raw: str) -> int | str:
 def _register_task_allocation_override_arguments(parser: argparse.ArgumentParser) -> None:
 	"""Add optional task-allocation override flags that map onto TaskAllocationConfig fields."""
 	parser.add_argument(
+		"--profile",
 		"--task-profile",
 		default=None,
 		dest="active_profile_override",
-		help="Override the active machine profile (must match a name under resources.profiles).",
+		help=(
+			"Override resources.active_profile from the YAML (must match a name "
+			"under resources.profiles). --task-profile is kept as a legacy alias."
+		),
 	)
 	parser.add_argument(
 		"--task-backend",
@@ -475,11 +479,30 @@ def _parse_target_dataset_indices_from_args(args: argparse.Namespace) -> list[in
 	return parsed
 
 
-def _parse_target_well_ids_from_args(args: argparse.Namespace) -> list[str] | None:
-	"""Parse `--target-wells well003 well005` (or comma-separated) into a list.
+def _normalize_well_token(token: str) -> str:
+	"""Accept either a wellNNN string or a plain integer index and return wellNNN.
 
-	Returns `None` if the flag was not provided. Well IDs are kept verbatim
-	(no case folding) so they match `wells[*].well_id` in data.yml.
+	"3", "03", "003" → "well003"; "well003" → "well003" (verbatim). Anything else
+	is returned verbatim so non-conforming well IDs still match data.yml.
+	"""
+	text = str(token).strip()
+	if not text:
+		return text
+	try:
+		idx = int(text)
+	except ValueError:
+		return text
+	if idx < 0:
+		raise SystemExit(f"Well index must be >= 0, got {idx}")
+	return f"well{idx:03d}"
+
+
+def _parse_target_well_ids_from_args(args: argparse.Namespace) -> list[str] | None:
+	"""Parse `--target-wells well003 well005` (or comma-separated, or plain ints) into a list.
+
+	Returns `None` if the flag was not provided. Plain ints are zero-padded to
+	wellNNN; wellNNN strings are kept verbatim (no case folding) so they match
+	`wells[*].well_id` in data.yml.
 	"""
 	raw = getattr(args, "target_wells", None)
 	if raw is None:
@@ -489,16 +512,60 @@ def _parse_target_well_ids_from_args(args: argparse.Namespace) -> list[str] | No
 	seen: set[str] = set()
 	for item in items:
 		for token in str(item).split(","):
+			normalized = _normalize_well_token(token)
+			if not normalized or normalized in seen:
+				continue
+			seen.add(normalized)
+			parsed.append(normalized)
+	if not parsed:
+		raise SystemExit("--target-wells requires at least one well id (e.g. well003 or 3)")
+	return parsed
+
+
+def _parse_targets_pairs_from_args(args: argparse.Namespace) -> dict[int, list[str]] | None:
+	"""Parse `--targets 6:1,6:4,12:4` into {6: ["well001", "well004"], 12: ["well004"]}.
+
+	Each token is `<dataset_idx>:<well>` where well is an integer index (zero-padded
+	to wellNNN) or an explicit wellNNN string. Returns None if the flag was not
+	provided. Datasets that appear multiple times have their wells merged.
+	"""
+	raw = getattr(args, "targets", None)
+	if raw is None:
+		return None
+	items = list(raw) if isinstance(raw, (list, tuple, set)) else [raw]
+	pairs: dict[int, list[str]] = {}
+	seen_pairs: set[tuple[int, str]] = set()
+	for item in items:
+		for token in str(item).split(","):
 			text = str(token).strip()
 			if not text:
 				continue
-			if text in seen:
+			if ":" not in text:
+				raise SystemExit(
+					f"--targets entries must be <dataset>:<well>, got {text!r}"
+				)
+			dataset_part, well_part = text.split(":", 1)
+			dataset_part = dataset_part.strip()
+			well_part = well_part.strip()
+			try:
+				dataset_idx = int(dataset_part)
+			except ValueError as exc:
+				raise SystemExit(
+					f"--targets dataset index must be an integer, got {dataset_part!r}"
+				) from exc
+			if dataset_idx < 0:
+				raise SystemExit(f"--targets dataset index must be >= 0, got {dataset_idx}")
+			well_id = _normalize_well_token(well_part)
+			if not well_id:
+				raise SystemExit(f"--targets well must be non-empty, got {text!r}")
+			key = (dataset_idx, well_id)
+			if key in seen_pairs:
 				continue
-			seen.add(text)
-			parsed.append(text)
-	if not parsed:
-		raise SystemExit("--target-wells requires at least one well id (e.g. well003)")
-	return parsed
+			seen_pairs.add(key)
+			pairs.setdefault(dataset_idx, []).append(well_id)
+	if not pairs:
+		raise SystemExit("--targets requires at least one <dataset>:<well> pair")
+	return pairs
 
 
 def _parse_positive_int(raw: str) -> int:
@@ -542,9 +609,21 @@ def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
 		default=None,
 		dest="target_wells",
 		help=(
-			"Target specific well IDs (applied across all selected datasets), "
-			"for example --target-well well003 or --target-wells well003,well005. "
-			"Well IDs are case-sensitive and must match wells[*].well_id strings in the data config."
+			"Target specific wells (applied across all selected datasets). Accepts wellNNN ids "
+			"or plain integer indices, e.g. --target-wells well003,well005 or --target-wells 3,5. "
+			"Integers are zero-padded to wellNNN; strings are case-sensitive and must match "
+			"wells[*].well_id in the data config."
+		),
+	)
+	parser.add_argument(
+		"--targets",
+		nargs="+",
+		default=None,
+		dest="targets",
+		help=(
+			"Per-pair dataset:well filter, e.g. --targets 6:1,6:4,12:4. Each entry is "
+			"<dataset_index>:<well> where well is an integer index or wellNNN. Takes "
+			"precedence over --target-datasets / --target-wells when set."
 		),
 	)
 	parser.add_argument(
@@ -998,7 +1077,17 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 			nested_args.stage = stage_name
 			nested_args.task_allocation_override = _build_task_allocation_override_from_args(args)
 			nested_args.active_profile_override = getattr(args, "active_profile_override", None)
-			rc = int(handler(nested_args))
+			# Stash the active-profile override at process-wide scope so that any
+			# load_pipeline_runtime_bundle call inside this handler picks it up. This
+			# keeps every stage's resource-budget manager, phase-budget context, and
+			# allocation plan consistent with the CLI-requested profile, without
+			# threading active_profile_override through every run_*_from_runtime entry.
+			from .config import set_active_profile_override
+			set_active_profile_override(nested_args.active_profile_override)
+			try:
+				rc = int(handler(nested_args))
+			finally:
+				set_active_profile_override(None)
 			if rc != 0:
 				logger.error("stages: stage %s failed with code %d", stage_name, rc, extra={"event": "stage_failed"})
 				return rc
@@ -1158,14 +1247,18 @@ def main(argv: list[str] | None = None) -> int:
 	_configure_runtime_logging_from_args(args)
 	_configure_phase_tuning_monitoring_from_args(args)
 
-	# Activate the process-wide --target-wells override before any stage handler
-	# fires. select_execution_targets honors it at the leaf, so we don't need to
-	# plumb a target_wells_override parameter through every runner helper.
-	from .config import set_no_plot_override, set_target_wells_override
+	# Activate the process-wide --target-wells / --targets overrides before any
+	# stage handler fires. select_execution_targets honors them at the leaf, so we
+	# don't need to plumb override parameters through every runner helper.
+	from .config import set_no_plot_override, set_target_pairs_override, set_target_wells_override
 
 	target_wells_filter = _parse_target_well_ids_from_args(args)
 	if target_wells_filter is not None:
 		set_target_wells_override(target_wells_filter)
+
+	target_pairs_filter = _parse_targets_pairs_from_args(args)
+	if target_pairs_filter is not None:
+		set_target_pairs_override(target_pairs_filter)
 
 	# Same pattern for --no-plot: a process-wide toggle that each plot-heavy
 	# phase consults via resolve_plots_enabled(). Reset to None in the finally
@@ -1194,6 +1287,7 @@ def main(argv: list[str] | None = None) -> int:
 	finally:
 		finalize_pipeline_logging(status=status)
 		set_target_wells_override(None)
+		set_target_pairs_override(None)
 		set_no_plot_override(None)
 		try:
 			from .resource_usage import configure_phase_tuning_monitoring

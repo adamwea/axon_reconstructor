@@ -1919,7 +1919,16 @@ def parse_reconstruct_templates_config(
 	require_concat_analyzer = bool(concat_phase_cfg.required) if include_concat else False
 	require_segment_analyzers = bool(segments_phase_cfg.required) if include_segments else False
 	concat_analyzer_relpath = concat_phase_cfg.analyzer_relpath
-	concat_sorting_relpath = concat_phase_cfg.sorting_relpath or concat_sorting_relpath
+	# Canonical sorting path: prefer segments.sorting_relpath (the segment-only
+	# config shape we use in recon), fall back to legacy concat.sorting_relpath,
+	# then to the top-level inputs.concat_sorting_relpath. Despite the variable
+	# name, this is "the canonical post-merge sorting for the well" used to
+	# register every segment analyzer; the concat path is the legacy home.
+	concat_sorting_relpath = (
+		segments_phase_cfg.sorting_relpath
+		or concat_phase_cfg.sorting_relpath
+		or concat_sorting_relpath
+	)
 	preprocessed_concat_reldir = concat_phase_cfg.preprocessed_recording_reldir or preprocessed_concat_reldir
 	preprocessed_segments_reldir = segments_phase_cfg.preprocessed_sources_reldir or preprocessed_segments_reldir
 	preproc_seg_sources_reldir = preprocessed_segments_reldir

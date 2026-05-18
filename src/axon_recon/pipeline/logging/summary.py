@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import json
 import logging
+import os
 from pathlib import Path
 import threading
 from typing import Any
@@ -145,7 +146,11 @@ class PipelineSummaryHandler(logging.Handler):
             return
         path = Path(self.path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        # Per-PID tmp filename so concurrent processes writing the same summary.json
+        # don't collide on the shared `.tmp` and raise FileNotFoundError on rename.
+        # Each writer owns its own tmp; os.replace is atomic, so last-writer-wins
+        # at the target path with no missing-tmp races.
+        tmp_path = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
         tmp_path.write_text(json.dumps(self._summary, indent=2, sort_keys=True, default=str) + "\n", encoding="utf-8")
         tmp_path.replace(path)
 

@@ -52,6 +52,38 @@ def get_target_wells_override() -> list[str] | None:
 	return list(_TARGET_WELLS_OVERRIDE) if _TARGET_WELLS_OVERRIDE else None
 
 
+# Process-wide --targets override. When set, this {dataset_idx: {well_id, ...}}
+# map takes precedence over _TARGET_WELLS_OVERRIDE and the target_datasets arg:
+# only the listed (dataset, well) pairs run.
+_TARGET_PAIRS_OVERRIDE: dict[int, set[str]] | None = None
+
+
+def set_target_pairs_override(pairs: dict[int, list[str]] | None) -> None:
+	"""Set the process-wide (dataset_idx, well_id) pair allowlist for execution-target selection.
+
+	Pass `None` to clear. Normally called once by the CLI main() based on `--targets`.
+	Takes precedence over --target-datasets and --target-wells when both are present.
+	"""
+	global _TARGET_PAIRS_OVERRIDE
+	if pairs is None:
+		_TARGET_PAIRS_OVERRIDE = None
+		return
+	normalized: dict[int, set[str]] = {}
+	for dataset_idx, wells in pairs.items():
+		ds = int(dataset_idx)
+		well_set = {str(w).strip() for w in wells if str(w).strip()}
+		if well_set:
+			normalized[ds] = well_set
+	_TARGET_PAIRS_OVERRIDE = normalized or None
+
+
+def get_target_pairs_override() -> dict[int, set[str]] | None:
+	"""Return a copy of the current process-wide pair allowlist, or None."""
+	if _TARGET_PAIRS_OVERRIDE is None:
+		return None
+	return {ds: set(wells) for ds, wells in _TARGET_PAIRS_OVERRIDE.items()}
+
+
 # Same pattern as _TARGET_WELLS_OVERRIDE: a process-wide toggle set by the CLI
 # (`--no-plot`) that downstream phases can consult to decide whether to skip
 # their plot/report work. `None` means "no override — honor the YAML setting".
@@ -84,6 +116,33 @@ def resolve_plots_enabled(yaml_plots_enabled: bool | None, *, default: bool = Tr
 	return bool(yaml_plots_enabled)
 
 
+# Process-wide --profile / --task-profile override. Same pattern as
+# _TARGET_WELLS_OVERRIDE: set once at CLI entry, honored by load_pipeline_runtime_bundle
+# (stashed onto the bundle) and parse_resources_config_for_bundle. This avoids
+# threading active_profile_override through ~30 run_*_from_runtime entry points.
+_ACTIVE_PROFILE_OVERRIDE: str | None = None
+
+
+def set_active_profile_override(profile_name: str | None) -> None:
+	"""Set the process-wide resources.active_profile override.
+
+	When set, this name replaces resources.active_profile during parse_resources_config_for_bundle
+	for every stage that operates on the bundle. Pass None / empty string to clear.
+	Normally called once by the CLI based on `--profile` / `--task-profile`.
+	"""
+	global _ACTIVE_PROFILE_OVERRIDE
+	if profile_name is None:
+		_ACTIVE_PROFILE_OVERRIDE = None
+		return
+	token = str(profile_name).strip()
+	_ACTIVE_PROFILE_OVERRIDE = token or None
+
+
+def get_active_profile_override() -> str | None:
+	"""Return the current process-wide active-profile override, or None."""
+	return _ACTIVE_PROFILE_OVERRIDE
+
+
 def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
 	LOGGER.warning(
 		"Legacy scratch input keys detected for %s; scratch_input_root/use_scratch_input_root are deprecated. "
@@ -98,6 +157,35 @@ class PipelineRuntimeBundle:
 	data_config_path: Path
 	runtime_config: RuntimeConfig
 	data_config: RuntimeConfig
+	# resources.active_profile override captured from --profile / --task-profile CLI flag.
+	# Frozen onto the bundle at load time so every downstream parse_resources_config call
+	# can re-apply the same override consistently (resource gate, phase budgets,
+	# task allocation plan).
+	active_profile_override: str | None = None
+
+
+def parse_resources_config_for_bundle(bundle: "PipelineRuntimeBundle"):
+	"""Parse the runtime resources config and apply the bundle's active_profile_override.
+
+	Every site in runner.py that needs a fresh ResourcesConfig should go through this
+	helper instead of calling parse_resources_config directly. That ensures the CLI
+	--profile / --task-profile flag is honored uniformly — including by
+	_build_stage_resource_budget_manager which historically ignored it (root cause
+	of the spikesort_full gate-deadlock on gpu_sort_slots=0).
+	"""
+	resources_config = parse_resources_config(runtime_config=bundle.runtime_config, logger=LOGGER)
+	override = bundle.active_profile_override
+	if override is None:
+		return resources_config
+	profile_name = str(override).strip()
+	if not profile_name:
+		return resources_config
+	if profile_name not in resources_config.profiles:
+		raise ValueError(
+			f"--profile / --task-profile references an undefined profile: {profile_name!r}. "
+			f"Known profiles: {sorted(resources_config.profiles.keys())}"
+		)
+	return replace(resources_config, active_profile=profile_name)
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -174,18 +262,31 @@ def _normalize_config_input_path(raw_path: Any, *, base_dir: Path) -> Path:
 	return path
 
 
-def load_pipeline_runtime_bundle(*, config_path: str) -> PipelineRuntimeBundle:
+def load_pipeline_runtime_bundle(
+	*,
+	config_path: str,
+	active_profile_override: str | None = None,
+) -> PipelineRuntimeBundle:
 	runtime_config_path = Path(config_path).expanduser().resolve()
 	runtime_cfg = RuntimeConfig.load(runtime_config_path)
 
 	data_cfg_path = _resolve_data_config_path(runtime_config_path, runtime_cfg.get("data", None))
 	data_cfg = RuntimeConfig.load(data_cfg_path)
 
+	# Fall back to the process-wide CLI-set override when the caller does not pass one
+	# explicitly. The CLI sets _ACTIVE_PROFILE_OVERRIDE once per stage handler, so
+	# entry points like run_<stage>_from_runtime don't need to thread the parameter
+	# through their signatures.
+	if active_profile_override is None:
+		active_profile_override = get_active_profile_override()
+	override_token = None if active_profile_override is None else str(active_profile_override).strip() or None
+
 	return PipelineRuntimeBundle(
 		runtime_config_path=runtime_config_path,
 		data_config_path=data_cfg_path,
 		runtime_config=runtime_cfg,
 		data_config=data_cfg,
+		active_profile_override=override_token,
 	)
 
 
@@ -225,6 +326,13 @@ def select_execution_targets(
 			"No datasets enabled for runtime execution. Set datasets[*].include_in_runtime=true "
 			"for each recording you want to include."
 		)
+	# --targets pair override takes precedence over --target-datasets / --target-wells.
+	# Synthesize target_datasets from the pair-override keys; the per-dataset well
+	# filter is applied below via `pair_override`.
+	pair_override = get_target_pairs_override()
+	if pair_override is not None:
+		target_datasets = sorted(pair_override.keys())
+
 	if target_datasets is not None:
 		requested_dataset_indices: list[int] = []
 		seen_requested_dataset_indices: set[int] = set()
@@ -263,9 +371,11 @@ def select_execution_targets(
 	global_well_limit = max(1, int(limit_wells)) if limit_wells is not None else None
 	well_limit_per_dataset = max(1, int(limit_wells_per_dataset)) if limit_wells_per_dataset is not None else None
 
+	# pair_override (from --targets) wins over --target-wells; only the listed
+	# (dataset, well) pairs run. When unset, fall back to the uniform target_wells_set.
 	effective_target_wells = target_wells if target_wells is not None else get_target_wells_override()
 	target_wells_set: set[str] | None = None
-	if effective_target_wells is not None:
+	if pair_override is None and effective_target_wells is not None:
 		normalized = [str(w).strip() for w in effective_target_wells if str(w).strip()]
 		if normalized:
 			target_wells_set = set(normalized)
@@ -345,6 +455,10 @@ def select_execution_targets(
 		if not isinstance(wells, list) or not wells:
 			wells = [{"well_id": "well000"}]
 
+		pair_wells_for_dataset: set[str] | None = (
+			pair_override.get(int(idx)) if pair_override is not None else None
+		)
+
 		selected_stream_ids: list[str] = []
 		excluded_by_target_wells: list[str] = []
 		for well_item in wells:
@@ -360,18 +474,23 @@ def select_execution_targets(
 					stream_id = str(well_item.get("well_id"))
 			if not well_enabled:
 				continue
-			if target_wells_set is not None and str(stream_id) not in target_wells_set:
+			if pair_wells_for_dataset is not None:
+				if str(stream_id) not in pair_wells_for_dataset:
+					excluded_by_target_wells.append(str(stream_id))
+					continue
+			elif target_wells_set is not None and str(stream_id) not in target_wells_set:
 				excluded_by_target_wells.append(str(stream_id))
 				continue
 			selected_stream_ids.append(str(stream_id))
 
-		if target_wells_set is not None and (selected_stream_ids or excluded_by_target_wells):
+		active_well_filter = pair_wells_for_dataset if pair_wells_for_dataset is not None else target_wells_set
+		if active_well_filter is not None and (selected_stream_ids or excluded_by_target_wells):
 			LOGGER.info(
 				"Applying target_wells filter to dataset %s: kept %d of %d enabled well(s) requested=%s kept=%s",
 				str(dataset_id),
 				len(selected_stream_ids),
 				len(selected_stream_ids) + len(excluded_by_target_wells),
-				sorted(target_wells_set),
+				sorted(active_well_filter),
 				selected_stream_ids,
 			)
 
@@ -401,6 +520,12 @@ def select_execution_targets(
 			)
 
 	if not targets:
+		if pair_override is not None:
+			raise ValueError(
+				f"No execution targets were produced after applying --targets pair filter="
+				f"{ {ds: sorted(wells) for ds, wells in pair_override.items()} }. Verify that each "
+				f"<dataset>:<well> pair maps to an enabled dataset/well in your data config."
+			)
 		if target_wells_set is not None:
 			raise ValueError(
 				f"No execution targets were produced after applying target_wells="
