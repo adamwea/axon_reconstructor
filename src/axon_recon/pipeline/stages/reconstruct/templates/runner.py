@@ -33,11 +33,7 @@ from .core.compute_template_similarity import (
 )
 from .core.merge import materialize_templates_from_spikeinterface
 from .core.plot_templates import (
-	build_plot_templates_phase_inputs,
-	build_plot_templates_phase_summary,
-	excluded_plot_output_keys,
 	propagation_outputs_requested,
-	requested_plot_output_keys,
 )
 from .core.quality_checks import detect_multiple_negative_peaks
 from .core.render import (
@@ -102,7 +98,7 @@ DEFAULT_INTERNAL_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
 	"analyzers",
 	"build_templates",
 	"compute_template_similarity",
-	"plot_templates",
+	"plot_templates_v2",
 	"report_templates",
 )
 
@@ -920,8 +916,6 @@ def run_reconstruct_templates_pipeline(inputs: TemplatesInputs) -> TemplatesResu
 			return _resource_class(inputs.phases.build_templates)
 		if phase == "compute_template_similarity":
 			return _resource_class(inputs.phases.compute_template_similarity)
-		if phase == "plot_templates":
-			return _resource_class(inputs.phases.plot_templates)
 		if phase == "plot_templates_v2":
 			return _resource_class(getattr(inputs.phases, "plot_templates_v2", None))
 		if phase == "report_templates":
@@ -980,14 +974,13 @@ def _normalize_reconstruct_templates_phase_name(raw: Any) -> str:
 		"build": "build_templates",
 		"similarity": "compute_template_similarity",
 		"compute_similarity": "compute_template_similarity",
-		"plot": "plot_templates",
-		"plots": "plot_templates",
+		"plot": "plot_templates_v2",
+		"plots": "plot_templates_v2",
 		"plot_templates_v2": "plot_templates_v2",
 		"plots_v2": "plot_templates_v2",
 		"template_plots_v2": "plot_templates_v2",
 		"template_report": "report_templates",
 		"per_unit_processing.build_templates": "build_templates",
-		"per_unit_processing.plots": "plot_templates",
 	}
 	return aliases.get(token, token)
 
@@ -1003,8 +996,6 @@ def _reconstruct_templates_phase_enabled(inputs: TemplatesInputs, phase_name: st
 		return bool(phases.build_templates.enabled)
 	if phase == "compute_template_similarity":
 		return bool(phases.compute_template_similarity.enabled)
-	if phase == "plot_templates":
-		return bool(phases.plot_templates.enabled)
 	if phase == "plot_templates_v2":
 		phase_cfg = getattr(phases, "plot_templates_v2", None)
 		return bool(False if phase_cfg is None else phase_cfg.enabled)
@@ -1025,8 +1016,6 @@ def _reconstruct_templates_phase_runner(phase_name: str) -> Callable[[TemplatesI
 		return run_reconstruct_templates_build_templates_phase
 	if phase == "compute_template_similarity":
 		return run_reconstruct_templates_compute_template_similarity_phase
-	if phase == "plot_templates":
-		return run_reconstruct_templates_plot_templates_phase
 	if phase == "plot_templates_v2":
 		return run_reconstruct_templates_plot_templates_v2_phase
 	if phase == "report_templates":
@@ -1876,21 +1865,10 @@ def _disable_reports_config(reports: Any) -> Any:
 	return _report_scope_config(reports, "none")
 
 
-def _resolve_plot_templates_execution_plan(
-	*,
-	inputs: TemplatesInputs,
-	unit_ids: list[Any],
-) -> tuple[int, int, int, list[list[Any]]]:
-	unit_count = len(unit_ids)
-	if unit_count <= 0:
-		return 1, 1, 1, []
-	return 1, 1, int(unit_count), [list(unit_ids)]
-
-
 def _debug_prints_enabled(inputs: TemplatesInputs) -> bool:
 	return bool(
-		getattr(inputs.phases.plot_templates, "debug_prints", False)
-		or getattr(getattr(inputs.phases, "plot_templates_v2", None), "debug_prints", False)
+		getattr(getattr(inputs.phases, "plot_templates_v2", None), "debug_prints", False)
+		or getattr(getattr(inputs.phases.per_unit_processing, "plots", None), "debug_prints", False)
 	)
 
 
@@ -2051,30 +2029,6 @@ def _write_reconstruct_templates_summary(
 	return summary_json
 
 
-def _run_reconstruct_templates_plot_batches(
-	*,
-	inputs: TemplatesInputs,
-	well_out_dir: Path,
-	templates_out_dir: Path,
-	unit_ids: list[Any],
-) -> TemplatesResult:
-	plot_unit_workers, unit_procs, unit_batch_size, batches = _resolve_plot_templates_execution_plan(
-		inputs=inputs,
-		unit_ids=unit_ids,
-	)
-	LOGGER.info(
-		"templates.plot_templates execution plan: requested_units=%d derived_unit_workers=%d plot_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d parallel=false",
-		len(unit_ids),
-		int(max(1, int(inputs.n_jobs))),
-		int(plot_unit_workers),
-		int(unit_procs),
-		int(unit_batch_size),
-		len(batches),
-	)
-	with _quiet_unexpected_plot_logs(inputs):
-		return _run_reconstruct_templates_pipeline_monolithic(replace(inputs, unit_ids=list(unit_ids), n_jobs=1))
-
-
 def run_reconstruct_templates_resolve_sources_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	from axon_recon.pipeline.stages.reconstruct.phases.resolve_sources import (
 		run_reconstruct_templates_resolve_sources_phase,
@@ -2105,14 +2059,6 @@ def run_reconstruct_templates_compute_template_similarity_phase(inputs: Template
 	)
 
 	return run_reconstruct_templates_compute_template_similarity_phase(inputs)
-
-
-def run_reconstruct_templates_plot_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import (
-		run_reconstruct_templates_plot_templates_phase,
-	)
-
-	return run_reconstruct_templates_plot_templates_phase(inputs)
 
 
 def run_reconstruct_templates_plot_templates_v2_phase(inputs: TemplatesInputs) -> dict[str, Any]:

@@ -10,9 +10,12 @@ from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import Templ
 
 def _resolve_report_templates_source(inputs: TemplatesInputs) -> tuple[str, str]:
     consume = str(inputs.phases.report_templates.consume).strip().lower()
-    if consume == "plot_templates_v2":
-        return "template_circles_v2_png", "templates.plot_templates_v2"
-    return "template_circles_png", "templates.plot_templates"
+    if consume != "plot_templates_v2":
+        raise ValueError(
+            f"report_templates.consume must be 'plot_templates_v2' (got {consume!r}); "
+            "legacy plot_templates v1 has been removed."
+        )
+    return "template_circles_v2_png", "templates.plot_templates_v2"
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:

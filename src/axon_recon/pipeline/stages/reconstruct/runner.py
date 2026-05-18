@@ -119,7 +119,7 @@ DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"templates_extract_partial_templates",
 	"templates_build_templates",
 	"templates_compute_template_similarity",
-	"templates_plot_templates",
+	"templates_plot_templates_v2",
 	"templates_report_templates",
 	"generate_gtrs",
 	"plot_recons",
@@ -1233,16 +1233,6 @@ def run_reconstruct_templates_compute_template_similarity_phase(inputs: Reconstr
 	return run_reconstruct_templates_compute_template_similarity_phase(inputs.templates_inputs)
 
 
-def run_reconstruct_templates_plot_templates_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates import (
-		run_reconstruct_templates_plot_templates_phase,
-	)
-
-	if inputs.templates_inputs is None:
-		raise ValueError("reconstruct.templates_plot_templates requires templates_inputs to be populated on ReconstructionInputs")
-	return run_reconstruct_templates_plot_templates_phase(inputs.templates_inputs)
-
-
 def run_reconstruct_templates_plot_templates_v2_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
 	from axon_recon.pipeline.stages.reconstruct.phases.plot_templates_v2 import (
 		run_reconstruct_templates_plot_templates_v2_phase,
@@ -1358,8 +1348,6 @@ def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 		"templates.build_templates": "templates_build_templates",
 		"compute_template_similarity": "templates_compute_template_similarity",
 		"templates.compute_template_similarity": "templates_compute_template_similarity",
-		"plot_templates": "templates_plot_templates",
-		"templates.plot_templates": "templates_plot_templates",
 		"plot_templates_v2": "templates_plot_templates_v2",
 		"plots_v2": "templates_plot_templates_v2",
 		"template_plots_v2": "templates_plot_templates_v2",
@@ -1389,8 +1377,6 @@ def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: s
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.build_templates.enabled)
 	if phase == "templates_compute_template_similarity":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.compute_template_similarity.enabled)
-	if phase == "templates_plot_templates":
-		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.plot_templates.enabled)
 	if phase == "templates_plot_templates_v2":
 		phase_cfg = None if inputs.templates_inputs is None else getattr(inputs.templates_inputs.phases, "plot_templates_v2", None)
 		return bool(False if phase_cfg is None else phase_cfg.enabled)
@@ -1447,8 +1433,6 @@ def _reconstruct_stage_phase_resource_class(inputs: ReconstructionInputs, phase_
 			if inputs.templates_inputs is None
 			else _resource_class(inputs.templates_inputs.phases.compute_template_similarity)
 		)
-	if phase == "templates_plot_templates":
-		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.plot_templates)
 	if phase == "templates_plot_templates_v2":
 		phase_cfg = None if inputs.templates_inputs is None else getattr(inputs.templates_inputs.phases, "plot_templates_v2", None)
 		return _resource_class(phase_cfg)
@@ -1485,7 +1469,6 @@ def _display_reconstruct_stage_phase_name(phase_name: str) -> str:
 		"templates_extract_partial_templates": "extract_partial_templates",
 		"templates_build_templates": "build_templates",
 		"templates_compute_template_similarity": "compute_template_similarity",
-		"templates_plot_templates": "plot_templates",
 		"templates_plot_templates_v2": "plot_templates_v2",
 		"templates_report_templates": "report_templates",
 	}
@@ -1527,8 +1510,6 @@ def _reconstruct_stage_phase_runner(phase_name: str):
 		return run_reconstruct_templates_build_templates_phase
 	if phase == "templates_compute_template_similarity":
 		return run_reconstruct_templates_compute_template_similarity_phase
-	if phase == "templates_plot_templates":
-		return run_reconstruct_templates_plot_templates_phase
 	if phase == "templates_plot_templates_v2":
 		return run_reconstruct_templates_plot_templates_v2_phase
 	if phase == "templates_report_templates":

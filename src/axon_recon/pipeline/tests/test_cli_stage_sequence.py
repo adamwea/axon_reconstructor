@@ -162,7 +162,6 @@ def test_parse_stage_list_tokens_rejects_legacy_templates_aliases(raw_token: str
         ("reconstruct.analyzers", "reconstruct.analyzers"),
         ("reconstruct.build_templates", "reconstruct.build_templates"),
         ("reconstruct.compute_template_similarity", "reconstruct.compute_template_similarity"),
-        ("reconstruct.plot_templates", "reconstruct.plot_templates"),
         ("reconstruct.plot_templates_v2", "reconstruct.plot_templates_v2"),
         ("reconstruct.report_templates", "reconstruct.report_templates"),
         ("recon.generate_gtrs", "reconstruct.generate_gtrs"),
@@ -171,7 +170,6 @@ def test_parse_stage_list_tokens_rejects_legacy_templates_aliases(raw_token: str
         ("reconstruct.templates_build_templates", "reconstruct.build_templates"),
         ("reconstruction.plot_recons", "reconstruct.plot_recons"),
         ("reconstruction.build_templates", "reconstruct.build_templates"),
-        ("reconstruction.templates_plot_templates", "reconstruct.plot_templates"),
         ("reconstruction.templates_plot_templates_v2", "reconstruct.plot_templates_v2"),
         ("recon.plot_branch_propagations", "reconstruct.plot_branch_propagations"),
         ("reconstruction.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
@@ -261,7 +259,7 @@ def test_build_parser_supports_phase_tune_flags() -> None:
     args = parser.parse_args(
         [
             "stages",
-            "reconstruct.plot_templates",
+            "reconstruct.plot_templates_v2",
             "--config",
             "/tmp/runtime.yml",
             "--phase-tune",

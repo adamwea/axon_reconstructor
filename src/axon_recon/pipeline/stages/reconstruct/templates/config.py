@@ -83,7 +83,7 @@ DEFAULT_TEMPLATES_PHASE_SEQUENCE: tuple[str, ...] = (
 	"extract_partial_templates",
 	"build_templates",
 	"compute_template_similarity",
-	"plot_templates",
+	"plot_templates_v2",
 	"report_templates",
 )
 
@@ -100,13 +100,11 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 	"similarity": "compute_template_similarity",
 	"compute_similarity": "compute_template_similarity",
 	"compute_template_similarity": "compute_template_similarity",
-	"plot": "plot_templates",
-	"plots": "plot_templates",
-	"plot_templates": "plot_templates",
+	"plot": "plot_templates_v2",
+	"plots": "plot_templates_v2",
 	"plot_templates_v2": "plot_templates_v2",
 	"plots_v2": "plot_templates_v2",
 	"template_plots_v2": "plot_templates_v2",
-	"per_unit_processing.plots": "plot_templates",
 	"report_templates": "report_templates",
 	"template_report": "report_templates",
 	"per_unit_processing": "per_unit_processing",
@@ -288,13 +286,9 @@ def _phase_plot_output_paths(*suffixes: str) -> tuple[str, ...]:
 	for suffix in suffixes:
 		s = suffix.strip(".")
 		if s:
-			paths.append(f"stages.reconstruct.phases.plot_templates.outputs.{s}")
-			paths.append(f"stages.reconstruct.phases.plot_templates.{s}")
 			paths.append(f"stages.reconstruct.phases.per_unit_processing.plots.outputs.{s}")
 			paths.append(f"stages.reconstruct.phases.per_unit_processing.plots.{s}")
 		else:
-			paths.append("stages.reconstruct.phases.plot_templates.outputs")
-			paths.append("stages.reconstruct.phases.plot_templates")
 			paths.append("stages.reconstruct.phases.per_unit_processing.plots.outputs")
 			paths.append("stages.reconstruct.phases.per_unit_processing.plots")
 	return tuple(paths)
@@ -1078,13 +1072,14 @@ def _parse_optional_text(raw: Any) -> str | None:
 	return (text or None)
 
 
-def _normalize_report_templates_consume(raw: Any, default: str = "plot_templates") -> str:
+def _normalize_report_templates_consume(raw: Any, default: str = "plot_templates_v2") -> str:
 	value = str(raw or default).strip().lower().replace("-", "_").replace(" ", "_")
 	if value in {"plot_templates_v2", "plot_template_v2", "template_plots_v2", "plots_v2", "v2"}:
 		return "plot_templates_v2"
-	if value in {"plot_templates", "plot_template", "template_plots", "plots", "v1"}:
-		return "plot_templates"
-	return str(default)
+	raise ValueError(
+		f"report_templates.consume only supports 'plot_templates_v2' (received {raw!r}); "
+		"legacy plot_templates v1 has been removed."
+	)
 
 
 def _build_waveform_extraction_config(
@@ -3940,7 +3935,6 @@ def parse_reconstruct_templates_config(
 	phase_quality_cfg_raw = _phase_block(phases_cfg, "per_unit_processing", "quality_checks")
 	phase_analysis_cfg = _phase_block(phases_cfg, "per_unit_processing", "analysis")
 	phase_compute_similarity_cfg = _phase_block(phases_cfg, "compute_template_similarity")
-	phase_plot_templates_cfg = _phase_block(phases_cfg, "plot_templates")
 	phase_plot_templates_v2_cfg = _phase_block(phases_cfg, "plot_templates_v2")
 	phase_report_templates_cfg = _phase_block(phases_cfg, "report_templates")
 	phase_plots_cfg = _phase_block(phases_cfg, "per_unit_processing", "plots")
@@ -3953,16 +3947,15 @@ def parse_reconstruct_templates_config(
 		phase_compute_similarity_pair_plots_cfg = _phase_block(phase_compute_similarity_cfg, "pair_plots")
 	phase_compute_similarity_method_options_cfg = _phase_block(phase_compute_similarity_cfg, "method_options")
 	phase_compute_similarity_candidate_cfg = _phase_block(phase_compute_similarity_cfg, "candidate_selection")
-	effective_plot_phase_cfg = (phase_plot_templates_cfg if phase_plot_templates_cfg else phase_plots_cfg)
-	plot_phase_resources_cfg = _phase_block(effective_plot_phase_cfg, "resources")
+	plot_phase_resources_cfg = _phase_block(phase_plots_cfg, "resources")
 	plot_phase_unit_workers = _parse_optional_positive_int(
-		plot_phase_resources_cfg.get("unit_workers", effective_plot_phase_cfg.get("unit_workers", None))
+		plot_phase_resources_cfg.get("unit_workers", phase_plots_cfg.get("unit_workers", None))
 	)
 	plot_phase_unit_procs = _parse_optional_positive_int(
-		plot_phase_resources_cfg.get("unit_procs", effective_plot_phase_cfg.get("unit_procs", None))
+		plot_phase_resources_cfg.get("unit_procs", phase_plots_cfg.get("unit_procs", None))
 	)
 	plot_phase_unit_batch_size = _parse_optional_positive_int(
-		plot_phase_resources_cfg.get("unit_batch_size", effective_plot_phase_cfg.get("unit_batch_size", None))
+		plot_phase_resources_cfg.get("unit_batch_size", phase_plots_cfg.get("unit_batch_size", None))
 	)
 	phase_extract_partial_templates_cfg = _phase_block(phases_cfg, "extract_partial_templates")
 	extract_partial_templates_phase = TemplateExtractPartialTemplatesPhaseConfig(
@@ -4128,14 +4121,14 @@ def parse_reconstruct_templates_config(
 			dpi=_as_float(phase_compute_similarity_pair_plots_cfg.get("dpi", 220.0), 220.0),
 		),
 	)
-	plot_templates_phase = TemplatePlotsPhaseConfig(
-		enabled=_as_bool(effective_plot_phase_cfg.get("enabled", True), True),
+	per_unit_plots_phase = TemplatePlotsPhaseConfig(
+		enabled=_as_bool(phase_plots_cfg.get("enabled", True), True),
 		summary_json_relpath=str(
-			effective_plot_phase_cfg.get("summary_json_relpath", "context/plot_templates_summary.json")
+			phase_plots_cfg.get("summary_json_relpath", "context/plot_templates_summary.json")
 		),
-		resource_class=_phase_resource_class(effective_plot_phase_cfg, "plot_templates"),
+		resource_class=_phase_resource_class(phase_plots_cfg, "per_unit_processing_plots"),
 		debug_prints=_as_bool(
-			effective_plot_phase_cfg.get("debug_prints", effective_plot_phase_cfg.get("debug_plotting_prints", False)),
+			phase_plots_cfg.get("debug_prints", phase_plots_cfg.get("debug_plotting_prints", False)),
 			False,
 		),
 		unit_workers=plot_phase_unit_workers,
@@ -4154,8 +4147,8 @@ def parse_reconstruct_templates_config(
 		),
 		resource_class=_phase_resource_class(phase_report_templates_cfg, "report_templates"),
 		consume=_normalize_report_templates_consume(
-			phase_report_templates_cfg.get("consume", "plot_templates"),
-			"plot_templates",
+			phase_report_templates_cfg.get("consume", "plot_templates_v2"),
+			"plot_templates_v2",
 		),
 		relpath=str(phase_report_templates_cfg.get("relpath", "template_report.pdf")),
 		write_pdf=_as_bool(phase_report_templates_cfg.get("write_pdf", True), True),
@@ -4177,7 +4170,7 @@ def parse_reconstruct_templates_config(
 				debug=_as_bool(phase_prop_order_cfg.get("debug", analysis_debug_ordering), analysis_debug_ordering),
 			),
 		),
-		plots=plot_templates_phase,
+		plots=per_unit_plots_phase,
 	)
 	phases = TemplatesPhasesConfig(
 		resolve_sources=resolve_sources_phase,
@@ -4185,7 +4178,6 @@ def parse_reconstruct_templates_config(
 		extract_partial_templates=extract_partial_templates_phase,
 		build_templates=build_templates_phase,
 		compute_template_similarity=compute_template_similarity_phase,
-		plot_templates=plot_templates_phase,
 		plot_templates_v2=plot_templates_v2_phase,
 		report_templates=report_templates_phase,
 		per_unit_processing=per_unit_processing_phase,

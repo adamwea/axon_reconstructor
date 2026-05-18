@@ -2704,10 +2704,10 @@ def test_load_templates_config_parses_phased_templates_blocks(tmp_path: Path) ->
 	assert inputs.phases.per_unit_processing.build_templates.execution_upsampling.factor == 3
 	assert inputs.execution_upsampling.factor == 3
 	assert inputs.per_unit_outputs.template.relpath == "canonical/template_plot"
-	assert inputs.phases.plot_templates.summary_json_relpath == "context/plot_templates_summary.json"
+	assert inputs.phases.per_unit_processing.plots.summary_json_relpath == "context/plot_templates_summary.json"
 
 
-def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_plot_block(tmp_path: Path) -> None:
+def test_load_templates_config_per_unit_processing_plots_accepts_legacy_debug_plotting_prints_alias(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -2730,20 +2730,9 @@ def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_p
 			stages:
 			  reconstruct:
 			    phases:
-			      plot_templates:
-			        enabled: true
-			        summary_json_relpath: context/custom_plot_templates_summary.json
-			        debug_prints: true
-			        outputs:
-			          template:
-			            relpath: canonical/template_plot
 			      per_unit_processing:
 			        plots:
-			          enabled: false
-			          summary_json_relpath: context/legacy_plot_templates_summary.json
-			          outputs:
-			            template:
-			              relpath: legacy/template_plot
+			          debug_plotting_prints: true
 			"""
 		).strip()
 		+ "\n",
@@ -2752,49 +2741,7 @@ def test_load_templates_config_plot_templates_canonical_phase_overrides_legacy_p
 
 	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
-	assert inputs.phases.plot_templates.enabled is True
-	assert inputs.phases.plot_templates.summary_json_relpath == "context/custom_plot_templates_summary.json"
-	assert inputs.phases.plot_templates.debug_prints is True
-	assert inputs.phases.per_unit_processing.plots.enabled is True
-	assert inputs.phases.per_unit_processing.plots.summary_json_relpath == "context/custom_plot_templates_summary.json"
 	assert inputs.phases.per_unit_processing.plots.debug_prints is True
-	assert inputs.per_unit_outputs.template.relpath == "canonical/template_plot"
-
-
-def test_load_templates_config_plot_templates_accepts_legacy_debug_plotting_prints_alias(tmp_path: Path) -> None:
-	data_path = tmp_path / "data.yml"
-	data_path.write_text(
-		dedent(
-			"""
-			output_root: /tmp/out
-			datasets:
-			  - raw_data_h5_path: /tmp/input.raw.h5
-			    include_in_runtime: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	runtime_path = tmp_path / "runtime.yml"
-	runtime_path.write_text(
-		dedent(
-			f"""
-			data: {data_path}
-			stages:
-			  reconstruct:
-			    phases:
-			      plot_templates:
-			        debug_plotting_prints: true
-			"""
-		).strip()
-		+ "\n",
-		encoding="utf-8",
-	)
-
-	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
-
-	assert inputs.phases.plot_templates.debug_prints is True
 
 
 def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_path: Path) -> None:
@@ -2820,23 +2767,24 @@ def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_pa
 			stages:
 			  reconstruct:
 			    phases:
-			      plot_templates:
-			        enabled: true
-			        outputs:
-			          circles:
-			            output:
-			              write_png: true
-			              write_svg: true
-			              dpi: 420
-			              relpath: canonical/template_circles
-			            display:
-			              channel_scope: recorded_channels
-			              size_by: latency
-			              color_by: amplitude
-			              show_scale_circle: true
-			            color_bar:
-			              units: ms
-			              show_axes_title: false
+			      per_unit_processing:
+			        plots:
+			          enabled: true
+			          outputs:
+			            circles:
+			              output:
+			                write_png: true
+			                write_svg: true
+			                dpi: 420
+			                relpath: canonical/template_circles
+			              display:
+			                channel_scope: recorded_channels
+			                size_by: latency
+			                color_by: amplitude
+			                show_scale_circle: true
+			              color_bar:
+			                units: ms
+			                show_axes_title: false
 			"""
 		).strip()
 		+ "\n",
@@ -2858,7 +2806,7 @@ def test_load_templates_config_plot_templates_parses_direct_circles_block(tmp_pa
 	assert circles.color_bar_show_axes_title is False
 
 
-def test_load_templates_config_plot_templates_parses_resources_block(tmp_path: Path) -> None:
+def test_load_templates_config_per_unit_processing_plots_parses_resources_block(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -2881,12 +2829,13 @@ def test_load_templates_config_plot_templates_parses_resources_block(tmp_path: P
 			stages:
 			  reconstruct:
 			    phases:
-			      plot_templates:
-			        enabled: true
-			        resources:
-			          unit_workers: 6
-			          unit_procs: 4
-			          unit_batch_size: 2
+			      per_unit_processing:
+			        plots:
+			          enabled: true
+			          resources:
+			            unit_workers: 6
+			            unit_procs: 4
+			            unit_batch_size: 2
 			"""
 		).strip()
 		+ "\n",
@@ -2895,9 +2844,9 @@ def test_load_templates_config_plot_templates_parses_resources_block(tmp_path: P
 
 	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
-	assert inputs.phases.plot_templates.unit_workers == 6
-	assert inputs.phases.plot_templates.unit_procs == 4
-	assert inputs.phases.plot_templates.unit_batch_size == 2
+	assert inputs.phases.per_unit_processing.plots.unit_workers == 6
+	assert inputs.phases.per_unit_processing.plots.unit_procs == 4
+	assert inputs.phases.per_unit_processing.plots.unit_batch_size == 2
 
 
 def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Path) -> None:
@@ -3022,7 +2971,7 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 	assert v2.scale_bar.length_um == 100
 
 
-def test_load_templates_config_plot_templates_falls_back_to_legacy_nested_phase_block(tmp_path: Path) -> None:
+def test_load_templates_config_per_unit_processing_plots_parses_nested_block(tmp_path: Path) -> None:
 	data_path = tmp_path / "data.yml"
 	data_path.write_text(
 		dedent(
@@ -3060,8 +3009,8 @@ def test_load_templates_config_plot_templates_falls_back_to_legacy_nested_phase_
 
 	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 
-	assert inputs.phases.plot_templates.enabled is False
-	assert inputs.phases.plot_templates.summary_json_relpath == "context/legacy_plot_templates_summary.json"
+	assert inputs.phases.per_unit_processing.plots.enabled is False
+	assert inputs.phases.per_unit_processing.plots.summary_json_relpath == "context/legacy_plot_templates_summary.json"
 	assert inputs.per_unit_outputs.template.relpath == "legacy/template_plot"
 
 

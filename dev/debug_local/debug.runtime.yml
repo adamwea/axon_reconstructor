@@ -911,7 +911,6 @@ stages:
       - extract_partial_templates
       - build_templates
       #- compute_template_similarity
-      #- plot_templates
       - plot_templates_v2
       - report_templates
       - generate_gtrs
@@ -940,7 +939,7 @@ stages:
 
     #   # this option limits the number of units to process for faster iterations during debugging; set to null or -1 for no limit.
     #   # - number of templates built in build_templates phase.
-    #   # - number of templates plotted in plot_templates phase.
+    #   # - number of templates plotted in plot_templates_v2 phase.
     #   # - number of templates included in report_templates phase.
     #   # - number of gtrs generated in generate_gtrs phase.
     #   # - number of units included in plot_recons phase.
@@ -1192,127 +1191,6 @@ stages:
           min_similarity: 0.40
           top_k_per_unit: 3
           max_pairs: 12
-      plot_templates:
-        enabled: false
-        resource_class: plot_unit
-        debug_prints: false # when true, allow raw/unexpected plotting debug output from render helpers and third-party plot libraries.
-        summary_json_relpath: context/plot_templates_summary.json
-        resources:
-          unit_procs: 1
-        outputs:
-          ## Per-Unit Template Plots
-          circles:
-            output:
-              write_png: true
-              write_svg: false
-              dpi: 420
-              relpath: template_circles
-            display:
-              channel_scope: contributing_channels
-              invert_y_axis: true
-              force_center_soma: false # force the soma to be centered in the template plot, even if the spatial distribution of the channels would suggest an off-center location.
-              force_square_aspect: true # increase template plot size to make it square (with padding) regardless of the spatial distribution of the channels.
-              show_scale_bar: true
-              show_scale_circle: true
-              size_by: amplitude # amplitude or latency; if amplitude, channel circle sizes are scaled by the relative amplitude of the template on each channel. If latency, channel circle sizes are scaled by the relative latency of the template on each channel.
-              color_by: latency # amplitude or latency; if amplitude, channel colors are determined by the relative amplitude of the template on each channel. If latency, channel colors are determined by the relative latency of the template on each channel.
-              scale_bar:
-                text_offset_frac: 0.02 # move label closer/farther from bar in axis-height fractions
-                horizontal_alignment: right
-                vertical_alignment: bottom
-                y_offset_frac: 0.015 # vertical offset of bar from lower edge in axis-height fractions
-                x_offset_frac: 0.02 # horizontal offset of bar from left edge in axis-width fractions
-                x_offset_considers_fontsize: true # when true, x_offset also reserves horizontal room for the scale-bar label text width at current font size.
-                fontsize: 25
-                linewidth: 6
-                #length_um: null # optional fixed bar length; when null uses auto 50/100 um
-
-              #circle in top right corner showing the scale to amplitude values (
-              # e.g. how big a circle with amplitude equal to the max template amplitude would be);
-              # can help visually interpret circle sizes in the plot.
-              scale_circle:
-                diameter: equal_to_max_amplitude # can be equal_to_max_amplitude or fixed_value
-                linewidth: 3
-                #linestyle: solid
-                linestyle: null
-                fill: true
-                fill_color: white
-                fontsize: 15
-                horizontal_alignment: left
-                vertical_alignment: top
-                x_offset_frac: 0.02
-                y_offset_frac: 0.005
-                font_location: right # inside or outside the circle
-                digits_after_decimal: 1 # number of digits after decimal point in scale circle label; set to 0 for integer formatting.
-
-                # only applies if font_location is inside; if the scale circle diameter is smaller than this fraction of the axis width, will move the label outside the circle for better readability.
-                font_location_circle_too_small: below # when font_location is inside, if the scale circle diameter is smaller than this fraction of the axis width, will move the label outside the circle for better readability.
-
-                units: "µV" # label for scale circle units; can be empty string if no units desired.
-
-            render:
-              #fast_render: true # speed-oriented render mode: clamp output DPI and skip expensive overlap/scale-circle passes.
-              fast_render: true # keep false by default for debugging iterations to ensure all rendering features are applied for thorough visual inspection, but can be set to true to speed up iterations when plot formatting is the main focus and some rendering features can be sacrificed.
-              background: black
-              signal_color: white
-              scale_bar_color: white
-              scale_circle_color: white
-            color_bar:
-              units: "ms" # label for color bar units
-              title: "Latency (ms)" # title to show above color bar; if empty string, no title is shown and only tick labels with units are shown.
-              show_axes_title: false # whether to show the "Latency (ms)" title above the color bar, or just the tick labels with units.
-              show_unit_label: true # whether to show tick labels on the color bar, which include the units (e.g. "10 ms") or just the numeric value (e.g. "10")
-              tick_decimal_places: 2 # controls tick label precision and dynamic 0/5-style tick density (more precision -> more candidate ticks)
-              tick_target_count: 5 # optional desired number of ticks; <=0 or omitted lets renderer pick automatically
-              tick_fontsize: 18 # color bar tick label font size
-
-              # when true, forces color bar range to shift.
-              # values at 0 delay and below will be in the first color range.
-              # the exact color depends on the selected colormap.
-              # so values 0 and below will be in that colormap's first range.
-              # if there are negative values, zero will be the least
-              # intense value at the transition point to higher colors.
-              force_zero_and_neg_values_first_color_range: true
-              # >=1.0; higher values sharpen separation around zero while
-              # keeping zero fixed at the first/second color boundary.
-              zero_transition_contrast: 1.5
-            propagation_order_labels:
-              show: false # when true, draw numeric labels on circles in propagation ordering rank.
-              fontsize: 7
-              color: white
-              bbox_alpha: 0.30
-            unit_id_label:
-              show: true
-              fontsize: 30
-              color: white
-              x_offset_frac: 0.02
-              y_offset_frac: 0.00
-              x_offset_considers_fontsize: true
-              horizontal_alignment: right
-              vertical_alignment: top
-            show_axes: false
-            center_most_channel_coords:
-              show: true # whether to show coordinate labels centered on the most central channel in the template, which can help with orienting the template relative to the MEA layout.
-              fontsize: 25
-              color: white
-              x_offset_frac: 0.02
-              y_offset_frac: 0.00
-              horizontal_alignment: left
-              vertical_alignment: bottom
-
-            # edge case overlapping in displayed elements in plot can happen.
-            # easy fix, detect overlaps, increase xy range (zoom out) and replot until overlap is resolved.
-            # measure xy space covered by fonts and shapes.
-            # determine if same space is occupied by elements in any case.
-            # if so, zoom out a bit and try again.
-            overlap_controls:
-              scalebar_coords_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
-              scalebar_colorbar_overlap_detect: true # whether to check for overlaps between scale bar and color bar; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
-              unitid_label_channel_overlap_detect: true # whether to check for overlaps between unit ID label and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
-              coords_channel_overlap_detect: true # whether to check for overlaps between coordinate labels and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
-              scalebar_channel_overlap_detect: true # whether to check for overlaps between scale bar and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
-              max_overlap_check_iterations: 10 # maximum number of iterations to attempt to resolve overlaps through zooming out; if exceeded, will give up and plot with overlaps.
-              scalecircle_channel_overlap_detect: true # whether to check for overlaps between scale circle and channel circles; if true, will trigger automatic zooming out until overlap is resolved or max iterations is reached.
       plot_templates_v2:
         enabled: true
         resource_class: plot_unit

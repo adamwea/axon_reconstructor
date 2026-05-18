@@ -6,7 +6,6 @@ from ..phases.compute_template_similarity import (
     run_reconstruct_templates_compute_template_similarity_phase,
 )
 from ..phases.per_unit_processing import run_reconstruct_templates_per_unit_processing_phase
-from ..phases.plot_templates import run_reconstruct_templates_plot_templates_phase
 from ..phases.plot_templates_v2 import run_reconstruct_templates_plot_templates_v2_phase
 from ..phases.report_templates import run_reconstruct_templates_report_templates_phase
 from ..phases.resolve_sources import run_reconstruct_templates_resolve_sources_phase
@@ -44,10 +43,6 @@ def run_reconstruct_templates_compute_template_similarity(
     inputs: TemplatesInputs,
 ) -> dict[str, object]:
     return run_reconstruct_templates_compute_template_similarity_phase(inputs)
-
-
-def run_reconstruct_templates_plot_templates(inputs: TemplatesInputs) -> dict[str, object]:
-    return run_reconstruct_templates_plot_templates_phase(inputs)
 
 
 def run_reconstruct_templates_plot_templates_v2(inputs: TemplatesInputs) -> dict[str, object]:

@@ -391,7 +391,7 @@ class TemplateReportTemplatesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/report_templates_summary.json"
 	resource_class: str | None = None
-	consume: str = "plot_templates"
+	consume: str = "plot_templates_v2"
 	relpath: str = "template_report.pdf"
 	write_pdf: bool = True
 
@@ -986,7 +986,6 @@ class TemplatesPhasesConfig:
 	compute_template_similarity: TemplateComputeSimilarityPhaseConfig = field(
 		default_factory=TemplateComputeSimilarityPhaseConfig
 	)
-	plot_templates: TemplatePlotsPhaseConfig = field(default_factory=TemplatePlotsPhaseConfig)
 	plot_templates_v2: TemplatePlotTemplatesV2PhaseConfig = field(
 		default_factory=TemplatePlotTemplatesV2PhaseConfig
 	)

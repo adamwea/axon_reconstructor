@@ -240,10 +240,10 @@ def test_phase_budget_blocks_plot_unit_when_template_build_holds_ram() -> None:
 
 	def plotter() -> None:
 		try:
-			with manager.phase_budget(resource_class="plot_unit", phase_name="plot_templates", target_label="well001") as lease:
+			with manager.phase_budget(resource_class="plot_unit", phase_name="plot_templates_v2", target_label="well001") as lease:
 				with condition:
-					started.append("plot_templates")
-					leases.append(("plot_templates", lease))
+					started.append("plot_templates_v2")
+					leases.append(("plot_templates_v2", lease))
 					condition.notify_all()
 		except BaseException as exc:
 			with condition:
@@ -267,7 +267,7 @@ def test_phase_budget_blocks_plot_unit_when_template_build_holds_ram() -> None:
 	assert not plot_thread.is_alive()
 
 	assert not errors
-	assert started == ["build_templates", "plot_templates"]
+	assert started == ["build_templates", "plot_templates_v2"]
 	assert len(leases) == 2
 	assert leases[0][1]["slot_demands"] == {"cpu_cores": 4, "ram_gb": 8}
 	assert leases[1][1]["slot_demands"] == {"cpu_cores": 2, "ram_gb": 48, "plot_slots": 1}
