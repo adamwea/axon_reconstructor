@@ -3927,3 +3927,4 @@ e2a4200 | feat [sonnet]     | switch plot_recons template_circles base to render
 2b69f73 | plan [sonnet]     | add Slice 8 (stage test fixture migration) and Slice 9 (spikeinterface_extract compat audit); §1.6 enumerates all 14 failures by resolving slice
 34bb353 | slice 1a [opus]    | delete legacy reports phase from reconstruct stage
 2c9e1d3 | slice 1b [opus] | delete legacy plot_templates v1 phase from reconstruct stage
+17ca304 | slice 1c [opus] | delete legacy per_unit_processing phase + monolithic pipeline helpers
