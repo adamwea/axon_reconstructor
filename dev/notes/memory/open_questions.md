@@ -21,6 +21,18 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
 
+- **Pre-existing test failures surfaced during phase_roster_cleanup slice 1** (2026-05-18): 15 failures noted by sub-commit agents, all confirmed pre-existing via `git stash` comparison (not caused by the deletion). Worth a dedicated triage slice:
+  - `parses_plot_templates_v2_phase_block` — resource_class `'plot_unit'` not in budgets registry. Likely needs the resource budget yaml to register it, or the test fixture to provide a registered class.
+  - `test_load_config_reconstruct_populates_templates_inputs_from_debug_local_runtime` — test expects a specific phase_sequence including `templates_report_templates` and `clear_templates_cache`; the live `debug_local/debug.runtime.yml` already differs. Test assertion is stale; refresh in follow-up.
+  - 3× `test_reconstruct_combined_phase_sequence_*` — `dataclasses.replace()` called on a `SimpleNamespace`. Tests scaffold `templates_inputs` as SimpleNamespace; production code path now requires a real `TemplatesInputs` dataclass. Fixture upgrade needed.
+  - `test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases` — likely related to phase_budgets schema drift.
+  - `test_run_reconstruct_report_full_chip_layout_phase_writes_outputs` — unit count assertion drift.
+  - `test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps` — pre-existing.
+  - 5× `test_spikeinterface_extract.py` — separate spikeinterface API drift.
+  - 2× `test_runner` upsampling/spikeinterface fallback tests — pre-existing.
+
+  Resolution: not blocking phase_roster_cleanup slices 2-14, but worth a dedicated cleanup slice after the destructive cleanups settle.
+
 ## Resolved 2026-05-18 (kept here briefly for context; delete on next prune)
 
 All Q1-Q24 of the pre-loop scoping Q&A resolved. Decisions encoded in:

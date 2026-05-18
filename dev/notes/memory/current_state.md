@@ -5,6 +5,11 @@ Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old
 ## Shipped this week (2026-05-12 → 2026-05-18)
 
 ### axon_recon repo
+- **Phase roster cleanup slice 1 — legacy reconstruct phases deleted** (commits `34bb353`, `2c9e1d3`, `17ca304` + commit_log companions):
+  - `reports` mega-phase deleted (phase impl, config dataclass, CLI dispatch, YAML, tests).
+  - `plot_templates` v1 deleted (phase impl, config field, CLI aliases, YAML, tests). `report_templates.consume` normalizer now canonicalizes on `plot_templates_v2` and rejects v1 strings.
+  - `per_unit_processing` deleted (phase impl, the four nested sub-config dataclasses, monolithic-pipeline helpers `_report_scope_config` + `_disable_reports_config`, YAML, tests). `_run_reconstruct_templates_pipeline_monolithic` KEPT (still called by `run_reconstruct_templates_pipeline` when `phase_sequence is None`; ~70 template tests rely on it).
+  - 0 new test failures across the slice; 15 pre-existing failures noted (see open_questions).
 - **Reconstruct `--force-restart` wipes the whole stage output** (no more templates-cache stash-and-restore). Commit `5e2b883`.
 - **Concat analyzer disabled at every recon production wrapper.** `legacy_include_concat` default flipped `True → False`; `_iter/_load_templates_phase_analyzers` hard-set `include_concat=False`; materialize call sites pass `include_concat=False`. Loader low-level path still honors `include_concat=True` for tests only. Tracker entry "Remove concat analyzer plumbing from recon stage" tracks full removal.
 - **CLI scope flags landed**: `--profile`/`--task-profile`, `--target-wells` accepts ints, `--targets <ds>:<well>` per-pair filter. Process-wide overrides in `pipeline/config.py`. Tests pass.
@@ -26,7 +31,7 @@ Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old
 
 ## In-flight
 
-- **Phase roster cleanup plan** drafted (`plans/active/phase_roster_cleanup_plan.md`). User annotated TODOs in `dev/debug_NERSC/debug.runtime.yml`; plan consolidates them into 9-10 commits. Not yet started.
+- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slice 1 (legacy reconstruct phase deletions) shipped. Slices 2-14 still queued. Next up: slice 2 — preprocess pure deletions (`prepare_raw_binaries`, `report_preprocessing`, `cleanup_preprocessing_outputs`).
 - **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. New sibling packages (`~/dev/pkgs/kssynth/`, `~/dev/pkgs/unitlink/`) don't exist yet. axon_recon analysis-stage `unitmatch` phase doesn't exist yet.
 
 ## Locked decisions from 2026-05-18 pre-loop Q&A
