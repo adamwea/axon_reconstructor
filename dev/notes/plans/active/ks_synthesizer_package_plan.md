@@ -325,7 +325,7 @@ This is exactly the kind of consolidation the phase-roster tracker entry calls f
 
 ## 10. Open questions
 
-1. **Package name.** Working name is `kssynth` (Kilosort synthesizer). Alternatives: `unitprep`, `sorterfuse`, `synthsorter`, `sifuse`. Decide before slice 1. Lean toward `kssynth` — short, descriptive, no name collisions on PyPI as of writing.
+1. **Package name.** **Locked: `kssynth`** (Kilosort synthesizer; user-confirmed 2026-05-18). Repo at `~/dev/pkgs/kssynth/`. Local `git init` only at slice 1; user creates the GitHub remote when ready.
 
 2. **Default aggregation policy.** Options:
    - `mean` — simple average across analyzers.

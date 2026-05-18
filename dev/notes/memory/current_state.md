@@ -29,6 +29,35 @@ Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old
 - **Phase roster cleanup plan** drafted (`plans/active/phase_roster_cleanup_plan.md`). User annotated TODOs in `dev/debug_NERSC/debug.runtime.yml`; plan consolidates them into 9-10 commits. Not yet started.
 - **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. New sibling packages (`~/dev/pkgs/kssynth/`, `~/dev/pkgs/unitlink/`) don't exist yet. axon_recon analysis-stage `unitmatch` phase doesn't exist yet.
 
+## Locked decisions from 2026-05-18 pre-loop Q&A
+
+Run-semantics:
+- **Three invocation modes** for any stage: no-flag (auto-restart-from-first-broken), `--force-restart` (rmtree everything), `--replot` (run plot/report phases only, orthogonal to auto-restart).
+- `--force-replot` is DELETED (`--replot` replaces it).
+- **Checkpoint status enum**: `{missing, in_progress, ok, error, stale, skipped}`. `stale`/`error`/`in_progress`/`missing` all trigger force-restart of that phase + downstream in auto-restart mode. `skipped` stays skipped only if still configured that way; otherwise re-evaluated like `missing`.
+- **`in_progress` marker**: phase writes a stub summary_json (`status: in_progress`, `started_at`, `pid`) BEFORE its main work begins, overwrites with `ok`/`error` on completion. Stranded `in_progress` = crashed process; auto-restart catches it.
+- `dry_run` is its own status (`dry_run_ok`) and is treated like `missing` by auto-restart (dry-run doesn't actually run the phase).
+
+Output locations:
+- Iteration outputs: `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice_name>/...` — one subdir per plan slice, granular.
+- Reference data: `/pscratch/sd/a/adammwea/analyzed_data/...` — read-only. Never mutated during iteration.
+- New `--output-root` CLI flag overrides `data_config.output_root` for iteration runs.
+
+Working-data scope (re-confirmed):
+- 80k DMEM well000 of M08073 chips, all DIVs, for v1 iteration.
+- well001 OK as an additional sample if needed for parallelism / diversity smoke tests.
+- Network scans: path pattern `/pscratch/sd/a/adammwea/raw_data/.../<date>/<chip>/Network/`. Two types per DIV (clustered groups of 4/9 channels, and fully sparse). v1 picks ONE type when network scans enter scope; the other is a future lever. Reserved for unitmatch v2 — out of v1 iteration scope.
+
+Test policy:
+- Delete tests that no longer make sense after a slice.
+- Morph tests that should remain into the current mental model — done inline with the slice that requires it, not as a dedicated cleanup pass.
+
+Process control:
+- Model: default Opus 4.7; Sonnet 4.6 only for very concrete mechanical work.
+- Mid-slice ambiguity: low-stakes → best-guess + note in `memory/notes.md`; high-stakes → ask user. If user is unresponsive: pause that slice, document blocker in `open_questions.md`, switch to another unblocked slice. Keep the loop moving.
+- Login-node smokes: pass `--task-backend local_affinity` every time; cap 64 procs; use `--limit-*` flags to keep scope tiny. Bigger smokes → ask user to run on a real allocation.
+- New repos (`kssynth`, `unitlink`) get local `git init` at slice 1; remote pushed by user when they create the GitHub repo.
+
 ## Queued / not started
 
 Listed in tier-order from `dev/notes/plans/active/phase_roster_cleanup_plan.md` §"Execution order" (and the related response):

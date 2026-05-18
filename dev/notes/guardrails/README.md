@@ -36,7 +36,7 @@ Don't update a guardrail when:
 |---|---|
 | [`parallelism.md`](parallelism.md) | n_jobs resolution, slot.cpu_count, MPI worker behavior, the `resolve_inner_worker_count` contract |
 | [`scope_flags.md`](scope_flags.md) | `--target-datasets`, `--target-wells`, `--targets`, `--limit-*`, `--profile`, `--task-backend` semantics |
-| [`force_restart.md`](force_restart.md) | `--force-restart` = `rmtree(stage_output_dir)`. `--force-replot` semantics. No fallbacks. |
+| [`force_restart.md`](force_restart.md) | Three invocation modes: no-flag (auto-restart-from-first-broken), `--force-restart` (rmtree everything), `--replot` (plot phases only, orthogonal). No fallbacks. |
 | [`stage_phase_architecture.md`](stage_phase_architecture.md) | Stage / phase invariants — phase_sequence, phases dict, summary_json, resource_class, output_rel_root |
 | [`package_contracts.md`](package_contracts.md) | Sibling-repo layout, SI-convention compliance for shared packages, no axon_recon-specific deps in `kssynth` / `unitlink` / `SLAy` / `UnitMatchPy` |
 | [`output_locations.md`](output_locations.md) | Logs → pscratch; code → `/global/homes`; what's tracked in repo vs gitignored |

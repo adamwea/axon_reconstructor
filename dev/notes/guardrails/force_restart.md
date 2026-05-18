@@ -2,15 +2,19 @@
 
 ## Contract
 
-Two rules, no exceptions:
+The pipeline has THREE invocation modes for running a stage:
 
-1. **Stage `--force-restart` for a well = `rmtree(<well>/<stage_output_root>/)` BEFORE the stage runs.** Whole output dir gone. Then the stage rebuilds whatever it needs.
+1. **No flag** (auto-restart-from-first-broken). The standard / default mode. The stage walks its `phase_sequence` per target, finds the first phase whose checkpoint status is not `ok` and not `skipped`, force-restarts THAT phase and all downstream phases. Phases that are `ok` are reused. See `guardrails/stage_phase_architecture.md` §"Checkpoint status enum + auto-restart-from-first-broken" for the status definitions and rules.
 
-2. **Phase `--force-restart` (when invoked on a single phase) = `rmtree(<well>/<stage_output_root>/<phase_output_dir>/)` BEFORE the phase runs.** Just that phase's folder.
+2. **`--force-restart`** (nuclear). Bypass auto-restart entirely; rmtree the whole output dir and rebuild from scratch:
+   - Stage scope: `rmtree(<well>/<stage_output_root>/)` BEFORE the stage runs.
+   - Phase scope (when invoked on a single phase): `rmtree(<well>/<stage_output_root>/<phase_output_dir>/)` BEFORE the phase runs.
+
+3. **`--replot`** (plot/report rebuild only, orthogonal to auto-restart). Run plot/report phases in the stage's `phase_sequence`, regardless of any other phase's status. Skip non-plot phases entirely. Useful when the user wants fresh plots from existing computed data. The caller is responsible for ensuring upstream data is valid; this flag does NOT auto-restart anything.
 
 Anything more granular — partial restart options, per-step cache preservation across force-restart, `*_delete_outputs_on_force_restart` YAML knobs that selectively retain things — is **forbidden going forward** and on the deletion list. No fallbacks. No backwards compat. No "but this saves time".
 
-`--force-replot` is a separate flag today: redo plot / report work without recomputing data. It's planned to collapse into `--force-restart` with a flag (or be eliminated entirely). Until then, treat it as legacy-but-supported.
+**`--force-replot` is dead.** Two flags exist: `--force-restart` (nuclear) and `--replot` (plot phases only). The old `--force-replot` is being eliminated entirely — "replot" already implies "do it again", no need for "force".
 
 ## Why
 

@@ -64,6 +64,8 @@ Plus, `--dry-run` doubles as a deployment-readiness check: before kicking off a 
 
 7. **Dry-run works under `--force-restart`**: combining `--dry-run --force-restart` resolves inputs, identifies what would be wiped, lists those in the summary's `outputs_would_produce`, and exits without rmtree'ing anything. The rmtree is part of "expensive work" that dry-run skips.
 
+8. **Dry-run does NOT touch the `in_progress` marker.** The phase doesn't actually start when `--dry-run` is set, so no `status: in_progress` is written. Instead, the dry-run summary writes `status: dry_run_ok` to the same `summary_json` path. Per `guardrails/stage_phase_architecture.md`, `dry_run_ok` is treated like `missing` by the auto-restart-from-first-broken logic — a real subsequent invocation MUST force-restart the phase to actually run it. Dry-run is for wiring validation, not for recording that the phase ran.
+
 ## Tests / verification
 
 - Per-phase dry-run unit tests (per §sub-rule 5).

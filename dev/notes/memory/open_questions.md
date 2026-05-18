@@ -2,36 +2,35 @@
 
 TBD decisions awaiting user input or empirical data. Each entry has a clear resolution criterion. When resolved, move the conclusion to `current_state.md`, `guardrails/`, or a plan; delete the entry from here.
 
-## Package naming
+## Awaiting empirical data (deferred until plan reaches the relevant slice)
 
-- **`kssynth` vs `unitprep` vs other**: package working name is `kssynth` per `plans/active/ks_synthesizer_package_plan.md` §10. User to confirm or pick alternative before slice 1.
-- **`unitlink` vs `unitmatch_runner` vs `unittrack`**: working name is `unitlink` per `plans/active/unitmatch_runner_package_plan.md` §10. User to confirm or pick alternative before slice 1.
-- **Repo hosting**: GitHub under user's own org? Both plans note this is TBD.
-
-## Phase roster cleanup (`plans/active/phase_roster_cleanup_plan.md`)
-
-- **`init` stage scope**: is `copy_src_to_scratch` the only phase that belongs there, or are there future "once per data config" setup phases worth scaffolding for now? Defer to plan §6 §1.
-- **`cleanup` stage scope**: the plan envisions consolidating `cleanup_concat_binary` / `cleanup_analyzers` / `clear_templates_cache` into the new `cleanup` stage eventually. Decide ordering with the broader phase-roster work.
-- **`concat_binary` resource class** after consolidation: keep spikesort-side budget? Plan §6 §3.
-- **bombcell / SLAy code deletion timing**: after disabling in spikesort phase_sequence, the phase implementations stay in code until the recon-side migration lands. When do we fully delete? Plan §6 §5.
+- **Two-halves split granularity**: temporal midpoint is what UMPy expects. Could split finer for more same-neuron pairs per unit, but UMPy shape is hardcoded to `(..., 2)`. Decide after `unitlink` v1 results.
+- **Per-chip match threshold tuning**: default `match_threshold: 0.5` from UMPy may be too permissive for HD-MEA. Add per-group calibration in `unitlink` v3? Wait for v1 + v2 empirical data.
+- **Network-scan inclusion as default**: decide after `unitmatch_phase_plan.md` slice 7's measurement of marginal gain.
+- **Both network-scan types in unitmatch v2**: v2 picks ONE type (lean clustered variant). The sparse variant may join in v3 if marginal gain measurement justifies it.
+- **DeepUnitMatch HD-MEA training**: `unitlink` v2 wrapper supports it; training a HD-MEA model is its own project. Defer.
+- **`force_replot` final fate**: RESOLVED — deleted entirely. `--replot` (without "force") replaces it. See `phase_roster_cleanup_plan` slice 11.
+- **`init` / `cleanup` stage scope**: v1 = one phase each (`copy_src_to_scratch` / `wipe_src_scratch`); grow organically. Stages disabled by default for now but must work.
+- **`concat_binary` resource class** after consolidation: keep spikesort-side budget. Plan §6 §3.
+- **bombcell / SLAy code deletion timing**: never delete from spikesort code, just disable. User: "I think in the future we will only use the recon stage versions if we successfully implement them as I imagine, maybe then we delete them. but for now, just disable them."
 - **`plot_raster_threshold` quality fix design**: needs design-doc-level thinking about colormap / per-segment channel toggling visualization. Defer.
 
-## UnitMatch / unitlink
+## Empirically TBD per slice
 
-- **Two-halves split granularity**: temporal midpoint is what UMPy expects. Could split finer for more same-neuron pairs per unit, but `UMPy` shape is hardcoded to `(..., 2)`. Decide after v1 results.
-- **Per-chip match threshold tuning**: default `match_threshold: 0.5` from UMPy may be too permissive for HD-MEA. Add per-group calibration in unitlink v3? Wait for v1 + v2 empirical data.
-- **Network-scan inclusion as default**: decide after `unitmatch_phase_plan.md` slice 7's measurement of marginal gain.
-- **DeepUnitMatch HD-MEA training**: wrapper supports it; training a HD-MEA model is its own project. Defer.
+- **resources.profiles elimination — per-srun-flag fallback when slot is missing**: when `--cpus-per-task` is passed on the command line, does the resolver use that directly, or compute from `os.sched_getaffinity(0)`? Both are reasonable; pick during the implementation slice. See `trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`".
 
-## --force-restart collapse
+- **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
 
-- **`force_replot` final fate**: collapse into `--force-restart` with a flag, or eliminate entirely? Plan and tracker note both options. Decide during the collapse-implementation slice.
-- **Stage-vs-phase scope inference**: `axon-recon stages spikesort --force-restart` is clearly stage-level. `axon-recon stages spikesort.merge_SLAy --force-restart` is clearly phase-level. Make sure the CLI dispatch is unambiguous; document in `guardrails/force_restart.md` once the collapse lands.
+## Resolved 2026-05-18 (kept here briefly for context; delete on next prune)
 
-## resources.profiles elimination
-
-- **Per-srun-flag fallback when slot is missing**: when `--cpus-per-task` is passed on the command line, does the resolver use that directly, or compute from `os.sched_getaffinity(0)`? Both are reasonable; pick during the implementation slice. See `trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`".
-
-## Iteration scope (current cycle)
-
-- **Iteration output dir naming convention**: `/pscratch/sd/a/adammwea/dev_outputs/<feature>/...` — `<feature>` is the plan slice or feature branch name? Confirm convention as Claude lands the first iteration commit.
+All Q1-Q24 of the pre-loop scoping Q&A resolved. Decisions encoded in:
+- `CLAUDE.md` (loop protocol, model selection, smoke-test ladder, commit cadence + restore rules, working-data scope)
+- `guardrails/stage_phase_architecture.md` (checkpoint status enum + auto-restart-from-first-broken)
+- `guardrails/force_restart.md` (three invocation modes: no-flag auto-restart, `--force-restart`, `--replot`; `--force-replot` eliminated)
+- `guardrails/scope_flags.md` (flag table updates: `--replot` replaces `--force-replot`; new `--output-root`)
+- `guardrails/dry_run.md` (dry-run interaction with checkpoint status)
+- `plans/active/phase_roster_cleanup_plan.md` (slices 11-14 added for `--force-replot` deletion, `--output-root`, checkpoint markers, auto-restart logic)
+- `plans/active/ks_synthesizer_package_plan.md` (name locked: `kssynth`)
+- `plans/active/unitmatch_runner_package_plan.md` (name locked: `unitlink`)
+- `plans/active/unitmatch_phase_plan.md` (v2 picks one network-scan type; data path noted)
+- `memory/current_state.md` (working-data scope, queued tier order, known-good baselines)

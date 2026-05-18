@@ -30,11 +30,37 @@ A phase `<phase_name>` under stage `<stage_name>`:
   ```python
   def _run_<stage>_<phase>_target(*, target: ExecutionTarget, stage_config: Any, unit_workers: int) -> <Stage>Result: ...
   ```
-- Writes its own `summary_json` at the configured relpath. The summary at minimum has: `status` (`ok` / `error` / `skipped` / `dry_run_ok`), `well_out_dir`, `applied_debug_limits`, `inputs`, `outputs`. Phase-specific fields beyond that are free.
+- Writes its own `summary_json` at the configured relpath. The summary at minimum has: `status` (one of the checkpoint statuses below), `well_out_dir`, `applied_debug_limits`, `inputs`, `outputs`. Phase-specific fields beyond that are free.
 - Either appears in the YAML `phase_sequence` (= runs by default) or is excluded from it (= manual invocation only via `axon-recon stages <stage>.<phase>`).
 - Supports `--force-restart` per `guardrails/force_restart.md`.
 - Supports `--dry-run` per `guardrails/dry_run.md`.
 - Respects `--target-*`, `--targets`, `--limit-*` per `guardrails/scope_flags.md` — usually automatically, by consuming the filtered ExecutionTarget list from `select_execution_targets`.
+
+### Checkpoint status enum + auto-restart-from-first-broken
+
+Every phase's `summary_json` carries a `status` field whose value is exactly one of:
+
+| Status | When it appears | Effect on next stage invocation (no `--force-restart`) |
+|---|---|---|
+| `missing` | No `summary_json` exists yet. | Auto-restart kicks in: this phase + all downstream phases are force-restarted. |
+| `in_progress` | Phase has started but not finished. Written at phase entry; supposed to be overwritten with `ok` or `error` on completion. Persistent `in_progress` after a stage invocation = the phase crashed mid-run. | Treated like `missing`: force-restart this phase + all downstream. |
+| `ok` | Phase completed successfully and outputs are valid. | Skip; reuse the existing outputs. |
+| `error` | Phase failed cleanly (caught exception, structured error written to `summary_json`). | Treated like `missing`: force-restart this phase + all downstream. |
+| `stale` | Read-side determination (NOT written): the status reporter detects that an input artifact's mtime is newer than this phase's `summary_json`. The phase ran successfully at some point, but its inputs have since changed. | Treated like `missing`: force-restart this phase + all downstream. |
+| `skipped` | Phase intentionally bypassed (e.g. configured `enabled: false`, snapshot already exists, or a phase-specific skip condition). | Stays `skipped` if and only if the current YAML still configures it as skipped; otherwise re-evaluated like `missing`. |
+| `dry_run_ok` | Phase short-circuited via `--dry-run` (see `dry_run.md`). | Treated like `missing`: the phase didn't actually run, so a real subsequent invocation MUST force-restart it. (Dry-run doesn't participate in auto-restart sequencing.) |
+
+**Auto-restart-from-first-broken** is the standard run semantic when a stage is invoked WITHOUT `--force-restart` and WITHOUT `--replot`:
+
+1. Walk the stage's `phase_sequence` for the target (well, or chip-well group for group-scoped phases).
+2. For each phase in order, read its `summary_json` (if any) to determine its status.
+3. Find the FIRST phase whose status is not `ok` and not `skipped`.
+4. Force-restart that phase + ALL downstream phases in the sequence (same scope semantics as `force_restart.md`).
+5. If every phase is `ok` or `skipped`, the stage is a no-op for that target.
+
+This means: a crashed run can be re-invoked without `--force-restart` and the pipeline auto-recovers from where it broke. The user doesn't have to manually figure out which phase died.
+
+`in_progress` markers are written by the phase BEFORE its main work begins. Specifically: the phase's target runner writes a stub `summary_json` with `status: in_progress`, a `started_at` timestamp, and a `pid` (so a stranded `in_progress` is identifiable as the user's vs someone else's process if needed). The marker is overwritten with the final `ok` / `error` status on completion. If the process dies (kernel-killed, OOM, ctrl-C, etc.), the marker stays as `in_progress` — and the next stage invocation sees it and force-restarts that phase.
 
 ### Resource class
 

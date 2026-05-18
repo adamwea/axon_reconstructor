@@ -322,7 +322,7 @@ The recon stage produces one synth sorter_output per (dataset, well). The analys
 
 ## 10. Open questions
 
-1. **Package name.** Working: `unitlink`. Alternatives: `unitmatch_runner` (explicit), `unittrack` (descriptive), `umrun` (terse), `crosssort` (alt-concept). Decide before slice 1.
+1. **Package name.** **Locked: `unitlink`** (user-confirmed 2026-05-18). Repo at `~/dev/pkgs/unitlink/`. Local `git init` only at slice 1; user creates the GitHub remote when ready.
 2. **Analyzers input shape.** Path B in §6: require the caller to supply per-session SpikeInterface analyzers alongside each sorter_output, for the two-halves waveform computation. `analyzers="auto"` discovery (look in `<sorter_output>/../cache/analyzers/segments/`) is convenient but adds implicit-path complexity. Lean toward explicit for v1; add auto-discovery as v1.1 once call sites stabilize.
 3. **License.** MIT, matching SLAy / kssynth / UnitMatchPy.
 4. **Repo hosting.** GitHub under your own org. Same as the other sibling packages.

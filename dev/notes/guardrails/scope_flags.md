@@ -17,8 +17,9 @@ Every stage / phase CLI accepts the following flags with stable semantics:
 | `--profile` / `--task-profile` | string | Override `resources.active_profile`. Takes precedence over YAML. |
 | `--task-backend` | `mpi` / `local_affinity` / `none` | Override `resources.profiles.<active>.task_allocation.backend`. |
 | `--cpus-per-task` | positive int | Override `cpus_per_task` of the active profile. |
-| `--force-restart` | bool | Per `guardrails/force_restart.md` — rmtree the affected output. |
-| `--force-replot` | bool | Per `guardrails/force_restart.md` — reuse computed outputs, redo plot/report work only. **Planned for collapse into `--force-restart`; see plans/trackers.** |
+| `--force-restart` | bool | Per `guardrails/force_restart.md` — rmtree the affected output. Bypasses auto-restart-from-first-broken. |
+| `--replot` | bool | Per `guardrails/force_restart.md` — run plot/report phases only, regardless of upstream phase statuses. Orthogonal to auto-restart. **Replaces the old `--force-replot` (which is eliminated).** |
+| `--output-root` | path | Override `data_config.output_root` for this run. Used to write iteration outputs to `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/` without mutating the reference `analyzed_data/` tree. |
 | `--dry-run` | bool | Per `guardrails/dry_run.md` — every phase short-circuits at input resolution. |
 | `--no-plot` | bool | Skip plot/report generation across plot-heavy phases. Tracked via `_NO_PLOT_OVERRIDE` ContextVar in `pipeline/config.py`. |
 
@@ -46,7 +47,7 @@ All four are cleared in the `finally` block of `pipeline/cli.py`'s main() so in-
 
 ## Sub-rules for new phases
 
-1. **Don't reinvent flag parsing.** New stage / phase subcommands inherit `--target-*`, `--limit-*`, `--targets`, `--profile`, `--task-backend`, `--force-restart`, `--force-replot`, `--no-plot`, `--dry-run` from the shared argparse setup (currently `_register_debug_limit_arguments` + `_register_status_parser` + per-stage parsers in `cli.py`). If your phase needs a NEW flag, it goes in the per-stage parser AFTER you've checked the shared one doesn't already cover it.
+1. **Don't reinvent flag parsing.** New stage / phase subcommands inherit `--target-*`, `--limit-*`, `--targets`, `--profile`, `--task-backend`, `--force-restart`, `--replot`, `--output-root`, `--no-plot`, `--dry-run` from the shared argparse setup (currently `_register_debug_limit_arguments` + `_register_status_parser` + per-stage parsers in `cli.py`). If your phase needs a NEW flag, it goes in the per-stage parser AFTER you've checked the shared one doesn't already cover it.
 
 2. **Stage-level resolution**: target filtering happens in `select_execution_targets` (`pipeline/config.py`). Phase-level code receives a filtered list of `ExecutionTarget`s; it doesn't re-apply the filter.
 
@@ -64,6 +65,6 @@ All four are cleared in the `finally` block of `pipeline/cli.py`'s main() so in-
 
 ## Open exceptions / follow-ups
 
-- `--force-replot` is on the "collapse into force-restart" trajectory; see `trackers/tech_debt.md` §"Collapse `--force-restart` semantics" and the new `phase_roster_cleanup_plan`.
+- `--force-replot` is DEAD. Eliminated. Use `--replot` instead.
 - `--profile` is on the kill list once `resources.profiles` is gone (`trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`"). The CLI flag's existence is a workaround; long-term the resolver reads srun/cgroup state.
 - `--task-backend` may shrink in scope once the profile elimination lands.

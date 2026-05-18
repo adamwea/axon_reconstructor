@@ -146,6 +146,37 @@ One commit per slice unless noted. `claude:` prefix.
 - Not structural; can land anytime after the structural cleanups settle. Defer to its own future commit; this plan calls it out so it doesn't get lost but doesn't sequence it inline.
 - Goal: "ideally we see all the channels across all the segments, and in each plotted segment division on the raster, we should see channels turn on and off as they drop in and out of the recording."
 
+### Slice 11 — `--force-replot` deletion + `--replot` rename
+- Mechanical: replace `--force-replot` with `--replot` everywhere. Delete `_FORCE_REPLOT_OVERRIDE` / `set_force_replot_override` if they exist; introduce `_REPLOT_OVERRIDE` if needed (only if a process-wide override is currently used).
+- Grep audit: `grep -rn "force.replot\|force_replot" src/ dev/` — zero hits in non-archive code after the slice.
+- Tests: update any test asserting `--force-replot` behavior to assert `--replot` instead. Delete tests that test the OLD semantic of "reuse computed outputs but rebuild plots only when stale" — the new `--replot` is "always rebuild plot phases, orthogonal to staleness". Some test rewriting is needed; lean on `guardrails/force_restart.md` for the post-change contract.
+
+### Slice 12 — `--output-root` CLI flag
+- New CLI flag at the shared argparse layer (`pipeline/cli.py`) that overrides `data_config.output_root`.
+- Plumbing: when set, the bundle's `data_config["output_root"]` is replaced before `select_execution_targets` reads it.
+- Use case: Claude (or any user) writes iteration outputs to `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/...` without editing the YAML or mutating the reference `analyzed_data/` tree.
+- Tests: assert override is applied; assert no leak between invocations (clear in `finally`).
+
+### Slice 13 — Checkpoint status enum + `in_progress` marker mechanic
+- Each phase's target runner writes a stub `summary_json` with `status: in_progress`, `started_at: <iso8601>`, `pid: <int>` BEFORE its main work begins. The marker overwrites whatever was at the same path (a previous run's `ok` / `error`).
+- On successful completion, the runner overwrites with the final `status: ok` summary.
+- On exception, the runner overwrites with `status: error` + a `traceback` field (and re-raises).
+- If the process dies (kernel-killed, OOM, kill -9), the marker stays as `in_progress` — which the next invocation's auto-restart logic catches.
+- New helper module `src/axon_recon/pipeline/checkpoint.py`:
+  - `write_in_progress_marker(summary_json_path, phase_name, …) -> None`
+  - `read_checkpoint_status(summary_json_path) -> Literal["missing","in_progress","ok","error","stale","skipped"]`
+  - `is_stale(summary_json_path, *input_mtimes) -> bool`
+- Tests: per-status unit tests; one integration test asserting the marker is written before work begins and overwritten correctly.
+
+### Slice 14 — Auto-restart-from-first-broken logic
+- New helper in `pipeline/runner.py` (or `checkpoint.py`): `find_first_broken_phase(phase_sequence, target_paths, yaml_skip_state) -> (phase_index, status)` returning the index in `phase_sequence` of the first phase that is NOT `ok` and NOT (legitimately) `skipped`.
+- Stage runner updated: when NEITHER `--force-restart` NOR `--replot` is set, call `find_first_broken_phase`; if it returns a non-None phase index, treat that phase (and everything downstream) as if `--force-restart` was set for them. If it returns None (everything is `ok` or `skipped`), the stage is a no-op for that target.
+- `--force-restart` bypass: skip the find-first-broken check entirely; rmtree + run all phases as before.
+- `--replot` bypass: skip the find-first-broken check; run plot/report phases only, regardless of statuses.
+- Tests: 3-phase fixture with phase 2 in various states (`ok`, `in_progress`, `error`, `stale`, `skipped`); assert correct restart point in each.
+
+Slices 13 and 14 together realize the auto-restart contract documented in `guardrails/stage_phase_architecture.md` §"Checkpoint status enum + auto-restart-from-first-broken". They're substantial enough to potentially split into their own dedicated plan once they start landing; tracked here for now since they touch the same stage runner code as the phase roster cleanup.
+
 Total estimated touch: ~600-900 LoC across 9-10 commits. Mostly deletion and mechanical move; ~150-200 net new lines (the new stage scaffolds + the consolidated `concat_binary` after dedup).
 
 ---
