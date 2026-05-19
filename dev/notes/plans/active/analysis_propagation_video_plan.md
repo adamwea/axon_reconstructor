@@ -1,5 +1,28 @@
 # Analysis-stage propagation-video plan
 
+> **Status (2026-05-19)**: ✅ **7 of 9 slices SHIPPED.** Only slice 8
+> (login smoke + HARD-gate visual diagnostic) remains, and it's
+> user-domain (requires axon_velocity installed via shifter or `[full]`
+> env, plus visual review of the first GIF output).
+>
+> Shipped commits:
+> - Slice 1 audit: `dfff76a` (`dev/notes/refs/propagation_video_audit.md`)
+> - Slice 2 scaffold: `19cb75e`
+> - Slice 3 inputs resolver: `06b731f`
+> - Slice 4 render core (minimal v1 port): `8c7e989`
+> - Slice 5 YAML config knobs: `755dd4b`
+> - Slice 6 --dry-run support: `4aa9f00`
+> - Slice 7 orchestrator wire-in: `d80b393`
+> - Slice 9 usage docs: `618b047`
+>
+> **NEXT** (slice 8): user runs the phase against the M08073 80k DMEM
+> well000 cohort with `--targets <ds>:0 --limit-datasets 1`, picks
+> ONE unit, and visually confirms the GIF shows correct branch
+> propagation. Then add a HARD-gate entry to
+> `dev/notes/memory/diagnostics_to_review.md`. Slice-4 v1 elaborations
+> (ROI crop, clip quantile, colorbar, time counter) follow once the
+> basic output is verified.
+
 ## Motivation
 
 `axon_velocity` ships code to generate **video / GIF of signal propagation
