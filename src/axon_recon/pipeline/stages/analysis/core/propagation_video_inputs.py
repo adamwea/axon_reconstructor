@@ -213,8 +213,49 @@ def resolve_propagation_video_inputs(
 	return resolved
 
 
+def discover_unit_ids_for_target(
+	*,
+	well_id: str,
+	h5_path: str | Path,
+	mea_output_root: str | Path,
+	recon_output_rel_root: str = "recon_outputs",
+) -> list[int]:
+	"""Discover the per-unit subdirectories the recon stage produced for
+	this target. Mirrors ``stages/reconstruct/runner.py:_discover_unit_ids``
+	so slice 7's orchestrator can fan out without depending on the
+	recon module directly.
+
+	Returns sorted unit_id integers. Subdirectories that don't parse as
+	integers (e.g. ``reports/`` / ``cache/``) are skipped.
+	"""
+
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=Path(mea_output_root),
+		data_file=Path(h5_path),
+		well=str(well_id),
+	)
+	merged_units_dir = (
+		well_out_dir / str(recon_output_rel_root) / "cache" / "templates" / "merged"
+	).resolve()
+	if not merged_units_dir.is_dir():
+		return []
+	unit_ids: list[int] = []
+	for entry in sorted(merged_units_dir.iterdir()):
+		if not entry.is_dir():
+			continue
+		token = entry.name
+		if token.startswith("unit_"):
+			token = token.split("unit_", 1)[1]
+		try:
+			unit_ids.append(int(token))
+		except Exception:
+			continue
+	return sorted(unit_ids)
+
+
 __all__ = [
 	"PropagationVideoInputs",
 	"PropagationVideoInputsMissing",
+	"discover_unit_ids_for_target",
 	"resolve_propagation_video_inputs",
 ]

@@ -1,14 +1,13 @@
 """analysis.propagation_video phase orchestrator.
 
-Slice 2 of `analysis_propagation_video_plan.md`: scaffold-only — the
-phase is wired into the analysis stage with `enabled: false` defaults
-in both runtime YAMLs; per-target invocation returns a noop marker
-indicating the phase isn't implemented yet.
+Slice 7 of `analysis_propagation_video_plan.md`: per-target orchestrator
+fans out across the target's units, calls the slice-3 inputs resolver +
+slice-4 renderer for each, and writes a per-target summary marker
+aggregating per-unit results.
 
-Slice 3 will add the inputs resolver; slice 4 ports the core impl from
-the archeology audit (`dev/notes/refs/propagation_video_audit.md`)
-that wraps `axon_velocity.plotting.play_template_map` with cropping +
-clipping + colorbar overlays.
+Soft-imports `axon_velocity` at render-time via the slice-4 renderer's
+soft-import gate, so the analysis stage's other phases keep loading
+cleanly when this optional dep isn't available.
 """
 
 from __future__ import annotations
@@ -20,6 +19,11 @@ from pathlib import Path
 from typing import Any
 
 from ....output_paths import compute_mea_analysis_output_dir
+from ..core.propagation_video_inputs import (
+	PropagationVideoInputsMissing,
+	discover_unit_ids_for_target,
+	resolve_propagation_video_inputs,
+)
 from .compute_metrics import (
 	_print_analysis_aggregate,
 	_target_datasets_override_from_args,
@@ -48,6 +52,17 @@ def _per_target_summary_path(stage_output_root: Path) -> Path:
 	return stage_output_root / "context" / "propagation_video_summary.json"
 
 
+def _phase_video_output_dir(
+	*,
+	stage_output_root: Path,
+	rel_output_root: str,
+) -> Path:
+	"""Per-target video output dir at
+	``<analysis_outputs>/<rel_output_root>/`` (one GIF per unit_id)."""
+
+	return stage_output_root / str(rel_output_root or "propagation_video")
+
+
 def _write_phase_summary(
 	*,
 	target_summary_path: Path,
@@ -55,6 +70,8 @@ def _write_phase_summary(
 	well_id: str,
 	dataset_index: int,
 	reason: str,
+	units_processed: list[dict[str, Any]] | None = None,
+	video_output_dir: Path | None = None,
 ) -> dict[str, Any]:
 	payload: dict[str, Any] = {
 		"phase": "propagation_video",
@@ -63,11 +80,33 @@ def _write_phase_summary(
 		"well_id": str(well_id),
 		"reason": reason,
 	}
+	if units_processed is not None:
+		payload["units_processed"] = list(units_processed)
+		payload["n_units_processed"] = int(len(units_processed))
+		payload["n_units_ok"] = int(sum(1 for u in units_processed if u.get("status") == "ok"))
+		payload["n_units_skipped"] = int(sum(1 for u in units_processed if u.get("status") == "skipped"))
+		payload["n_units_error"] = int(sum(1 for u in units_processed if u.get("status") == "error"))
+	if video_output_dir is not None:
+		payload["video_output_dir"] = str(video_output_dir)
 	target_summary_path.parent.mkdir(parents=True, exist_ok=True)
 	target_summary_path.write_text(
 		json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
 	)
 	return payload
+
+
+def _resolve_render_callable(stage_config: Any) -> Any:
+	"""Honor a test-only `_propagation_video_render_override` on
+	stage_config so slice-7 tests can monkey-patch the renderer without
+	requiring axon_velocity in the env. Default returns the slice-4
+	renderer."""
+
+	override = getattr(stage_config, "_propagation_video_render_override", None)
+	if callable(override):
+		return override
+	from ..core.propagation_video_render import render_unit_propagation_video
+
+	return render_unit_propagation_video
 
 
 def run_analysis_propagation_video(
@@ -83,10 +122,10 @@ def run_analysis_propagation_video(
 ) -> dict[str, Any]:
 	"""Per-target entry point for the analysis.propagation_video phase.
 
-	Slice 2 scaffold: returns a noop marker when disabled (the YAML
-	default) OR a "skipped: not_implemented_yet" marker when enabled
-	but the core impl (slice 4) hasn't shipped. Subsequent slices
-	replace this body with the real video-generation logic.
+	When disabled (YAML default), writes a `noop` per-target marker.
+	When enabled, fans out across discovered unit_ids and calls the
+	slice-4 renderer for each. Aggregates per-unit results into a
+	``units_processed`` list on the per-target summary.
 	"""
 
 	stage_output_root = _stage_output_root(
@@ -107,15 +146,117 @@ def run_analysis_propagation_video(
 			reason="phase disabled in YAML",
 		)
 
-	# Slice 2 scaffold: when enabled, surface that the core impl is
-	# still pending. Slice 4 replaces this branch with the real video
-	# generation pipeline.
+	rel_output_root = str(
+		getattr(stage_config, "propagation_video_rel_output_root", "propagation_video")
+		or "propagation_video"
+	)
+	video_output_dir = _phase_video_output_dir(
+		stage_output_root=stage_output_root,
+		rel_output_root=rel_output_root,
+	)
+
+	# Discover units the recon stage produced templates for.
+	unit_ids = discover_unit_ids_for_target(
+		well_id=str(stream_id),
+		h5_path=h5_path,
+		mea_output_root=mea_output_root,
+	)
+	if not unit_ids:
+		return _write_phase_summary(
+			target_summary_path=target_summary_path,
+			status="error",
+			well_id=str(stream_id),
+			dataset_index=int(dataset_index),
+			reason=(
+				"no unit_ids discovered under recon-stage merged templates "
+				"dir; run `axon-recon stages reconstruct` first"
+			),
+			units_processed=[],
+			video_output_dir=video_output_dir,
+		)
+
+	render_callable = _resolve_render_callable(stage_config)
+
+	units_processed: list[dict[str, Any]] = []
+	for unit_id in unit_ids:
+		try:
+			inputs = resolve_propagation_video_inputs(
+				dataset_index=int(dataset_index),
+				well_id=str(stream_id),
+				unit_id=int(unit_id),
+				h5_path=h5_path,
+				mea_output_root=mea_output_root,
+				require_exists=True,
+			)
+		except PropagationVideoInputsMissing as exc:
+			units_processed.append({
+				"unit_id": int(unit_id),
+				"status": "error",
+				"reason": f"missing inputs: {exc}",
+			})
+			continue
+
+		out_path = video_output_dir / f"unit_{int(unit_id):04d}.gif"
+		try:
+			render_result = render_callable(
+				inputs=inputs,
+				out_path=out_path,
+				force_restart=bool(force_restart),
+			)
+		except Exception as exc:
+			LOGGER.exception(
+				"propagation_video render failed unit_id=%s well=%s",
+				unit_id,
+				stream_id,
+			)
+			units_processed.append({
+				"unit_id": int(unit_id),
+				"status": "error",
+				"reason": f"render raised: {exc!r}",
+				"out_path": str(out_path),
+			})
+			continue
+
+		units_processed.append({
+			"unit_id": int(unit_id),
+			"status": str(render_result.get("status", "ok")),
+			"reason": str(render_result.get("reason", "rendered")),
+			"out_path": str(render_result.get("out_path", out_path)),
+			**{
+				k: v
+				for k, v in render_result.items()
+				if k in ("frames", "cmap", "fps", "skip_frames")
+			},
+		})
+
+	# Aggregate status: ok iff every unit succeeded or was idempotently
+	# skipped; error iff any unit's render raised; partial when mixed.
+	statuses = {u.get("status") for u in units_processed}
+	if statuses == {"ok"} or statuses == {"skipped"} or statuses == {"ok", "skipped"}:
+		aggregate_status = "ok"
+		aggregate_reason = (
+			f"rendered {sum(1 for u in units_processed if u['status'] == 'ok')} / "
+			f"skipped {sum(1 for u in units_processed if u['status'] == 'skipped')} / "
+			f"{len(units_processed)} units"
+		)
+	elif "error" in statuses and ("ok" in statuses or "skipped" in statuses):
+		aggregate_status = "partial"
+		aggregate_reason = (
+			f"{sum(1 for u in units_processed if u['status'] == 'error')} unit "
+			f"render(s) failed out of {len(units_processed)}"
+		)
+	else:
+		aggregate_status = "error"
+		aggregate_reason = "all unit renders failed"
+
 	return _write_phase_summary(
 		target_summary_path=target_summary_path,
-		status="skipped",
+		status=aggregate_status,
 		well_id=str(stream_id),
 		dataset_index=int(dataset_index),
-		reason="not_implemented_yet (slice 4 of analysis_propagation_video_plan)",
+		reason=aggregate_reason,
+		units_processed=units_processed,
+		video_output_dir=video_output_dir,
 	)
 
 

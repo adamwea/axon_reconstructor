@@ -123,7 +123,11 @@ def test_orchestrator_noop_when_disabled(tmp_path: Path) -> None:
 	assert "disabled" in result["reason"]
 
 
-def test_orchestrator_skipped_not_implemented_when_enabled(tmp_path: Path) -> None:
+def test_orchestrator_error_when_enabled_but_no_recon_outputs(tmp_path: Path) -> None:
+	# Updated post-slice-7: orchestrator now does real unit discovery
+	# when enabled. With no recon outputs on disk, the appropriate
+	# response is `error: no unit_ids discovered` (not the slice-2
+	# placeholder `skipped: not_implemented_yet`).
 	cfg = _parse_config(enabled=True)
 	result = run_analysis_propagation_video(
 		dataset_index=0,
@@ -135,8 +139,8 @@ def test_orchestrator_skipped_not_implemented_when_enabled(tmp_path: Path) -> No
 		stage_config=cfg,
 		force_restart=False,
 	)
-	assert result["status"] == "skipped"
-	assert "not_implemented_yet" in result["reason"]
+	assert result["status"] == "error"
+	assert "no unit_ids discovered" in result["reason"]
 
 
 def test_orchestrator_writes_per_target_summary_on_disk(tmp_path: Path) -> None:
@@ -157,3 +161,154 @@ def test_orchestrator_writes_per_target_summary_on_disk(tmp_path: Path) -> None:
 	payload = json.loads(matches[0].read_text(encoding="utf-8"))
 	assert payload["phase"] == "propagation_video"
 	assert payload["status"] == "noop"
+
+
+# --- Slice 7 orchestrator fan-out tests ---
+
+
+def _scaffold_recon_outputs_with_units(
+	tmp_path: Path,
+	*,
+	unit_ids: tuple[int, ...] = (5, 7),
+) -> Path:
+	"""Scaffold per-unit recon outputs that the inputs resolver can find."""
+
+	output_root = tmp_path / "output_root"
+	well_dir = (
+		output_root
+		/ "proj"
+		/ "260224"
+		/ "M08073"
+		/ "AxonTracking"
+		/ "000001"
+		/ "well000"
+	)
+	for uid in unit_ids:
+		unit_tmpl_dir = (
+			well_dir / "recon_outputs" / "cache" / "templates" / "merged" / f"unit_{uid}"
+		)
+		unit_tmpl_dir.mkdir(parents=True, exist_ok=True)
+		(unit_tmpl_dir / "merged_template.npy").write_bytes(b"\x00")
+		(unit_tmpl_dir / "merged_channel_locations.npy").write_bytes(b"\x00")
+		(unit_tmpl_dir / "unit_templates_summary.json").write_text("{}", encoding="utf-8")
+		gtr_dir = well_dir / "recon_outputs" / "units" / f"{int(uid):04d}"
+		gtr_dir.mkdir(parents=True, exist_ok=True)
+		(gtr_dir / "gtr.pkl").write_bytes(b"\x00")
+		(gtr_dir / "gtr.json").write_text("{}", encoding="utf-8")
+	return output_root
+
+
+def _mock_render(*, inputs, out_path, force_restart=False, **kwargs) -> dict:
+	"""Mock that pretends to render and returns an ok payload. Writes a
+	stub file so subsequent idempotency checks would find the output."""
+	Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+	Path(out_path).write_bytes(b"GIF89a-mock")
+	return {
+		"status": "ok",
+		"reason": "rendered",
+		"out_path": str(out_path),
+		"unit_id": int(inputs.unit_id),
+		"frames": 41,
+		"cmap": "coolwarm",
+		"fps": 20,
+		"skip_frames": 2,
+	}
+
+
+def test_orchestrator_fans_out_across_discovered_units(tmp_path: Path) -> None:
+	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5, 7))
+	cfg = _parse_config(enabled=True)
+	# Inject the mock renderer via the test seam.
+	cfg.__dict__["_propagation_video_render_override"] = _mock_render
+
+	result = run_analysis_propagation_video(
+		dataset_index=0,
+		dataset_id="ds0",
+		h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=cfg,
+		force_restart=False,
+	)
+	assert result["status"] == "ok"
+	assert result["n_units_processed"] == 2
+	assert result["n_units_ok"] == 2
+	processed_unit_ids = sorted(u["unit_id"] for u in result["units_processed"])
+	assert processed_unit_ids == [5, 7]
+	# Per-unit GIFs landed at <stage>/propagation_video/unit_<NNNN>.gif.
+	out_paths = sorted(Path(u["out_path"]).name for u in result["units_processed"])
+	assert out_paths == ["unit_0005.gif", "unit_0007.gif"]
+
+
+def test_orchestrator_error_when_no_units_discovered(tmp_path: Path) -> None:
+	# No recon_outputs/cache/templates/merged/ → no units.
+	output_root = tmp_path / "empty"
+	cfg = _parse_config(enabled=True)
+	cfg.__dict__["_propagation_video_render_override"] = _mock_render
+
+	result = run_analysis_propagation_video(
+		dataset_index=0,
+		dataset_id="ds0",
+		h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=cfg,
+		force_restart=False,
+	)
+	assert result["status"] == "error"
+	assert "no unit_ids discovered" in result["reason"]
+
+
+def test_orchestrator_records_missing_inputs_as_unit_level_error(tmp_path: Path) -> None:
+	# Unit dir exists but gtr.pkl is missing → inputs resolver raises,
+	# orchestrator records a unit-level "error" entry but DOESN'T crash
+	# the whole target.
+	output_root = tmp_path / "output_root"
+	well_dir = output_root / "proj" / "260224" / "M08073" / "AxonTracking" / "000001" / "well000"
+	unit_tmpl_dir = well_dir / "recon_outputs" / "cache" / "templates" / "merged" / "unit_5"
+	unit_tmpl_dir.mkdir(parents=True, exist_ok=True)
+	(unit_tmpl_dir / "merged_template.npy").write_bytes(b"\x00")
+	(unit_tmpl_dir / "merged_channel_locations.npy").write_bytes(b"\x00")
+	# DON'T create the GTR pickle.
+
+	cfg = _parse_config(enabled=True)
+	cfg.__dict__["_propagation_video_render_override"] = _mock_render
+
+	result = run_analysis_propagation_video(
+		dataset_index=0,
+		dataset_id="ds0",
+		h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=cfg,
+		force_restart=False,
+	)
+	assert result["status"] == "error"  # all units failed
+	assert result["n_units_error"] == 1
+	assert "missing inputs" in result["units_processed"][0]["reason"]
+
+
+def test_orchestrator_partial_status_when_some_units_fail(tmp_path: Path) -> None:
+	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5, 7))
+	# Remove unit 7's gtr.pkl to simulate a partial failure.
+	(output_root / "proj" / "260224" / "M08073" / "AxonTracking" / "000001" / "well000"
+		/ "recon_outputs" / "units" / "0007" / "gtr.pkl").unlink()
+	cfg = _parse_config(enabled=True)
+	cfg.__dict__["_propagation_video_render_override"] = _mock_render
+
+	result = run_analysis_propagation_video(
+		dataset_index=0,
+		dataset_id="ds0",
+		h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=cfg,
+		force_restart=False,
+	)
+	assert result["status"] == "partial"
+	assert result["n_units_ok"] == 1
+	assert result["n_units_error"] == 1
