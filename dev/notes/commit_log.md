@@ -3965,3 +3965,4 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 (unitlink-6) | unitlink slice 6 [opus] | io/output_writer.py — MatchResult + write_outputs; 9 tests; commit b85dd63
 (unitlink-5) | unitlink slice 5 [opus] | backends/classical.py — UMPy wrapper (soft-import + mock tests); 7 tests; commit bc66668
 (unitlink-7) | unitlink slice 7 [opus] | api.match orchestrator + CLI; v1-feature-complete; 6 tests; commit d92a6dc
+86672e2 | unitmatch_phase slice 1 [opus] | scaffold analysis.unitmatch phase (wired, disabled, noop); 5 new tests
