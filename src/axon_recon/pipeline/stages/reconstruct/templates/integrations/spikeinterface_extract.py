@@ -1183,6 +1183,59 @@ def _analyzer_has_extension_safe(*, analyzer: Any, extension_name: str) -> bool:
 		return False
 
 
+def _cached_and_full_waveform_counts(analyzer: Any) -> tuple[int | None, int | None]:
+	"""Best-effort cached/full waveform-count probe for the satisfy check.
+
+	Returns ``(cached_count, full_count)`` when both can be determined,
+	else ``(None, None)``. ``cached_count`` is the per-unit waveform count
+	the analyzer's waveforms extension currently holds for any unit
+	(uniform across units in SI's snapshot semantics). ``full_count`` is
+	the total spike-train length for that same unit — i.e. the count the
+	extension would hold after a ``max_spikes_per_unit=None`` recompute.
+
+	The mock test fixture exposes both as ``analyzer._full_waveforms``
+	(full) and ``analyzer.get_extension("waveforms")._waveforms`` (cached)
+	for a single unit. Production callers use SI's
+	``get_waveforms_one_unit`` + ``sorting.get_unit_spike_train``.
+	"""
+
+	sorting = getattr(analyzer, "sorting", None)
+	unit_ids = None
+	try:
+		unit_ids = sorting.unit_ids if sorting is not None else None
+	except Exception:
+		unit_ids = None
+	if unit_ids is None:
+		return None, None
+	try:
+		first_unit_id = list(unit_ids)[0]
+	except Exception:
+		return None, None
+	# Cached count: ask the waveforms extension for unit-0's waveforms.
+	try:
+		wf_ext = analyzer.get_extension("waveforms")
+		cached = wf_ext.get_waveforms_one_unit(unit_id=first_unit_id, force_dense=False)
+		cached_count: int | None = int(np.asarray(cached).shape[0])
+	except Exception:
+		cached_count = None
+	# Full count: total spikes in the unit's spike train.
+	try:
+		full_count: int | None = int(np.asarray(sorting.get_unit_spike_train(first_unit_id)).shape[0])
+	except Exception:
+		full_count = None
+	# Fallback to the mock-only `_full_waveforms` attribute when sorting
+	# isn't fully wired — keeps the unit-test contract clean without
+	# leaning on SI internals.
+	if full_count is None:
+		full_attr = getattr(analyzer, "_full_waveforms", None)
+		if full_attr is not None:
+			try:
+				full_count = int(np.asarray(full_attr).shape[0])
+			except Exception:
+				full_count = None
+	return cached_count, full_count
+
+
 def _loaded_analyzer_extensions_satisfy_requested_payload(
 	*,
 	normalized_max: int | None,
@@ -1196,6 +1249,7 @@ def _loaded_analyzer_extensions_satisfy_requested_payload(
 	requested_margin_size: int | None,
 	has_templates: bool,
 	has_waveforms: bool,
+	analyzer: Any | None = None,
 ) -> bool:
 	if not has_templates:
 		return False
@@ -1212,6 +1266,22 @@ def _loaded_analyzer_extensions_satisfy_requested_payload(
 	)
 	if needs_waveforms and (not has_waveforms):
 		return False
+	# Slice 9 (parallelism_post_migration_cleanup_plan): when the caller
+	# wants ALL waveforms (``max_spikes_per_unit=None``), the existing
+	# short-circuit can still claim "satisfied" against a cached extension
+	# that holds FEWER waveforms than the analyzer's sorting actually has.
+	# That leaves the unit-source payload silently capped to whatever the
+	# previous (finite-cap) recompute produced. Probe the cached / full
+	# counts when an analyzer was supplied; only short-circuit when
+	# ``cached == full``.
+	if normalized_max is None and has_waveforms and analyzer is not None:
+		cached_count, full_count = _cached_and_full_waveform_counts(analyzer)
+		if (
+			cached_count is not None
+			and full_count is not None
+			and int(cached_count) < int(full_count)
+		):
+			return False
 	return True
 
 
@@ -1277,6 +1347,7 @@ def _prepare_analyzer_for_payload_extraction(
 		requested_margin_size=requested_margin_size,
 		has_templates=has_templates,
 		has_waveforms=has_waveforms,
+		analyzer=analyzer,
 	):
 		if log_context is not None:
 			LOGGER.info(

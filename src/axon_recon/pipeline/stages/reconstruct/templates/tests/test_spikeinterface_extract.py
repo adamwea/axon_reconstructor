@@ -1041,7 +1041,7 @@ def test_load_spikeinterface_analyzers_builds_segments_from_concat_sorting_witho
 	assert create_calls[0]["units"] == [94]
 	assert create_calls[0]["sparse"] is False
 	messages = [rec.getMessage() for rec in caplog.records]
-	assert any("Loading concat sorting for segment registration:" in msg for msg in messages)
+	assert any("Loaded canonical sorting for segment registration:" in msg for msg in messages)
 	assert any("Registered preprocessed segment recording with concat spikes: segment=000_recA" in msg for msg in messages)
 	assert not any("Concat analyzer selection:" in msg for msg in messages)
 
