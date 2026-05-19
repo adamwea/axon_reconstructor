@@ -795,7 +795,17 @@ def _build_docker_run_command(*, repo_root: Path, options: WrapperOptions) -> li
 
 	auto_mounts: list[str] = []
 	config_path = _find_cli_config_path(options.container_args)
-	container_caps = _load_container_caps_from_config(config_path)
+	# In --dry-run mode, the wrapper is being exercised for its argument-
+	# forwarding behavior (typically by tests); a non-existent --config path
+	# inside the forwarded args is OK and should fall back to default caps
+	# rather than aborting. Outside of dry-run, missing config still raises.
+	if options.dry_run and config_path:
+		try:
+			container_caps = _load_container_caps_from_config(config_path)
+		except SystemExit:
+			container_caps = ContainerCapsConfig()
+	else:
+		container_caps = _load_container_caps_from_config(config_path)
 	if options.config_mounts and config_path:
 		auto_mounts = _resolve_config_mounts(repo_root=repo_root, config_path=config_path)
 
