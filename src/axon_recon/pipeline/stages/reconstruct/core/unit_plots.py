@@ -675,6 +675,13 @@ def write_unit_circle_recon_plot(
 			if getattr(output_cfg, "bbox_inches", None) is not None
 			else getattr(v2_base_cfg, "bbox_inches", None)
 		),
+		# Wire CircleReconDisplayConfig.invert_y_axis -> v2 invert_y_axis so the
+		# renderer honors the recon plot's y-orientation override. Without this
+		# propagation, the v2 path always used v2_base_cfg's invert_y_axis default
+		# (True) regardless of what circle_config.display set.
+		invert_y_axis=bool(
+			getattr(display_cfg, "invert_y_axis", getattr(v2_base_cfg, "invert_y_axis", True))
+		),
 		# Wire CircleReconDisplayConfig.force_center_soma -> v2 center_on_peak
 		# so the renderer recenters the (force_square_aspect) limits on the soma
 		# channel (the peak of |min| amplitude).
