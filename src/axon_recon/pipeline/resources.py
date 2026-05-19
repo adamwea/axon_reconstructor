@@ -121,9 +121,6 @@ class ResourcesConfig:
 	phase_budgets: dict[str, PhaseResourceClassConfig] = field(default_factory=dict)
 	container_caps: ContainerCapsConfig = field(default_factory=ContainerCapsConfig)
 	defaults: dict[str, Any] = field(default_factory=dict)
-	# Populated only from legacy YAML (top-level keyed_resource_limits without profiles);
-	# access via get_keyed_resource_limit_config, not directly.
-	_legacy_keyed_resource_limits: dict[str, KeyedResourceLimitConfig] = field(default_factory=dict)
 
 
 def _as_mapping(value: Any) -> dict[str, Any]:
@@ -518,11 +515,11 @@ def get_keyed_resource_limit_config(
 		return None
 	profile = get_active_profile(resources)
 	if profile is None:
-		# No active profile: fall back to legacy top-level keyed_resource_limits
-		return resources._legacy_keyed_resource_limits.get(resolved, None)
-	# Back-compat: container_cli fallback path stores ResourceProfileConfig directly
+		return None
 	if isinstance(profile, ResourceProfileConfig):
-		return resources._legacy_keyed_resource_limits.get(resolved, None)
+		# Fallback profile shape used by container_cli; doesn't carry
+		# keyed_resource_limits.
+		return None
 	return profile.keyed_resource_limits.get(resolved, None)
 
 

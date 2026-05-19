@@ -17,6 +17,11 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 ## Empirically TBD per slice
 
+- **Slice 14c integration shape for preprocess/spikesort/reconstruct/analysis**: slice 14b's pattern (call `find_first_broken_phase` at the per-stage `run_<stage>_stage` entry, skip phases before broken index, run from broken onwards) is clean for init + cleanup because their stage runners are simple per-phase dispatch loops. For preprocess/spikesort/reconstruct/analysis, the full-stage runtime entry (`run_<stage>_from_runtime` in `pipeline/runner.py`) calls a MONOLITHIC per-target stage runner that runs the entire phase_sequence as one block — there's no convenient per-phase dispatch point to instrument. Two viable approaches:
+  - **(A) Target-level skip only**: at the `run_<stage>_from_runtime` level, walk each target's summaries before dispatch. If `find_first_broken_phase` returns None, skip the target entirely; otherwise dispatch normally (the monolithic stage runner re-runs the whole sequence). Cheap to implement (~30 LoC per stage); achieves the most common case (re-run after success → no-op) but loses the "force-restart from broken phase onwards" semantic.
+  - **(B) Phase-level granularity**: refactor the monolithic stage runners to accept a `skip_phases_before_index` parameter (or equivalent), and instrument each existing phase dispatch with a pre-check. Higher refactoring cost but matches the guardrail's full semantic.
+  - **Resolution criterion**: pick when implementing. (A) is the right scope for "ship soon and iterate"; (B) is the right scope if the auto-restart contract needs to be airtight before tier 3 work.
+
 - **resources.profiles elimination — per-srun-flag fallback when slot is missing**: when `--cpus-per-task` is passed on the command line, does the resolver use that directly, or compute from `os.sched_getaffinity(0)`? Both are reasonable; pick during the implementation slice. See `trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`".
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.

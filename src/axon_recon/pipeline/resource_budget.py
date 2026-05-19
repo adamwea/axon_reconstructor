@@ -64,7 +64,7 @@ class ResourceBudgetManager:
 		if _active_prof is not None and hasattr(_active_prof, "keyed_resource_limits"):
 			_keyed_limits = _active_prof.keyed_resource_limits
 		else:
-			_keyed_limits = self.resources._legacy_keyed_resource_limits
+			_keyed_limits = {}
 		self._keyed_resource_limits = {
 			str(resource_name): max(1, int(limit.max_concurrent))
 			for resource_name, limit in _keyed_limits.items()
