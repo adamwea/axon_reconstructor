@@ -3973,3 +3973,4 @@ e9d3e4e | guardrail [opus] | add env_parity.md — conda env <-> shifter capabil
 196d9df | guardrail [opus] | env_parity covers three-artifact contract: environment.yml + bootstrap_editable_deps.sh + Dockerfile; book tracker for missing bootstrap script; tighten UMPy+mat73 gap injection
 f73168f | plan+amend [opus] | plans/active/env_install_unification_plan.md — pyproject.toml extras as single SoT + tools/setup_env.sh --editable-siblings flag + gitignored deps/; amends env_parity guardrail (target vs current shape) + USER INJECTIONS + supersedes bootstrap_editable_deps.sh tracker entry
 (tier-line) | memory [opus] | place env_install_unification_plan in Tier 5 / chip-away with TIMING CONSTRAINT: must land before next shifter rebuild
+a7f8c51 | unitmatch_phase slice 4 [opus] | --targets chip-well:<chip>:<well> group form; pair parser ignores chip-well: tokens; select_execution_targets expands groups against data config; 10 new tests (CLI parsers + integration)
