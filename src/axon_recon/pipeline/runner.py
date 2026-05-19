@@ -61,6 +61,7 @@ from .stages.preprocess.config import (
 	parse_preprocess_stage_config,
 )
 from .stages.preprocess.models.results import PreprocessResult
+from .stages.preprocess.runner import target_all_preprocess_phases_succeeded
 from .stages.reconstruct.api import (
 	run_reconstruct,
 	run_reconstruct_clear_templates_cache,
@@ -2531,6 +2532,11 @@ def run_preprocess_from_runtime(
 		stage_config=stage_config,
 	)
 
+	bypass_auto_restart_skip = bool(
+		getattr(stage_config, "force_restart", False)
+		or getattr(stage_config, "replot", False)
+	)
+
 	def _worker(target):
 		inputs = build_preprocess_inputs_for_target(
 			target=target,
@@ -2546,6 +2552,20 @@ def run_preprocess_from_runtime(
 			inputs,
 			logging_subphase_dividers_to_stdout=bool(emit_subphase_dividers_to_stdout),
 		)
+		# Slice 14c (target-level auto-restart skip): when neither
+		# --force-restart nor --replot is set, skip targets whose every
+		# phase summary is already ok. The monolithic run_preprocess is
+		# itself phase-aware via slice 13's `with_checkpoint_marker`, but
+		# bailing here saves the per-target setup cost (path resolution,
+		# logger spin-up, resource budget acquisition) for already-done
+		# targets — meaningful at the cohort scale where most targets
+		# are typically up-to-date on a re-run.
+		if not bypass_auto_restart_skip and target_all_preprocess_phases_succeeded(inputs):
+			return {
+				"stage": "preprocess",
+				"status": "skipped",
+				"reason": "all_phases_ok",
+			}
 		return run_preprocess(inputs)
 
 	with stage_resource_budget_context(resource_budget_manager):

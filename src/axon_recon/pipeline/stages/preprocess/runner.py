@@ -18,7 +18,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
-from axon_recon.pipeline.checkpoint import with_checkpoint_marker
+from axon_recon.pipeline.checkpoint import find_first_broken_phase, with_checkpoint_marker
 from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
@@ -1825,6 +1825,42 @@ def _load_common_electrodes_or_empty(path: Path) -> list[int]:
 
 def _phase_summary_path(*, inputs: PreprocessInputs, paths: _PreprocessPathSet, phase_name: str) -> Path:
 	return paths.preprocess_out_dir / Path(str(_summary_relpath_for_phase(inputs, phase_name))).expanduser()
+
+
+def target_all_preprocess_phases_succeeded(inputs: PreprocessInputs) -> bool:
+	"""Slice 14c: True iff every phase in the preprocess sequence has an
+	``ok`` summary on disk for this target.
+
+	Walks the inputs' phase_sequence and checks each phase's
+	summary_json. YAML-disabled phases are treated as legitimately
+	skipped (their missing summary is intentional). A single missing /
+	error / stale / in_progress summary returns False — the target's
+	monolithic ``run_preprocess`` call should proceed.
+	"""
+
+	phase_sequence = tuple(getattr(inputs, "phase_sequence", ()) or ())
+	if not phase_sequence:
+		return False
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=inputs.mea_output_root,
+		data_file=inputs.h5_path,
+		well=inputs.stream_id,
+	)
+	preprocess_out_dir = well_out_dir / PREPROCESS_OUTPUTS_DIRNAME
+	summary_paths: dict[str, Path] = {}
+	yaml_skipped: list[str] = []
+	for phase_name in phase_sequence:
+		summary_paths[str(phase_name)] = (
+			preprocess_out_dir / Path(str(_summary_relpath_for_phase(inputs, phase_name))).expanduser()
+		)
+		if not _phase_enabled(inputs, str(phase_name)):
+			yaml_skipped.append(str(phase_name))
+	return (
+		find_first_broken_phase(
+			phase_sequence, summary_paths, yaml_skipped_phases=frozenset(yaml_skipped)
+		)
+		is None
+	)
 
 
 def _load_existing_phase_payload(
