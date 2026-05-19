@@ -26,18 +26,16 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
 
-- **Pre-existing test failures surfaced during phase_roster_cleanup slice 1** (2026-05-18): 15 failures noted by sub-commit agents, all confirmed pre-existing via `git stash` comparison (not caused by the deletion). Worth a dedicated triage slice:
-  - `parses_plot_templates_v2_phase_block` — resource_class `'plot_unit'` not in budgets registry. Likely needs the resource budget yaml to register it, or the test fixture to provide a registered class.
-  - `test_load_config_reconstruct_populates_templates_inputs_from_debug_local_runtime` — test expects a specific phase_sequence including `templates_report_templates` and `clear_templates_cache`; the live `debug_local/debug.runtime.yml` already differs. Test assertion is stale; refresh in follow-up.
-  - ~~3× `test_reconstruct_combined_phase_sequence_*` — `dataclasses.replace()` called on a `SimpleNamespace`. Tests scaffold `templates_inputs` as SimpleNamespace; production code path now requires a real `TemplatesInputs` dataclass.~~ **RESOLVED 2026-05-19** by parallelism slice 7 (`7a277d6`): production-side guard added (`is_dataclass(templates_inputs)`), and the outer `replace(inputs, n_jobs=...)` is now conditional on worker-count change so identity assertions hold.
-  - `test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases` — likely related to phase_budgets schema drift.
-  - `test_run_reconstruct_report_full_chip_layout_phase_writes_outputs` — unit count assertion drift.
-  - `test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps` — pre-existing.
-  - 5× `test_spikeinterface_extract.py` — separate spikeinterface API drift.
-  - 2× `test_runner` upsampling/spikeinterface fallback tests — pre-existing.
-  - `test_run_preprocess_stage_logs_phase_start_per_well` — surfaced after slice 2 deletions; verified pre-existing via `git stash` before slice 3 lands. Test enumerates the preprocess `phase_sequence` and likely still expects the deleted `prepare_raw_binaries` / `report_preprocessing` / `cleanup_preprocessing_outputs` entries somewhere; refresh in the same triage slice.
-
-  Resolution: not blocking phase_roster_cleanup slices 4-14, but worth a dedicated cleanup slice after the destructive cleanups settle.
+- **Pre-existing test failures surfaced during phase_roster_cleanup slice 1** (2026-05-18): originally 15 failures; mostly resolved during overnight iteration 2026-05-19. Remaining failures: 5× `test_spikeinterface_extract.py` (external SI API drift — parallelism slice 9 scope, requires `spikeinterface` version diagnosis). Resolved this iteration:
+  - ~~3× `test_reconstruct_combined_phase_sequence_*`~~ **RESOLVED 2026-05-19** by parallelism slice 7 (`7a277d6`).
+  - ~~`test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstream_phases`~~ **RESOLVED 2026-05-19** by parallelism slice 8 sub-item A (YAML fixture migrated to nested-profile + phase_budgets shape).
+  - ~~`test_load_templates_config_parses_plot_templates_v2_phase_block`~~ **RESOLVED 2026-05-19** by parallelism slice 8 sub-item E2.
+  - ~~`test_run_reconstruct_report_full_chip_layout_phase_writes_outputs`~~ **RESOLVED 2026-05-19** by parallelism slice 8 sub-item D (unit_ids fixture widened to match production unit-selection semantics).
+  - ~~`test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps`~~ **RESOLVED 2026-05-19** by adding `invert_y_axis` propagation from `display_cfg` to `v2_cfg` in `core/unit_plots.py:write_unit_circle_recon_plot`.
+  - ~~2× `test_run_reconstruct_templates_pipeline_*`~~ **RESOLVED 2026-05-19** by parallelism slice 8 sub-item E1 (flipped `include_concat is True` → `False` to match concat-analyzer-disabled production contract).
+  - ~~`test_load_config_reconstruct_populates_templates_inputs_from_debug_local_runtime`~~ **RESOLVED 2026-05-19** by parallelism slice 8 sub-item C (phase_sequence updated for plot_templates_v2 insertion; dpi assertion now plumbing-only per plan).
+  - ~~`test_run_preprocess_stage_logs_phase_start_per_well`~~ **RESOLVED 2026-05-19** by parallelism slice 8 sub-item B (phase_n_jobs assertion bumped to match production clamp).
+  - ~~5× `test_container_cli` failures~~ **RESOLVED 2026-05-19** by softening `_build_docker_run_command` config-load on `--dry-run` (test mode shouldn't require the inner `--config` file to exist).
 
 ## Resolved 2026-05-18 (kept here briefly for context; delete on next prune)
 

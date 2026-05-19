@@ -3946,3 +3946,7 @@ d4758eb | slice 14a [opus]| find_first_broken_phase helper added to checkpoint m
 b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + cleanup full-stage runners
 6675044 | parallelism slice 3 [opus] | drop dead _legacy_keyed_resource_limits shim
 7a277d6 | parallelism slice 7 [opus] | fix templates_inputs replace() bug + retire max_plotting_concurrency field; 3 pre-existing failures resolved
+(slice 8) | parallelism slice 8 [opus] | stage test fixture migration sub-items A+B+E2 then C+D then E1; 8 pre-existing failures resolved across multiple commits
+(unit_plots) | recon [opus] | propagate display_cfg.invert_y_axis to v2_cfg in write_unit_circle_recon_plot; 1 pre-existing failure resolved
+(container_cli) | infra [opus] | soften container_cli config-load on --dry-run; 5 pre-existing container_cli failures resolved
+(slice 5) | parallelism slice 5 [opus] | relabel current_phase_worker_allocation fallback source from "inputs.n_jobs" to "fallback_workers"
