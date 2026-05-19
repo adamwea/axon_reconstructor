@@ -3941,3 +3941,4 @@ cec709b | slice 8 [opus]  | move plot_concat_traces + plot_concat_channel_layout
 6f163f3 | slice 9 [opus]  | disable bombcell_label + merge_SLAy in spikesort default sequence (YAML-only); code stays
 2a7a7e4 | slice 11 [opus] | delete --force-replot; rename to --replot with new semantic (plot/report-only); 71 files; smoke OK
 8b76675 | slice 12 [opus] | add --output-root CLI flag (overrides data_config.output_root); 4 new tests; smoke OK
+dbc138f | slice 13 [opus] | checkpoint module + in_progress markers across 17 phase target runners; 31 new tests; smoke OK
