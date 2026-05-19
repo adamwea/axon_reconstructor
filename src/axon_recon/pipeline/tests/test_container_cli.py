@@ -474,3 +474,52 @@ def test_container_wrapper_cpuset_cpus_not_in_run_command_when_unset(tmp_path: P
     cmd = container_cli._build_docker_run_command(repo_root=tmp_path, options=options)
 
     assert "--cpuset-cpus" not in cmd
+
+def test_resolve_config_mounts_skips_missing_output_root_when_publish_outputs_false(tmp_path: Path) -> None:
+    """When publish_outputs is false and output_root doesn't exist on the host,
+    `_resolve_config_mounts` should silently skip the rw mount instead of raising.
+    Mirrors the tracker §"Soften container preflight when publish_outputs: false"."""
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    data_cfg = tmp_path / "data.yml"
+    data_cfg.write_text(
+        "output_root: /nonexistent/output/path\n"
+        "scratch_root: " + str(tmp_path / "scratch") + "\n"
+        "publish_outputs: false\n",
+        encoding="utf-8",
+    )
+    runtime_cfg = tmp_path / "runtime.yml"
+    runtime_cfg.write_text("data: " + str(data_cfg) + "\n", encoding="utf-8")
+
+    mounts = container_cli._resolve_config_mounts(repo_root=repo_root, config_path=str(runtime_cfg))
+
+    # The missing output_root should NOT appear in the mount list. The
+    # scratch_root mount still gets created (mkdir'd into existence).
+    assert not any("/nonexistent/output/path" in m for m in mounts)
+    # scratch_root is mkdir'd by add_mount and shows up as rw.
+    assert any(str(tmp_path / "scratch") in m and ":rw" in m for m in mounts)
+
+
+def test_resolve_config_mounts_still_creates_output_root_when_publish_outputs_true(tmp_path: Path) -> None:
+    """When publish_outputs is true the output_root mkdir preflight still runs;
+    missing path attempts to mkdir and may succeed (no error) since the parent
+    is writable."""
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    output_root = tmp_path / "out"
+    data_cfg = tmp_path / "data.yml"
+    data_cfg.write_text(
+        "output_root: " + str(output_root) + "\n"
+        "scratch_root: " + str(tmp_path / "scratch") + "\n"
+        "publish_outputs: true\n",
+        encoding="utf-8",
+    )
+    runtime_cfg = tmp_path / "runtime.yml"
+    runtime_cfg.write_text("data: " + str(data_cfg) + "\n", encoding="utf-8")
+
+    mounts = container_cli._resolve_config_mounts(repo_root=repo_root, config_path=str(runtime_cfg))
+
+    assert output_root.exists()
+    assert any(str(output_root) in m and ":rw" in m for m in mounts)

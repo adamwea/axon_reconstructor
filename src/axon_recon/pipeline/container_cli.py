@@ -659,9 +659,28 @@ def _resolve_config_mounts(*, repo_root: Path, config_path: str) -> list[str]:
 
 	if data_path is not None and data_path.exists():
 		data_base = data_path.parent
+		# When publish_outputs is false the run never writes to output_root, so
+		# skip the rw mkdir preflight for output_root / output_root_2 — the path
+		# can be unavailable (stale NAS mount, missing analyzed_data tree)
+		# without breaking the run. The scratch_root mount stays mandatory
+		# (that's where the run actually writes when publish_outputs=false).
+		publish_outputs_values = _scalar_values(data_path, "publish_outputs")
+		publish_outputs = True
+		if publish_outputs_values:
+			publish_outputs = str(publish_outputs_values[-1]).strip().lower() not in {
+				"false",
+				"0",
+				"no",
+				"off",
+			}
 		for key in ("output_root", "output_root_2"):
 			for raw in _scalar_values(data_path, key):
-				add_mount(_resolve_config_path(raw, base=data_base), "rw", key)
+				output_path = _resolve_config_path(raw, base=data_base)
+				if not publish_outputs and not output_path.exists():
+					# publish_outputs=false + path missing → skip silently; the run
+					# won't write here anyway.
+					continue
+				add_mount(output_path, "rw", key)
 		for raw in _scalar_values(data_path, "scratch_root"):
 			add_mount(_resolve_config_path(raw, base=data_base), "rw", "scratch_root")
 		raw_parent_paths = [
