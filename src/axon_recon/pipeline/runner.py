@@ -2914,7 +2914,30 @@ def run_spikesort_from_runtime(
 		target_count=len(targets),
 	)
 
+	from .stages.spikesort.runner import target_all_spikesort_phases_succeeded
+
+	bypass_auto_restart_skip = bool(
+		getattr(stage_config, "force_restart", False)
+		or getattr(stage_config, "replot", False)
+	)
+
 	def _worker(target):
+		# Slice 14c (target-level auto-restart skip) — only fires when
+		# every phase in the plan is in the convention-named-relpath map
+		# AND its summary on disk shows ok. Phase plans containing
+		# sort / summarize_sort / merge_* / etc fall through to normal
+		# dispatch (see `_SPIKESORT_PHASE_SUMMARY_RELPATH_ATTRS`).
+		if not bypass_auto_restart_skip and target_all_spikesort_phases_succeeded(
+			target=target,
+			stage_config=runtime_stage_config,
+			phase_plan=phase_plan,
+		):
+			return {
+				"stage": "spikesort",
+				"status": "skipped",
+				"reason": "all_phases_ok",
+			}
+
 		def _descriptor_for_phase(phase: _SpikesortRuntimePhase) -> PhaseDescriptor:
 			def _run_phase(phase: _SpikesortRuntimePhase = phase):
 				_log_spikesort_phase_worker_allocation(

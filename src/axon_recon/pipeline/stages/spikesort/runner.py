@@ -15,6 +15,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any, Callable
 
+from axon_recon.pipeline.checkpoint import find_first_broken_phase
 from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.mpi_adapter import (
 	_detect_local_rank_count_per_node,
@@ -36,6 +37,79 @@ from .models.results import SpikesortBombcellResult, SpikesortMergeResult, Spike
 
 
 LOGGER = logging.getLogger("axon_recon.spikesort")
+
+
+# Slice 14c (target-level auto-restart skip): mapping from phase_label →
+# stage_config attribute that holds the per-phase summary_json_relpath.
+# Phases NOT in this dict don't have a convention-named relpath on
+# stage_config; their work can't be summary-checked here, so a phase
+# plan containing any of them falls through to normal dispatch.
+#
+# Coverage rationale: cleanup + plot + bombcell phases all write
+# summaries at `<stage_output_root>/<relpath>` and they're cheap to
+# probe. The expensive phases — sort, summarize_sort, merge_*,
+# snapshot_sorter_output, concat_analyzer — manage their state via the
+# slice 13 `with_checkpoint_marker` mechanism but don't yet surface a
+# stage_config relpath, so target-level skip for those is deferred to
+# the broader phase-level-skip refactor (approach B in
+# `trackers/tech_debt.md` §"Phase-level auto-restart granularity in
+# monolithic stage runners").
+_SPIKESORT_PHASE_SUMMARY_RELPATH_ATTRS: dict[str, str] = {
+	"concat_binary": "concat_binary_summary_json_relpath",
+	"plot_concat_traces": "plot_concat_traces_summary_json_relpath",
+	"plot_concat_channel_layout": "plot_concat_channel_layout_summary_json_relpath",
+	"cleanup_concat_binary": "cleanup_concat_binary_summary_json_relpath",
+	"cleanup_analyzers": "cleanup_analyzers_summary_json_relpath",
+	"bombcell_label": "bombcell_label_reports_summary_json_relpath",
+	"bombcell_label_pass2": "bombcell_label_pass2_summary_json_relpath",
+}
+
+
+def target_all_spikesort_phases_succeeded(
+	*,
+	target: Any,
+	stage_config: Any,
+	phase_plan: list,
+) -> bool:
+	"""Slice 14c (target-level auto-restart skip) for spikesort.
+
+	Returns True iff every phase in ``phase_plan`` has a
+	convention-named summary path on ``stage_config`` AND that summary
+	on disk shows ``ok``. When the plan contains a phase without a
+	convention-named relpath (sort, summarize_sort, merge_*, etc.), the
+	function falls back to returning False so the per-target dispatch
+	proceeds — slice 13's `with_checkpoint_marker` still keeps
+	already-done phases cheap inside the chain.
+	"""
+
+	if not phase_plan:
+		return False
+	output_rel_root = str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs")
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=Path(getattr(target, "mea_output_root", Path("."))),
+		data_file=Path(getattr(target, "h5_path", Path("."))),
+		well=str(getattr(target, "stream_id", "")),
+	)
+	stage_output_root = (well_out_dir / output_rel_root).resolve()
+	summary_paths: dict[str, Path] = {}
+	phase_names: list[str] = []
+	for phase in phase_plan:
+		phase_label = str(getattr(phase, "phase_label", "") or "").strip()
+		if not phase_label:
+			return False
+		attr = _SPIKESORT_PHASE_SUMMARY_RELPATH_ATTRS.get(phase_label)
+		if attr is None:
+			# Phase not yet covered by the convention-named map — fall
+			# through to normal dispatch.
+			return False
+		rel = getattr(stage_config, attr, None)
+		if not rel:
+			return False
+		summary_paths[phase_label] = stage_output_root / Path(str(rel))
+		phase_names.append(phase_label)
+	return (
+		find_first_broken_phase(tuple(phase_names), summary_paths) is None
+	)
 
 
 class SpikesortGpuOversubscriptionError(RuntimeError):
