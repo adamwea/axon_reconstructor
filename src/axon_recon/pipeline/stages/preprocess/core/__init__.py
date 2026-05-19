@@ -9,8 +9,6 @@ from .artifacts import (
 	read_json,
 	write_json,
 )
-from .plot_concat_channel_layout import run_plot_concat_channel_layout_core
-from .plot_concat_traces import run_plot_concat_traces_core
 from .plot_raster_threshold import run_plot_raster_threshold_core
 from .plot_segment_traces import run_plot_segment_traces_core
 from .preprocess_segments import run_preprocess_segments_core
@@ -26,8 +24,6 @@ __all__ = [
 	"load_saved_recording",
 	"load_segment_manifest",
 	"read_json",
-	"run_plot_concat_channel_layout_core",
-	"run_plot_concat_traces_core",
 	"run_plot_raster_threshold_core",
 	"run_plot_segment_traces_core",
 	"run_preprocess_segments_core",

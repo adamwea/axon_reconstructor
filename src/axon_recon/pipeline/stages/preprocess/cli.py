@@ -5,8 +5,6 @@ import logging
 
 from ...runner import run_preprocess_from_runtime
 from .orchestrators import (
-	_run_plot_concat_channel_layout_from_args,
-	_run_plot_concat_traces_from_args,
 	_run_plot_raster_threshold_from_args,
 	_run_plot_segment_channel_layouts_from_args,
 	_run_plot_segment_traces_from_args,

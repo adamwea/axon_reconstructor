@@ -3580,6 +3580,356 @@ def run_spikesort_cleanup_concat_binary_stage(
 	)
 
 
+def _resolve_plot_concat_paths(
+	*,
+	well_out_dir: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	phase: str,
+) -> dict[str, Path]:
+	"""Resolve I/O paths for the spikesort `plot_concat_*` phases.
+
+	The plot_concat_* phases moved from preprocess to spikesort in slice 8 so
+	they live alongside the spikesort `concat_binary` cache they consume.
+
+	Reads:
+	  - <well>/<spikesort_output_root>/cache/concat_binary/recording/  (the
+	    materialized concat recording produced by spikesort.concat_binary)
+	  - <well>/<spikesort_output_root>/cache/concat_binary/concat_segments_manifest.json
+	    (concat manifest with segment_entries + stitch_frames)
+	  - <well>/preprocess_outputs/segment_epochs.json,
+	    contiguous_epochs.json, sampling_metadata.json (still produced by
+	    preprocess.save_rec_metadata, read across the stage boundary).
+
+	Writes:
+	  - PNG plots under <well>/<spikesort_output_root>/cache/concat_binary/plots/
+	  - summary_json at the configured per-phase path (defaults under
+	    cache/concat_binary/ so the per-phase status reporter finds it
+	    alongside the binary it documents).
+	"""
+	recording_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=str(
+			getattr(stage_config, "concat_binary_recording_relpath", "cache/concat_binary/recording")
+		),
+	)
+	concat_manifest_path = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=str(
+			getattr(
+				stage_config,
+				"concat_binary_manifest_relpath",
+				"cache/concat_binary/concat_segments_manifest.json",
+			)
+		),
+	)
+	plot_output_dir = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=str(
+			getattr(
+				stage_config,
+				f"{phase}_plot_output_dir_relpath",
+				"cache/concat_binary/plots",
+			)
+		),
+	)
+	summary_json = _resolve_under_spikesort_output_root(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		relpath=str(
+			getattr(
+				stage_config,
+				f"{phase}_summary_json_relpath",
+				f"cache/concat_binary/{phase}_summary.json",
+			)
+		),
+	)
+	# Recording metadata still lives in the preprocess output tree (preprocess
+	# remains the producer of save_rec_metadata's artifacts).
+	preprocess_outputs_root = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath="preprocess_outputs",
+	)
+	segment_epochs_path = preprocess_outputs_root / "segment_epochs.json"
+	contiguous_epochs_path = preprocess_outputs_root / "contiguous_epochs.json"
+	sampling_metadata_path = preprocess_outputs_root / "sampling_metadata.json"
+	return {
+		"recording_dir": recording_dir,
+		"concat_manifest_path": concat_manifest_path,
+		"plot_output_dir": plot_output_dir,
+		"summary_json": summary_json,
+		"segment_epochs_path": segment_epochs_path,
+		"contiguous_epochs_path": contiguous_epochs_path,
+		"sampling_metadata_path": sampling_metadata_path,
+	}
+
+
+def run_spikesort_plot_concat_traces_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	"""Plot representative-channel traces across the concatenated recording.
+
+	Diagnostic phase (defaults to ``enabled: false``). Reads the concat
+	binary produced by spikesort.concat_binary; writes a single PNG with one
+	subplot per representative channel and red vertical stitch markers at
+	the segment boundaries.
+	"""
+	from axon_recon.pipeline.stages.spikesort.core.plot_concat_traces import (
+		run_plot_concat_traces_core,
+	)
+
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+	paths = _resolve_plot_concat_paths(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		phase="plot_concat_traces",
+	)
+	summary_json = paths["summary_json"]
+	_ = force_restart  # plot phases are idempotent on the inputs they read; force-restart re-runs the plot regardless.
+
+	if not bool(getattr(stage_config, "plot_concat_traces_enabled", False)):
+		outputs = {"summary_json": str(summary_json)}
+		_write_json(
+			summary_json,
+			{
+				"status": "skipped",
+				"reason": "plot_concat_traces_disabled",
+				"well_out_dir": str(well_out_dir),
+				"stage_output_root_dir": str(stage_output_root_dir),
+				"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
+				"outputs": outputs,
+			},
+		)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs=outputs,
+		)
+
+	concat_trace_relpath = str(
+		getattr(stage_config, "plot_concat_traces_concat_trace_relpath", None)
+		or f"concat_cluster_reps_{stream_id}.png"
+	)
+	concat_trace_n_reps = int(
+		getattr(stage_config, "plot_concat_traces_n_reps", None) or 3
+	)
+	plot_concat_trace = bool(
+		getattr(stage_config, "plot_concat_traces_concat_trace", True)
+	)
+	plot_n_jobs_raw = getattr(stage_config, "plot_concat_traces_n_jobs", None)
+	if plot_n_jobs_raw is None:
+		plot_n_jobs_raw = getattr(stage_config, "n_jobs", None) or 1
+	_budget = current_phase_budget("spikesort", "plot_concat_traces")
+	plot_n_jobs = resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=getattr(_budget, "cpus_per_task", None) if _budget else None,
+		yaml_n_jobs_override=int(plot_n_jobs_raw) if plot_n_jobs_raw is not None else None,
+		work_item_count=None,
+	)
+	trace_downsample_hz = getattr(stage_config, "plot_concat_traces_trace_downsample_hz", None)
+	trace_max_points_raw = getattr(stage_config, "plot_concat_traces_trace_max_points", None)
+	if trace_max_points_raw is None:
+		trace_max_points = 150_000
+	else:
+		try:
+			trace_max_points = int(trace_max_points_raw)
+		except (TypeError, ValueError):
+			trace_max_points = 150_000
+
+	payload = run_plot_concat_traces_core(
+		stream_id=str(stream_id),
+		recording_dir=paths["recording_dir"],
+		concat_manifest_path=paths["concat_manifest_path"],
+		segment_epochs_path=paths["segment_epochs_path"],
+		contiguous_epochs_path=paths["contiguous_epochs_path"],
+		sampling_metadata_path=paths["sampling_metadata_path"],
+		plot_output_dir=paths["plot_output_dir"],
+		concat_trace_relpath=concat_trace_relpath,
+		plot_concat_trace=plot_concat_trace,
+		concat_trace_n_reps=concat_trace_n_reps,
+		plot_n_jobs=int(plot_n_jobs),
+		trace_downsample_hz=trace_downsample_hz,
+		trace_max_points=int(trace_max_points),
+		logger=LOGGER,
+	)
+	outputs = {
+		"summary_json": str(summary_json),
+		"plot_output_dir": str(paths["plot_output_dir"]),
+		"concatenated_recording_dir": str(paths["recording_dir"]),
+		"concat_manifest_path": str(paths["concat_manifest_path"]),
+	}
+	if "trace_plot_path" in payload:
+		outputs["trace_plot_path"] = str(payload["trace_plot_path"])
+	_write_json(
+		summary_json,
+		{
+			"status": "ok",
+			"phase": "plot_concat_traces",
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"recording_dir": str(paths["recording_dir"]),
+			"concat_manifest_path": str(paths["concat_manifest_path"]),
+			"plot_output_dir": str(paths["plot_output_dir"]),
+			"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
+			"trace_plot_path": str(payload.get("trace_plot_path", "")),
+			"segment_count": int(payload.get("segment_count", 0)),
+			"representative_channel_count": int(payload.get("representative_channel_count", 0)),
+			"representative_channel_ids": [
+				int(value) for value in payload.get("representative_channel_ids", [])
+			],
+			"stitch_frame_count": int(payload.get("stitch_frame_count", 0)),
+			"force_restart": bool(force_restart),
+			"outputs": outputs,
+		},
+	)
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
+def run_spikesort_plot_concat_channel_layout_stage(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	"""Plot the channel layout of the concatenated recording.
+
+	Diagnostic phase (defaults to ``enabled: false``). Highlights the same
+	representative channels used by plot_concat_traces so the two figures
+	read together.
+	"""
+	from axon_recon.pipeline.stages.spikesort.core.plot_concat_channel_layout import (
+		run_plot_concat_channel_layout_core,
+	)
+
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=mea_output_root,
+		data_file=h5_path,
+		well=stream_id,
+	)
+	stage_output_root_dir = _resolve_under_well(
+		well_out_dir=well_out_dir,
+		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
+	)
+	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
+	paths = _resolve_plot_concat_paths(
+		well_out_dir=well_out_dir,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		phase="plot_concat_channel_layout",
+	)
+	summary_json = paths["summary_json"]
+	_ = force_restart
+
+	if not bool(getattr(stage_config, "plot_concat_channel_layout_enabled", False)):
+		outputs = {"summary_json": str(summary_json)}
+		_write_json(
+			summary_json,
+			{
+				"status": "skipped",
+				"reason": "plot_concat_channel_layout_disabled",
+				"well_out_dir": str(well_out_dir),
+				"stage_output_root_dir": str(stage_output_root_dir),
+				"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
+				"outputs": outputs,
+			},
+		)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs=outputs,
+		)
+
+	channel_layouts_subdir = str(
+		getattr(stage_config, "plot_concat_channel_layout_subdir", None)
+		or "channel_layouts"
+	)
+	n_representative_channels = int(
+		getattr(stage_config, "plot_concat_channel_layout_n_reps", None) or 3
+	)
+	plot_n_jobs_raw = getattr(stage_config, "plot_concat_channel_layout_n_jobs", None)
+	if plot_n_jobs_raw is None:
+		plot_n_jobs_raw = getattr(stage_config, "n_jobs", None) or 1
+	_budget = current_phase_budget("spikesort", "plot_concat_channel_layout")
+	plot_n_jobs = resolve_inner_worker_count(
+		nested_shape="si_njobs",
+		phase_cpus_per_task=getattr(_budget, "cpus_per_task", None) if _budget else None,
+		yaml_n_jobs_override=int(plot_n_jobs_raw) if plot_n_jobs_raw is not None else None,
+		work_item_count=None,
+	)
+
+	payload = run_plot_concat_channel_layout_core(
+		stream_id=str(stream_id),
+		recording_dir=paths["recording_dir"],
+		plot_output_dir=paths["plot_output_dir"],
+		channel_layouts_subdir=channel_layouts_subdir,
+		n_representative_channels=n_representative_channels,
+		plot_n_jobs=int(plot_n_jobs),
+		logger=LOGGER,
+	)
+	outputs = {
+		"summary_json": str(summary_json),
+		"plot_output_dir": str(paths["plot_output_dir"]),
+		"concatenated_recording_dir": str(paths["recording_dir"]),
+	}
+	layout_plot_paths = [str(value) for value in payload.get("layout_plot_paths", [])]
+	if layout_plot_paths:
+		outputs["layout_plot_paths"] = ",".join(layout_plot_paths)
+	_write_json(
+		summary_json,
+		{
+			"status": "ok",
+			"phase": "plot_concat_channel_layout",
+			"well_out_dir": str(well_out_dir),
+			"stage_output_root_dir": str(stage_output_root_dir),
+			"recording_dir": str(paths["recording_dir"]),
+			"plot_output_dir": str(paths["plot_output_dir"]),
+			"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
+			"layout_plot_paths": layout_plot_paths,
+			"representative_channel_count": int(payload.get("representative_channel_count", 0)),
+			"representative_channel_ids": [
+				int(value) for value in payload.get("representative_channel_ids", [])
+			],
+			"force_restart": bool(force_restart),
+			"outputs": outputs,
+		},
+	)
+	return SpikesortResult(
+		well_out_dir=well_out_dir,
+		spikesort_out_dir=stage_output_root_dir,
+		summary_json=summary_json,
+		outputs=outputs,
+	)
+
+
 def run_spikesort_cleanup_analyzers_stage(
 	*,
 	h5_path: Path,

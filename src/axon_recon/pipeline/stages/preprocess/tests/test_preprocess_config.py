@@ -84,12 +84,12 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.plot_segment_channel_layouts.enabled is True
     assert parsed.phases.plot_segment_channel_layouts.summary_json_relpath == "context/plot_segment_channel_layouts_summary.json"
     # concat_segments preprocess phase was consolidated into
-    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7.
+    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7;
+    # plot_concat_traces / plot_concat_channel_layout moved to spikesort in
+    # slice 8.
     assert not hasattr(parsed.phases, "concat_segments")
-    assert parsed.phases.plot_concat_traces.enabled is False
-    assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/plot_concat_traces_summary.json"
-    assert parsed.phases.plot_concat_channel_layout.enabled is False
-    assert parsed.phases.plot_concat_channel_layout.summary_json_relpath == "context/plot_concat_channel_layout_summary.json"
+    assert not hasattr(parsed.phases, "plot_concat_traces")
+    assert not hasattr(parsed.phases, "plot_concat_channel_layout")
     assert parsed.phases.plot_raster_threshold.enabled is False
     assert parsed.phases.plot_raster_threshold.debug_mode_enabled is False
     assert parsed.phases.plot_raster_threshold.debug_limit_datasets is None
@@ -436,24 +436,9 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                                 "channel_layouts_subdir": "custom_segment_layouts",
                             },
                         },
-                        "plot_concat_traces": {
-                            "enabled": True,
-                            "summary_json_relpath": "context/custom_plot_concat_traces_summary.json",
-                            "plot": {
-                                "concat_trace": {
-                                    "enabled": False,
-                                    "n_reps": 3,
-                                }
-                            },
-                        },
-                        "plot_concat_channel_layout": {
-                            "enabled": True,
-                            "summary_json_relpath": "context/custom_plot_concat_channel_layout_summary.json",
-                            "plot": {
-                                "layouts": True,
-                                "channel_layouts_subdir": "custom_concat_layouts",
-                            },
-                        },
+                        # plot_concat_traces / plot_concat_channel_layout
+                        # moved to spikesort in phase_roster_cleanup_plan
+                        # slice 8; no longer parsed as preprocess phases.
                         "plot_raster_threshold": {
                             "enabled": True,
                             "debug_mode": {
@@ -504,16 +489,12 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.plot_segment_channel_layouts.plot.layouts is True
     assert parsed.phases.plot_segment_channel_layouts.plot.channel_layouts_subdir == "custom_segment_layouts"
     # concat_segments preprocess phase was consolidated into
-    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7.
+    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7;
+    # plot_concat_traces / plot_concat_channel_layout moved to spikesort in
+    # slice 8 — the preprocess parser no longer surfaces them.
     assert not hasattr(parsed.phases, "concat_segments")
-    assert parsed.phases.plot_concat_traces.enabled is True
-    assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/custom_plot_concat_traces_summary.json"
-    assert parsed.phases.plot_concat_traces.plot.concat_trace is False
-    assert parsed.phases.plot_concat_traces.plot.concat_trace_n_reps == 3
-    assert parsed.phases.plot_concat_channel_layout.enabled is True
-    assert parsed.phases.plot_concat_channel_layout.summary_json_relpath == "context/custom_plot_concat_channel_layout_summary.json"
-    assert parsed.phases.plot_concat_channel_layout.plot.layouts is True
-    assert parsed.phases.plot_concat_channel_layout.plot.channel_layouts_subdir == "custom_concat_layouts"
+    assert not hasattr(parsed.phases, "plot_concat_traces")
+    assert not hasattr(parsed.phases, "plot_concat_channel_layout")
     assert parsed.phases.plot_raster_threshold.enabled is True
     assert parsed.phases.plot_raster_threshold.debug_mode_enabled is True
     assert parsed.phases.plot_raster_threshold.debug_limit_datasets == 1
@@ -531,15 +512,17 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
 def test_parse_preprocess_stage_config_reads_phase_sequence() -> None:
     # `copy_src_to_scratch` moved to the init stage in slice 5 — it's no
     # longer a valid preprocess phase. `concat_segments` was consolidated into
-    # `spikesort.concat_binary` in slice 7. Both legacy aliases are gone; the
-    # preprocess phase_sequence only honors the surviving phases.
+    # `spikesort.concat_binary` in slice 7. `plot_concat_traces` /
+    # `plot_concat_channel_layout` moved to spikesort in slice 8. All those
+    # legacy aliases are gone; the preprocess phase_sequence only honors the
+    # surviving phases.
     cfg = RuntimeConfig(
         {
             "stages": {
                 "preprocess": {
                     "phase_sequence": [
                         "save_segment_recordings",
-                        "plot_concat_traces",
+                        "plot_segment_traces",
                     ]
                 }
             }
@@ -550,7 +533,7 @@ def test_parse_preprocess_stage_config_reads_phase_sequence() -> None:
 
     assert parsed.phase_sequence == (
         "preprocess_segments",
-        "plot_concat_traces",
+        "plot_segment_traces",
     )
 
 
@@ -711,14 +694,8 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "          save_chunk_duration: 2s\n"
                         "          save_progress_bar: true\n"
                         "          print_n_jobs_used: true\n"
-                        "      plot_concat_traces:\n"
-                        "        enabled: true\n"
-                        "        plot:\n"
-                        "          concat_trace: false\n"
                         "      plot_segment_channel_layouts:\n"
                         "        enabled: true\n"
-                        "      plot_concat_channel_layout:\n"
-                        "        enabled: false\n"
                         "      plot_raster_threshold:\n"
                         "        enabled: false\n"
                 ),
@@ -777,11 +754,12 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.plot_segment_traces.plot.output_dir == "preprocess_outputs/plots"
     assert inputs.phases.plot_segment_channel_layouts.enabled is True
     # concat_segments preprocess phase was consolidated into
-    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7.
+    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7;
+    # plot_concat_traces / plot_concat_channel_layout moved to spikesort in
+    # slice 8.
     assert not hasattr(inputs.phases, "concat_segments")
-    assert inputs.phases.plot_concat_traces.enabled is True
-    assert inputs.phases.plot_concat_traces.plot.concat_trace is False
-    assert inputs.phases.plot_concat_channel_layout.enabled is False
+    assert not hasattr(inputs.phases, "plot_concat_traces")
+    assert not hasattr(inputs.phases, "plot_concat_channel_layout")
     assert inputs.phases.plot_raster_threshold.enabled is False
     assert inputs.phases.save_rec_metadata.common_electrodes_summary_json_relpath == "context/save_common_electrodes_summary.json"
 

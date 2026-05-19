@@ -9,15 +9,14 @@ from ..constants import PREPROCESS_OUTPUTS_DIRNAME
 # `copy_src_to_scratch` was moved to the init stage in
 # `phase_roster_cleanup_plan.md` slice 5; `wipe_src_scratch` was moved to the
 # cleanup stage in slice 6. Neither is part of the preprocess phase roster
-# anymore.
+# anymore. `plot_concat_traces` / `plot_concat_channel_layout` moved to
+# spikesort in slice 8 (alongside the concat_binary cache they consume).
 DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
 	"save_rec_metadata",
 	"preprocess_segments",
 	"plot_segment_traces",
 	"plot_segment_channel_layouts",
 	"plot_raster_threshold",
-	"plot_concat_traces",
-	"plot_concat_channel_layout",
 )
 
 
@@ -98,19 +97,6 @@ class PreprocessPlotSegmentTracesPhaseConfig:
 
 
 @dataclass(frozen=True)
-class PreprocessPlotConcatTracesPhaseConfig:
-	enabled: bool = True
-	summary_json_relpath: str = "context/plot_concat_traces_summary.json"
-	resource_class: str | None = None
-	plot: PreprocessPlotConfig = field(
-		default_factory=lambda: PreprocessPlotConfig(
-			layouts=False,
-			segment_traces=False,
-		)
-	)
-
-
-@dataclass(frozen=True)
 class PreprocessPlotSegmentChannelLayoutsPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_segment_channel_layouts_summary.json"
@@ -119,19 +105,6 @@ class PreprocessPlotSegmentChannelLayoutsPhaseConfig:
 		default_factory=lambda: PreprocessPlotConfig(
 			concat_trace=False,
 			segment_traces=False,
-		)
-	)
-
-
-@dataclass(frozen=True)
-class PreprocessPlotConcatChannelLayoutPhaseConfig:
-	enabled: bool = False
-	summary_json_relpath: str = "context/plot_concat_channel_layout_summary.json"
-	resource_class: str | None = None
-	plot: PreprocessPlotConfig = field(
-		default_factory=lambda: PreprocessPlotConfig(
-			segment_traces=False,
-			concat_trace=False,
 		)
 	)
 
@@ -177,12 +150,6 @@ class PreprocessPhasesConfig:
 	)
 	plot_segment_channel_layouts: PreprocessPlotSegmentChannelLayoutsPhaseConfig = field(
 		default_factory=PreprocessPlotSegmentChannelLayoutsPhaseConfig
-	)
-	plot_concat_traces: PreprocessPlotConcatTracesPhaseConfig = field(
-		default_factory=PreprocessPlotConcatTracesPhaseConfig
-	)
-	plot_concat_channel_layout: PreprocessPlotConcatChannelLayoutPhaseConfig = field(
-		default_factory=PreprocessPlotConcatChannelLayoutPhaseConfig
 	)
 	plot_raster_threshold: PreprocessPlotRasterThresholdPhaseConfig = field(
 		default_factory=PreprocessPlotRasterThresholdPhaseConfig

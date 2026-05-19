@@ -43,13 +43,10 @@ from .core.save_rec_metadata import (
 from ...shared.sampling import read_maxwell_sampling_frequency_hz
 from .core import (
 	load_common_electrodes,
-	load_concat_manifest,
 	load_recording_metadata,
 	load_saved_recording,
 	load_segment_manifest,
 	read_json,
-	run_plot_concat_channel_layout_core,
-	run_plot_concat_traces_core,
 	run_plot_raster_threshold_core,
 	run_plot_segment_traces_core,
 	run_preprocess_segments_core,
@@ -60,8 +57,6 @@ from .core import (
 from .models.inputs import (
 	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
 	PreprocessInputs,
-	PreprocessPlotConcatChannelLayoutPhaseConfig,
-	PreprocessPlotConcatTracesPhaseConfig,
 	PreprocessPlotConfig,
 	PreprocessPlotSegmentChannelLayoutsPhaseConfig,
 	PreprocessPlotSegmentTracesPhaseConfig,
@@ -696,25 +691,17 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		input_plot=input_plot,
 		default_plot=PreprocessPlotSegmentChannelLayoutsPhaseConfig().plot,
 	)
-	concat_plot = _apply_plot_input_fallback(
-		phase_plot=inputs.phases.plot_concat_traces.plot,
-		input_plot=input_plot,
-		default_plot=PreprocessPlotConcatTracesPhaseConfig().plot,
-	)
-	concat_layout_plot = _apply_plot_input_fallback(
-		phase_plot=inputs.phases.plot_concat_channel_layout.plot,
-		input_plot=input_plot,
-		default_plot=PreprocessPlotConcatChannelLayoutPhaseConfig().plot,
-	)
+	# plot_concat_traces / plot_concat_channel_layout moved to spikesort in
+	# phase_roster_cleanup_plan slice 8; no concat-plot dispatch in preprocess.
 	primary = segment_plot
-	secondary = concat_plot
+	secondary = segment_layout_plot
 	layouts = False
 	segment_traces = False
 	concat_trace = False
 
 	if selected_phase == "preprocess_segments":
 		primary = segment_plot
-		secondary = concat_plot
+		secondary = segment_layout_plot
 		layouts = False
 		segment_traces = False
 		concat_trace = False
@@ -730,37 +717,22 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		layouts = bool(segment_layout_plot.layouts)
 		segment_traces = False
 		concat_trace = False
-	elif selected_phase == "plot_concat_traces":
-		primary = concat_plot
-		secondary = concat_layout_plot
-		layouts = False
-		segment_traces = False
-		concat_trace = bool(concat_plot.concat_trace)
-	elif selected_phase == "plot_concat_channel_layout":
-		primary = concat_layout_plot
-		secondary = concat_plot
-		layouts = bool(concat_layout_plot.layouts)
-		segment_traces = False
-		concat_trace = False
 	else:
 		active_plot_cfgs = [
 			cfg
 			for enabled, cfg in (
 				(bool(inputs.phases.plot_segment_traces.enabled), segment_plot),
 				(bool(inputs.phases.plot_segment_channel_layouts.enabled), segment_layout_plot),
-				(bool(inputs.phases.plot_concat_traces.enabled), concat_plot),
-				(bool(inputs.phases.plot_concat_channel_layout.enabled), concat_layout_plot),
 			)
 			if bool(enabled)
 		]
 		primary = active_plot_cfgs[0] if active_plot_cfgs else segment_plot
-		secondary = active_plot_cfgs[1] if len(active_plot_cfgs) > 1 else concat_plot
+		secondary = active_plot_cfgs[1] if len(active_plot_cfgs) > 1 else segment_layout_plot
 		layouts = bool(
-			(inputs.phases.plot_segment_channel_layouts.enabled and segment_layout_plot.layouts)
-			or (inputs.phases.plot_concat_channel_layout.enabled and concat_layout_plot.layouts)
+			inputs.phases.plot_segment_channel_layouts.enabled and segment_layout_plot.layouts
 		)
 		segment_traces = bool(inputs.phases.plot_segment_traces.enabled and segment_plot.segment_traces)
-		concat_trace = bool(inputs.phases.plot_concat_traces.enabled and concat_plot.concat_trace)
+		concat_trace = False
 
 	disable_all_png_diagnostics = _coalesce_config_value(
 		primary.disable_all_png_diagnostics,
@@ -815,7 +787,6 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		),
 		concat_trace_relpath=str(
 			_coalesce_config_value(
-				concat_plot.concat_trace_relpath,
 				primary.concat_trace_relpath,
 				secondary.concat_trace_relpath,
 				inputs.concat_trace_relpath,
@@ -829,7 +800,7 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 			)
 		),
 		concat_trace_n_reps=int(
-			_coalesce_config_value(concat_plot.concat_trace_n_reps, primary.concat_trace_n_reps, inputs.concat_trace_n_reps)
+			_coalesce_config_value(primary.concat_trace_n_reps, secondary.concat_trace_n_reps, inputs.concat_trace_n_reps)
 		),
 		segment_trace_n_reps=int(
 			_coalesce_config_value(segment_plot.segment_trace_n_reps, primary.segment_trace_n_reps, inputs.segment_trace_n_reps)
@@ -887,12 +858,11 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 		legacy_out_dir=preprocess_out_dir,
 		# After phase_roster_cleanup_plan slice 7 the preprocess stage no longer
 		# materializes a concatenated recording — `spikesort.concat_binary` owns
-		# that step. The two preprocess plot_concat_* phases (queued for slice 8
-		# to move under spikesort) still rely on these path fields to find a
-		# pre-existing concat recording when manually enabled; the defaults below
-		# preserve the prior preprocess-stage location so any historical artifact
-		# remains discoverable, but a real consumer will need to point these at
-		# `<well>/spikesort_outputs/cache/concat_binary/...` once slice 8 lands.
+		# that step. After slice 8 the plot_concat_* phases moved to spikesort
+		# too, so nothing in the preprocess phase sequence reads these fields
+		# anymore. They're kept as dataclass slots (with the prior preprocess
+		# default paths) so any historical artifact remains discoverable; new
+		# consumers should resolve concat paths off the spikesort stage instead.
 		recording_dir=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
 			raw=None,
@@ -989,8 +959,6 @@ def _resolve_preprocess_phase_n_jobs(
 	if phase_name in {
 		"plot_segment_traces",
 		"plot_segment_channel_layouts",
-		"plot_concat_traces",
-		"plot_concat_channel_layout",
 	}:
 		return max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs))
 	return 1
@@ -1772,10 +1740,6 @@ def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
 		return bool(inputs.phases.plot_segment_traces.enabled)
 	if phase_name == "plot_segment_channel_layouts":
 		return bool(inputs.phases.plot_segment_channel_layouts.enabled)
-	if phase_name == "plot_concat_traces":
-		return bool(inputs.phases.plot_concat_traces.enabled)
-	if phase_name == "plot_concat_channel_layout":
-		return bool(inputs.phases.plot_concat_channel_layout.enabled)
 	if phase_name == "plot_raster_threshold":
 		return bool(inputs.phases.plot_raster_threshold.enabled)
 	return False
@@ -1796,10 +1760,6 @@ def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str
 		return str(inputs.phases.plot_segment_traces.summary_json_relpath)
 	if phase_name == "plot_segment_channel_layouts":
 		return str(inputs.phases.plot_segment_channel_layouts.summary_json_relpath)
-	if phase_name == "plot_concat_traces":
-		return str(inputs.phases.plot_concat_traces.summary_json_relpath)
-	if phase_name == "plot_concat_channel_layout":
-		return str(inputs.phases.plot_concat_channel_layout.summary_json_relpath)
 	if phase_name == "plot_raster_threshold":
 		return str(inputs.phases.plot_raster_threshold.summary_json_relpath)
 	return "context/preprocess_phase_summary.json"
@@ -1814,10 +1774,6 @@ def _resource_class_for_phase(inputs: PreprocessInputs, phase_name: str) -> str 
 		return inputs.phases.plot_segment_traces.resource_class
 	if phase_name == "plot_segment_channel_layouts":
 		return inputs.phases.plot_segment_channel_layouts.resource_class
-	if phase_name == "plot_concat_traces":
-		return inputs.phases.plot_concat_traces.resource_class
-	if phase_name == "plot_concat_channel_layout":
-		return inputs.phases.plot_concat_channel_layout.resource_class
 	if phase_name == "plot_raster_threshold":
 		return inputs.phases.plot_raster_threshold.resource_class
 	return None
@@ -1851,17 +1807,6 @@ def _summary_outputs_for_phase(
 	if phase_name == "plot_segment_channel_layouts":
 		return {
 			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
-		}
-	if phase_name == "plot_concat_traces":
-		return {
-			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
-			"concatenated_recording_dir": str(paths.recording_dir),
-			"concat_manifest_path": str(paths.concat_manifest_path),
-		}
-	if phase_name == "plot_concat_channel_layout":
-		return {
-			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
-			"concatenated_recording_dir": str(paths.recording_dir),
 		}
 	if phase_name == "plot_raster_threshold":
 		return {
@@ -2164,65 +2109,6 @@ def _resume_plot_segment_channel_layouts_payload_if_complete(
 	)
 
 
-def _resume_plot_concat_traces_payload_if_complete(
-	*,
-	inputs: PreprocessInputs,
-	paths: _PreprocessPathSet,
-	phase_plot_cfg: PreprocessPlotConfig,
-) -> dict[str, Any] | None:
-	try:
-		concat_manifest = load_concat_manifest(paths.concat_manifest_path)
-		load_saved_recording(paths.recording_dir)
-	except Exception:
-		return None
-	segment_entries = [
-		dict(item)
-		for item in concat_manifest.get("segment_entries", [])
-		if isinstance(item, dict)
-	]
-	if not segment_entries:
-		return None
-	trace_plot_path = Path(paths.plot_output_dir or paths.preprocess_out_dir) / str(phase_plot_cfg.concat_trace_relpath)
-	if bool(phase_plot_cfg.concat_trace) and not _is_complete_png(trace_plot_path):
-		return None
-	stitch_frames = [int(value) for value in concat_manifest.get("stitch_frames", []) if value is not None]
-	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="plot_concat_traces")
-	return _build_resumed_phase_payload(
-		phase_name="plot_concat_traces",
-		existing_payload=existing_payload,
-		payload_updates={
-			"segment_count": int(len(segment_entries)),
-			"trace_plot_path": str(trace_plot_path),
-			"stitch_frame_count": int(len(stitch_frames)),
-		},
-	)
-
-
-def _resume_plot_concat_channel_layout_payload_if_complete(
-	*,
-	inputs: PreprocessInputs,
-	paths: _PreprocessPathSet,
-	phase_plot_cfg: PreprocessPlotConfig,
-) -> dict[str, Any] | None:
-	if not bool(phase_plot_cfg.layouts):
-		return None
-	try:
-		load_saved_recording(paths.recording_dir)
-	except Exception:
-		return None
-	layout_path = Path(paths.plot_output_dir or paths.preprocess_out_dir) / str(phase_plot_cfg.channel_layouts_subdir) / f"concat_channel_layout_{inputs.stream_id}.png"
-	if not _is_complete_png(layout_path):
-		return None
-	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="plot_concat_channel_layout")
-	return _build_resumed_phase_payload(
-		phase_name="plot_concat_channel_layout",
-		existing_payload=existing_payload,
-		payload_updates={
-			"layout_plot_paths": [str(layout_path)],
-		},
-	)
-
-
 def _resume_plot_raster_threshold_payload_if_complete(
 	*,
 	inputs: PreprocessInputs,
@@ -2281,18 +2167,6 @@ def _resume_phase_payload_if_complete(
 		)
 	if phase_name == "plot_segment_channel_layouts":
 		return _resume_plot_segment_channel_layouts_payload_if_complete(
-			inputs=inputs,
-			paths=paths,
-			phase_plot_cfg=phase_plot_cfg,
-		)
-	if phase_name == "plot_concat_traces":
-		return _resume_plot_concat_traces_payload_if_complete(
-			inputs=inputs,
-			paths=paths,
-			phase_plot_cfg=phase_plot_cfg,
-		)
-	if phase_name == "plot_concat_channel_layout":
-		return _resume_plot_concat_channel_layout_payload_if_complete(
 			inputs=inputs,
 			paths=paths,
 			phase_plot_cfg=phase_plot_cfg,
@@ -2638,33 +2512,6 @@ def _run_preprocess_phase_sequence(
 						logger=phase_logger,
 					)
 					payload["phase"] = "plot_segment_channel_layouts"
-				elif payload is None and phase_name == "plot_concat_traces":
-					payload = run_plot_concat_traces_core(
-						stream_id=str(inputs.stream_id),
-						recording_dir=paths.recording_dir,
-						concat_manifest_path=paths.concat_manifest_path,
-						segment_epochs_path=recording_metadata_paths.segment_epochs_path,
-						contiguous_epochs_path=recording_metadata_paths.contiguous_epochs_path,
-						sampling_metadata_path=recording_metadata_paths.sampling_metadata_path,
-						plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
-						concat_trace_relpath=phase_plot_cfg.concat_trace_relpath,
-						plot_concat_trace=bool(phase_plot_cfg.concat_trace),
-						concat_trace_n_reps=int(phase_plot_cfg.concat_trace_n_reps),
-						plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
-						trace_downsample_hz=phase_plot_cfg.trace_downsample_hz,
-						trace_max_points=_normalize_trace_max_points(phase_plot_cfg.trace_max_points),
-						logger=phase_logger,
-					)
-				elif payload is None and phase_name == "plot_concat_channel_layout":
-					payload = run_plot_concat_channel_layout_core(
-						stream_id=str(inputs.stream_id),
-						recording_dir=paths.recording_dir,
-						plot_output_dir=(paths.plot_output_dir or paths.preprocess_out_dir),
-						channel_layouts_subdir=phase_plot_cfg.channel_layouts_subdir,
-						n_representative_channels=int(phase_plot_cfg.n_representative_channels),
-						plot_n_jobs=max(1, int(phase_plot_cfg.n_jobs or inputs.plot_n_jobs)),
-						logger=phase_logger,
-					)
 				elif payload is None and phase_name == "plot_raster_threshold":
 					payload = run_plot_raster_threshold_core(
 						stream_id=str(inputs.stream_id),
@@ -3122,18 +2969,6 @@ def run_preprocess_plot_segment_channel_layouts_phase(inputs: PreprocessInputs) 
 	from .orchestrators.plot_segment_channel_layouts import run_preprocess_plot_segment_channel_layouts
 
 	return run_preprocess_plot_segment_channel_layouts(inputs)
-
-
-def run_preprocess_plot_concat_traces_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	from .orchestrators.plot_concat_traces import run_preprocess_plot_concat_traces
-
-	return run_preprocess_plot_concat_traces(inputs)
-
-
-def run_preprocess_plot_concat_channel_layout_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	from .orchestrators.plot_concat_channel_layout import run_preprocess_plot_concat_channel_layout
-
-	return run_preprocess_plot_concat_channel_layout(inputs)
 
 
 def run_preprocess_plot_raster_threshold_phase(inputs: PreprocessInputs) -> dict[str, Any]:

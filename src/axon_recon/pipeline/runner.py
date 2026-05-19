@@ -50,8 +50,6 @@ from .resources import TaskAllocationConfig, get_active_profile, get_active_reso
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.api import (
 	run_preprocess,
-	run_preprocess_plot_concat_channel_layout,
-	run_preprocess_plot_concat_traces,
 	run_preprocess_plot_raster_threshold,
 	run_preprocess_plot_segment_channel_layouts,
 	run_preprocess_plot_segment_traces,
@@ -108,6 +106,8 @@ from .stages.spikesort.api import (
 	run_spikesort_bombcell,
 	run_spikesort_bombcell_pass2,
 	run_spikesort_merge,
+	run_spikesort_plot_concat_channel_layout,
+	run_spikesort_plot_concat_traces,
 	snapshot_spikesort_sorter_output,
 	summarize_spikesort,
 )
@@ -2673,56 +2673,6 @@ def run_preprocess_plot_segment_traces_from_runtime(
 	)
 
 
-def run_preprocess_plot_concat_traces_from_runtime(
-	*,
-	config_path: str,
-	limit_segments_override: int | None = None,
-	limit_datasets_override: int | None = None,
-	target_datasets_override: list[int] | None = None,
-	limit_wells_per_dataset_override: int | None = None,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-	task_allocation_override: dict[str, Any] | None = None,
-) -> MultiTargetStageResult:
-	return _run_preprocess_substage_from_runtime(
-		config_path=config_path,
-		stage_name="preprocess.plot_concat_traces",
-		runner_fn=run_preprocess_plot_concat_traces,
-		limit_segments_override=limit_segments_override,
-		limit_datasets_override=limit_datasets_override,
-		target_datasets_override=target_datasets_override,
-		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-		task_allocation_override=task_allocation_override,
-	)
-
-
-def run_preprocess_plot_concat_channel_layout_from_runtime(
-	*,
-	config_path: str,
-	limit_segments_override: int | None = None,
-	limit_datasets_override: int | None = None,
-	target_datasets_override: list[int] | None = None,
-	limit_wells_per_dataset_override: int | None = None,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-	task_allocation_override: dict[str, Any] | None = None,
-) -> MultiTargetStageResult:
-	return _run_preprocess_substage_from_runtime(
-		config_path=config_path,
-		stage_name="preprocess.plot_concat_channel_layout",
-		runner_fn=run_preprocess_plot_concat_channel_layout,
-		limit_segments_override=limit_segments_override,
-		limit_datasets_override=limit_datasets_override,
-		target_datasets_override=target_datasets_override,
-		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-		task_allocation_override=task_allocation_override,
-	)
-
-
 def run_preprocess_plot_raster_threshold_from_runtime(
 	*,
 	config_path: str,
@@ -2923,6 +2873,32 @@ def _enabled_spikesort_runtime_phase_plan(
 				resource_class=getattr(stage_config, "concat_binary_resource_class", None),
 			)
 		)
+	if bool(getattr(stage_config, "plot_concat_traces_enabled", False)):
+		available_phases["plot_concat_traces"] = (
+			_SpikesortRuntimePhase(
+				name="spikesort.plot_concat_traces",
+				phase_label="plot_concat_traces",
+				debug_enabled_attr="plot_concat_traces_debug_mode_enabled",
+				debug_limit_datasets_attr="plot_concat_traces_debug_limit_datasets",
+				debug_limit_wells_attr="plot_concat_traces_debug_limit_wells",
+				target_runner=_run_spikesort_plot_concat_traces_target,
+				debug_limit_wells_per_dataset_attr="plot_concat_traces_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "plot_concat_traces_resource_class", None),
+			)
+		)
+	if bool(getattr(stage_config, "plot_concat_channel_layout_enabled", False)):
+		available_phases["plot_concat_channel_layout"] = (
+			_SpikesortRuntimePhase(
+				name="spikesort.plot_concat_channel_layout",
+				phase_label="plot_concat_channel_layout",
+				debug_enabled_attr="plot_concat_channel_layout_debug_mode_enabled",
+				debug_limit_datasets_attr="plot_concat_channel_layout_debug_limit_datasets",
+				debug_limit_wells_attr="plot_concat_channel_layout_debug_limit_wells",
+				target_runner=_run_spikesort_plot_concat_channel_layout_target,
+				debug_limit_wells_per_dataset_attr="plot_concat_channel_layout_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "plot_concat_channel_layout_resource_class", None),
+			)
+		)
 	if bool(getattr(stage_config, "sort_enabled", True)):
 		available_phases["sort"] = (
 			_SpikesortRuntimePhase(
@@ -3092,6 +3068,28 @@ def _run_spikesort_cleanup_concat_binary_target(*, target: Any, stage_config: An
 
 def _run_spikesort_cleanup_analyzers_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
 	return cleanup_spikesort_analyzers(
+		h5_path=target.h5_path,
+		stream_id=target.stream_id,
+		mea_output_root=target.mea_output_root,
+		output_rel_root=_spikesort_output_rel_root(stage_config),
+		stage_config=stage_config,
+		force_restart=bool(getattr(stage_config, "force_restart", False) or getattr(stage_config, "force_replot", False)),
+	)
+
+
+def _run_spikesort_plot_concat_traces_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
+	return run_spikesort_plot_concat_traces(
+		h5_path=target.h5_path,
+		stream_id=target.stream_id,
+		mea_output_root=target.mea_output_root,
+		output_rel_root=_spikesort_output_rel_root(stage_config),
+		stage_config=stage_config,
+		force_restart=bool(getattr(stage_config, "force_restart", False) or getattr(stage_config, "force_replot", False)),
+	)
+
+
+def _run_spikesort_plot_concat_channel_layout_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
+	return run_spikesort_plot_concat_channel_layout(
 		h5_path=target.h5_path,
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
@@ -3508,6 +3506,68 @@ def run_spikesort_cleanup_concat_binary_from_runtime(
 		debug_limit_wells_attr="cleanup_concat_binary_debug_limit_wells",
 		debug_limit_wells_per_dataset_attr="cleanup_concat_binary_debug_limit_wells_per_dataset",
 		publish_after_run=True,
+	)
+
+
+def run_spikesort_plot_concat_traces_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	return _run_spikesort_concat_binary_phase_from_runtime(
+		config_path=config_path,
+		stage_name="spikesort.plot_concat_traces",
+		runner_fn=run_spikesort_plot_concat_traces,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		target_datasets_override=target_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
+		debug_phase_label="plot_concat_traces",
+		debug_enabled_attr="plot_concat_traces_debug_mode_enabled",
+		debug_limit_datasets_attr="plot_concat_traces_debug_limit_datasets",
+		debug_limit_wells_attr="plot_concat_traces_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="plot_concat_traces_debug_limit_wells_per_dataset",
+		publish_after_run=False,
+	)
+
+
+def run_spikesort_plot_concat_channel_layout_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	return _run_spikesort_concat_binary_phase_from_runtime(
+		config_path=config_path,
+		stage_name="spikesort.plot_concat_channel_layout",
+		runner_fn=run_spikesort_plot_concat_channel_layout,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		target_datasets_override=target_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+		task_allocation_override=task_allocation_override,
+		debug_phase_label="plot_concat_channel_layout",
+		debug_enabled_attr="plot_concat_channel_layout_debug_mode_enabled",
+		debug_limit_datasets_attr="plot_concat_channel_layout_debug_limit_datasets",
+		debug_limit_wells_attr="plot_concat_channel_layout_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="plot_concat_channel_layout_debug_limit_wells_per_dataset",
+		publish_after_run=False,
 	)
 
 

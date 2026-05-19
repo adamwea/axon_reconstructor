@@ -312,12 +312,11 @@ stages:
     # copy_src_to_scratch moved to the init stage (see stages.init).
     # wipe_src_scratch moved to the cleanup stage (see stages.cleanup).
     # concat_segments consolidated into spikesort.concat_binary (slice 7).
+    # plot_concat_traces / plot_concat_channel_layout moved to spikesort (slice 8).
     - save_rec_metadata
     - preprocess_segments
     #- plot_segment_traces
     #- plot_segment_channel_layouts
-    #- plot_concat_traces
-    #- plot_concat_channel_layout
     #- plot_raster_threshold
     phases:
       save_rec_metadata:
@@ -393,28 +392,10 @@ stages:
 
       # phase_roster_cleanup_plan slice 7: the legacy `concat_segments` phase
       # was consolidated into `spikesort.concat_binary` (renamed from
-      # `bootstrap_concat_binary`). The plot_concat_* phases below stay here
-      # until slice 8 moves them under spikesort alongside concat_binary.
-
-      plot_concat_traces:
-        enabled: false
-        resource_class: plot_unit
-        summary_json_relpath: context/plot_concat_traces_summary.json
-        plot:
-          # Representative controls for concatenated trace diagnostics.
-          concat_trace:
-            enabled: true
-            # Alias-compatible with `n_representative_channels`; set to -1 to include all representatives.
-            n_reps: 3
-          concat_trace_relpath: concat_cluster_reps_{stream_id}.png
-
-      plot_concat_channel_layout:
-        enabled: false
-        resource_class: plot_unit
-        summary_json_relpath: context/plot_concat_channel_layout_summary.json
-        plot:
-          layouts: true
-          channel_layouts_subdir: channel_layouts
+      # `bootstrap_concat_binary`).
+      # phase_roster_cleanup_plan slice 8: `plot_concat_traces` and
+      # `plot_concat_channel_layout` moved to the spikesort stage; see
+      # `stages.spikesort.phases.plot_concat_*` below.
 
       plot_raster_threshold:
         enabled: false
@@ -459,6 +440,11 @@ stages:
     #phase_sequence: [concat_binary, sort, summarize_sort, bombcell_label, cleanup_concat_binary]
     phase_sequence:
     - concat_binary
+    # plot_concat_traces / plot_concat_channel_layout moved from preprocess to
+    # spikesort in phase_roster_cleanup_plan slice 8. Disabled by default; flip
+    # on for ad-hoc concat-binary diagnostics.
+    #- plot_concat_traces
+    #- plot_concat_channel_layout
     - sort
     #- summarize_sort
     - snapshot_sorter_output
@@ -488,6 +474,27 @@ stages:
         overwrite_on_force_restart: true
         chunk_duration: 1s
         progress_bar: true
+
+      # phase_roster_cleanup_plan slice 8: moved from preprocess to spikesort.
+      plot_concat_traces:
+        enabled: false
+        resource_class: plot_unit
+        summary_json_relpath: cache/concat_binary/plot_concat_traces_summary.json
+        plot_output_dir_relpath: cache/concat_binary/plots
+        plot:
+          concat_trace:
+            enabled: true
+            n_reps: 3
+          concat_trace_relpath: concat_cluster_reps_{stream_id}.png
+
+      plot_concat_channel_layout:
+        enabled: false
+        resource_class: plot_unit
+        summary_json_relpath: cache/concat_binary/plot_concat_channel_layout_summary.json
+        plot_output_dir_relpath: cache/concat_binary/plots
+        plot:
+          channel_layouts_subdir: channel_layouts
+          n_reps: 3
 
       sort:
         enabled: true

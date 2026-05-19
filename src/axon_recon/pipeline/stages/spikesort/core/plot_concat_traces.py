@@ -3,8 +3,18 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .artifacts import build_concat_time_vector, load_concat_manifest, load_recording_metadata, load_saved_recording
-from .plot_segment_traces import _resolve_representative_channels
+# `plot_concat_traces` moved from the preprocess stage to the spikesort stage in
+# phase_roster_cleanup_plan slice 8 (alongside `concat_binary`). The artifact /
+# representative-channel helpers still live in the preprocess core package
+# (preprocess remains the producer of `segment_epochs.json`, `sampling_metadata.json`,
+# etc.), so import them across the stage boundary.
+from ...preprocess.core.artifacts import (
+	build_concat_time_vector,
+	load_concat_manifest,
+	load_recording_metadata,
+	load_saved_recording,
+)
+from ...preprocess.core.plot_segment_traces import _resolve_representative_channels
 
 
 def _plot_concat_cluster_traces(

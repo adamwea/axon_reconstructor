@@ -13,6 +13,16 @@ from .concat_binary import (
 	run_spikesort_concat_binary,
 	run_spikesort_concat_binary_from_runtime,
 )
+from .plot_concat_channel_layout import (
+	_run_plot_concat_channel_layout_from_args,
+	run_spikesort_plot_concat_channel_layout,
+	run_spikesort_plot_concat_channel_layout_from_runtime,
+)
+from .plot_concat_traces import (
+	_run_plot_concat_traces_from_args,
+	run_spikesort_plot_concat_traces,
+	run_spikesort_plot_concat_traces_from_runtime,
+)
 from .cleanup_analyzers import (
 	_run_cleanup_analyzers_from_args,
 	run_spikesort_cleanup_analyzers,
@@ -62,6 +72,8 @@ __all__ = [
 	"_run_concat_analyzer_from_args",
 	"_run_merge_slay_from_args",
 	"_run_merge_units_from_args",
+	"_run_plot_concat_channel_layout_from_args",
+	"_run_plot_concat_traces_from_args",
 	"_run_restore_sorter_output_from_args",
 	"_run_snapshot_sorter_output_from_args",
 	"_run_sort_from_args",
@@ -82,6 +94,10 @@ __all__ = [
 	"run_spikesort_merge_slay_from_runtime",
 	"run_spikesort_merge_units",
 	"run_spikesort_merge_units_from_runtime",
+	"run_spikesort_plot_concat_channel_layout",
+	"run_spikesort_plot_concat_channel_layout_from_runtime",
+	"run_spikesort_plot_concat_traces",
+	"run_spikesort_plot_concat_traces_from_runtime",
 	"run_spikesort_restore_sorter_output",
 	"run_spikesort_restore_sorter_output_from_runtime",
 	"run_spikesort_snapshot_sorter_output",

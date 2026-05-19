@@ -111,17 +111,24 @@ def test_parse_stage_list_tokens_rejects_removed_extract_template_segments(raw_t
         # `concat_segments` was consolidated into spikesort.concat_binary in slice 7;
         # legacy preprocess.concat_segments tokens redirect to the new canonical route.
         ("preprocess.concat_segments", "spikesort.concat_binary"),
-        ("preprocess.plot_concat_traces", "preprocess.plot_concat_traces"),
-        ("preprocess.plot_concat_channel_layout", "preprocess.plot_concat_channel_layout"),
+        # `plot_concat_traces` / `plot_concat_channel_layout` moved from preprocess
+        # to spikesort in slice 8; legacy preprocess tokens redirect.
+        ("preprocess.plot_concat_traces", "spikesort.plot_concat_traces"),
+        ("preprocess.plot_concat_channel_layout", "spikesort.plot_concat_channel_layout"),
         ("preprocess.plot_raster_threshold", "preprocess.plot_raster_threshold"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
         ("preproc.wipe_src_scratch", "cleanup.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preproc.plot_segment_channel_layouts", "preprocess.plot_segment_channel_layouts"),
         ("preproc.concat_segments", "spikesort.concat_binary"),
-        ("preproc.plot_concat_traces", "preprocess.plot_concat_traces"),
-        ("preproc.plot_concat_channel_layout", "preprocess.plot_concat_channel_layout"),
+        ("preproc.plot_concat_traces", "spikesort.plot_concat_traces"),
+        ("preproc.plot_concat_channel_layout", "spikesort.plot_concat_channel_layout"),
         ("preproc.plot_raster_threshold", "preprocess.plot_raster_threshold"),
+        # Bare-name plot_concat_* tokens resolve to the new spikesort routes.
+        ("plot_concat_traces", "spikesort.plot_concat_traces"),
+        ("plot_concat_channel_layout", "spikesort.plot_concat_channel_layout"),
+        ("spikesort.plot_concat_traces", "spikesort.plot_concat_traces"),
+        ("spikesort.plot_concat_channel_layout", "spikesort.plot_concat_channel_layout"),
     ],
 )
 def test_parse_stage_list_tokens_supports_preprocess_phase_tokens(raw_token: str, expected: str) -> None:
@@ -742,13 +749,18 @@ def test_main_stops_after_first_failure(monkeypatch, tmp_path: Path) -> None:
         # `concat_segments` was consolidated into spikesort.concat_binary in slice 7;
         # legacy preprocess.concat_segments tokens dispatch through the spikesort handler.
         ("preprocess.concat_segments", "spikesort.concat_binary"),
-        ("preprocess.plot_concat_traces", "preprocess.plot_concat_traces"),
+        # `plot_concat_traces` / `plot_concat_channel_layout` moved from preprocess
+        # to spikesort in slice 8; legacy preprocess.* tokens dispatch through
+        # the spikesort handler.
+        ("preprocess.plot_concat_traces", "spikesort.plot_concat_traces"),
+        ("preprocess.plot_concat_channel_layout", "spikesort.plot_concat_channel_layout"),
         ("preprocess.plot_raster_threshold", "preprocess.plot_raster_threshold"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
         ("preproc.wipe_src_scratch", "cleanup.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preproc.concat_segments", "spikesort.concat_binary"),
-        ("preproc.plot_concat_traces", "preprocess.plot_concat_traces"),
+        ("preproc.plot_concat_traces", "spikesort.plot_concat_traces"),
+        ("preproc.plot_concat_channel_layout", "spikesort.plot_concat_channel_layout"),
         ("preproc.plot_raster_threshold", "preprocess.plot_raster_threshold"),
     ],
 )

@@ -647,6 +647,11 @@ def test_format_verbose_tables_numbers_phase_legend(tmp_path: Path) -> None:
 
 	assert "=== spikesort phases ===" in text
 	assert "1. concat_binary" in text
-	assert "2. sort" in text
+	# After slice 8, the spikesort phase legend has plot_concat_traces and
+	# plot_concat_channel_layout as phases 2 and 3 (moved from preprocess),
+	# pushing sort down to phase 4.
+	assert "2. plot_concat_traces" in text
+	assert "3. plot_concat_channel_layout" in text
+	assert "4. sort" in text
 	# The glyph string should start with ✓ (phase 1 marker present) followed by ·'s
 	assert "✓·······" in text

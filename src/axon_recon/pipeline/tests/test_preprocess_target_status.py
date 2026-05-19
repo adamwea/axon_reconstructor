@@ -9,9 +9,7 @@ import pytest
 
 from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallelism
 from axon_recon.pipeline.runner import (
-    run_preprocess_plot_concat_channel_layout_from_runtime,
     run_preprocess_from_runtime,
-    run_preprocess_plot_concat_traces_from_runtime,
     run_preprocess_plot_raster_threshold_from_runtime,
     run_preprocess_plot_segment_channel_layouts_from_runtime,
     run_preprocess_plot_segment_traces_from_runtime,
@@ -539,24 +537,9 @@ def test_preprocess_debug_limits_select_first_wells_per_dataset(tmp_path: Path) 
             1,
             True,
         ),
-        (
-            run_preprocess_plot_concat_traces_from_runtime,
-            "run_preprocess_plot_concat_traces_from_runtime",
-            "run_preprocess_plot_concat_traces",
-            "preprocess.plot_concat_traces",
-            "plot_concat_traces",
-            1,
-            True,
-        ),
-        (
-            run_preprocess_plot_concat_channel_layout_from_runtime,
-            "run_preprocess_plot_concat_channel_layout_from_runtime",
-            "run_preprocess_plot_concat_channel_layout",
-            "preprocess.plot_concat_channel_layout",
-            "plot_concat_channel_layout",
-            1,
-            True,
-        ),
+        # plot_concat_traces / plot_concat_channel_layout moved to spikesort
+        # in phase_roster_cleanup_plan slice 8; their target-status checks
+        # belong in test_spikesort_target_status.py (or its successor) now.
         (
             run_preprocess_plot_raster_threshold_from_runtime,
             "run_preprocess_plot_raster_threshold_from_runtime",
@@ -731,12 +714,8 @@ def test_preprocess_phase_from_args_forwards_debug_limits(monkeypatch, tmp_path:
             "run_preprocess_plot_segment_channel_layouts_from_runtime",
             "plot_segment_channel_layouts",
         ),
-        ("plot_concat_traces", "run_preprocess_plot_concat_traces_from_runtime", "plot_concat_traces"),
-        (
-            "plot_concat_channel_layout",
-            "run_preprocess_plot_concat_channel_layout_from_runtime",
-            "plot_concat_channel_layout",
-        ),
+        # plot_concat_traces / plot_concat_channel_layout moved to spikesort
+        # in slice 8; their orchestrator wrappers live under spikesort now.
         ("plot_raster_threshold", "run_preprocess_plot_raster_threshold_from_runtime", "plot_raster_threshold"),
     ],
 )

@@ -11,6 +11,8 @@ from .orchestrators import (
 	_run_concat_analyzer_from_args as _run_concat_analyzer_orchestrator_from_args,
 	_run_merge_slay_from_args as _run_merge_slay_orchestrator_from_args,
 	_run_merge_units_from_args as _run_merge_units_orchestrator_from_args,
+	_run_plot_concat_channel_layout_from_args as _run_plot_concat_channel_layout_orchestrator_from_args,
+	_run_plot_concat_traces_from_args as _run_plot_concat_traces_orchestrator_from_args,
 	_run_restore_sorter_output_from_args as _run_restore_sorter_output_orchestrator_from_args,
 	_run_snapshot_sorter_output_from_args as _run_snapshot_sorter_output_orchestrator_from_args,
 	_run_sort_from_args,
@@ -109,6 +111,14 @@ def _run_bombcell_pass2_from_args(args: argparse.Namespace) -> int:
 
 def _run_concat_binary_from_args(args: argparse.Namespace) -> int:
 	return _run_concat_binary_orchestrator_from_args(args)
+
+
+def _run_plot_concat_traces_from_args(args: argparse.Namespace) -> int:
+	return _run_plot_concat_traces_orchestrator_from_args(args)
+
+
+def _run_plot_concat_channel_layout_from_args(args: argparse.Namespace) -> int:
+	return _run_plot_concat_channel_layout_orchestrator_from_args(args)
 
 
 def _run_cleanup_concat_binary_from_args(args: argparse.Namespace) -> int:

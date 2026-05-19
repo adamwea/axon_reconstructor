@@ -17,12 +17,10 @@ from ...resources import get_resource_default, parse_resources_config, validate_
 from .models.inputs import (
 	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
 	PreprocessInputs,
-	PreprocessPlotConcatChannelLayoutPhaseConfig,
 	PreprocessPhaseConfig,
 	PreprocessPhaseOutputsConfig,
 	PreprocessPhasesConfig,
 	PreprocessPlotConfig,
-	PreprocessPlotConcatTracesPhaseConfig,
 	PreprocessPlotRasterThresholdPhaseConfig,
 	PreprocessPlotSegmentChannelLayoutsPhaseConfig,
 	PreprocessPlotSegmentTracesPhaseConfig,
@@ -48,10 +46,6 @@ _PREPROCESS_PHASE_ALIASES: dict[str, str] = {
 	"plot_segment_traces": "plot_segment_traces",
 	"plot_segment_channel_layouts": "plot_segment_channel_layouts",
 	"plot_segment_channel_layout": "plot_segment_channel_layouts",
-	"plot_concat_traces": "plot_concat_traces",
-	"plot_concatenated_traces": "plot_concat_traces",
-	"plot_concat_channel_layout": "plot_concat_channel_layout",
-	"plot_concatenated_channel_layout": "plot_concat_channel_layout",
 	"plot_raster_threshold": "plot_raster_threshold",
 	"raster_threshold": "plot_raster_threshold",
 }
@@ -719,7 +713,6 @@ def parse_preprocess_stage_config(
 	preprocess_segments_phase_cfg = phases_cfg.get("preprocess_segments", {}) if isinstance(phases_cfg.get("preprocess_segments", {}), dict) else {}
 	plot_segment_traces_phase_cfg = phases_cfg.get("plot_segment_traces", {}) if isinstance(phases_cfg.get("plot_segment_traces", {}), dict) else {}
 	plot_segment_channel_layouts_phase_cfg = phases_cfg.get("plot_segment_channel_layouts", {}) if isinstance(phases_cfg.get("plot_segment_channel_layouts", {}), dict) else {}
-	plot_concat_traces_phase_cfg = phases_cfg.get("plot_concat_traces", {}) if isinstance(phases_cfg.get("plot_concat_traces", {}), dict) else {}
 	if legacy_common_phase_cfg:
 		save_rec_metadata_phase_cfg = dict(save_rec_metadata_phase_cfg)
 		save_rec_metadata_phase_cfg.setdefault(
@@ -727,7 +720,6 @@ def parse_preprocess_stage_config(
 			legacy_common_phase_cfg.get("summary_json_relpath", "context/save_common_electrodes_summary.json"),
 		)
 
-	plot_concat_channel_layout_phase_cfg = phases_cfg.get("plot_concat_channel_layout", {}) if isinstance(phases_cfg.get("plot_concat_channel_layout", {}), dict) else {}
 	plot_raster_threshold_phase_cfg = phases_cfg.get("plot_raster_threshold", {}) if isinstance(phases_cfg.get("plot_raster_threshold", {}), dict) else {}
 	segment_plot_defaults = PreprocessPlotConfig(
 		disable_all_png_diagnostics=raw_disable_all_png_diagnostics,
@@ -872,102 +864,10 @@ def parse_preprocess_stage_config(
 			),
 		),
 	)
-	concat_plot_defaults = PreprocessPlotConfig(
-		disable_all_png_diagnostics=plot_segment_traces_phase.plot.disable_all_png_diagnostics,
-		layouts=(plot_segment_traces_phase.plot.layouts if not using_new_phase_schema else False),
-		concat_trace=bool(plot_concat_trace_effective),
-		segment_traces=(plot_segment_traces_phase.plot.segment_traces if not using_new_phase_schema else False),
-		output_dir=plot_segment_traces_phase.plot.output_dir,
-		epoch_markers_output_dir=plot_segment_traces_phase.plot.epoch_markers_output_dir,
-		assay_stats_relpath=plot_segment_traces_phase.plot.assay_stats_relpath,
-		channel_layouts_subdir=plot_segment_traces_phase.plot.channel_layouts_subdir,
-		segment_traces_subdir=plot_segment_traces_phase.plot.segment_traces_subdir,
-		concat_trace_relpath=plot_segment_traces_phase.plot.concat_trace_relpath,
-		n_representative_channels=plot_segment_traces_phase.plot.n_representative_channels,
-		concat_trace_n_reps=concat_trace_n_reps,
-		segment_trace_n_reps=plot_segment_traces_phase.plot.segment_trace_n_reps,
-		n_jobs=plot_segment_traces_phase.plot.n_jobs,
-		trace_downsample_hz=plot_segment_traces_phase.plot.trace_downsample_hz,
-		trace_max_points=plot_segment_traces_phase.plot.trace_max_points,
-	)
-	plot_concat_traces_phase_raw = plot_concat_traces_phase_cfg
-	plot_concat_traces_phase = PreprocessPlotConcatTracesPhaseConfig(
-		enabled=_as_bool(
-			plot_concat_traces_phase_raw.get("enabled", False),
-			False,
-		),
-		summary_json_relpath=str(
-			plot_concat_traces_phase_raw.get("summary_json_relpath", "context/plot_concat_traces_summary.json")
-			or "context/plot_concat_traces_summary.json"
-		),
-		resource_class=_phase_resource_class(plot_concat_traces_phase_raw, "plot_concat_traces"),
-		plot=_parse_plot_phase_config(
-			raw_cfg=plot_concat_traces_phase_raw.get("plot", {}),
-			defaults=concat_plot_defaults,
-		),
-	)
-	plot_concat_channel_layout_phase_raw = plot_concat_channel_layout_phase_cfg
-	if not plot_concat_channel_layout_phase_raw and isinstance(plot_concat_traces_phase_raw.get("plot", {}), dict):
-		plot_concat_channel_layout_phase_raw = {
-			"enabled": False if using_new_phase_schema else concat_plot_defaults.layouts,
-			"plot": {
-				"disable_all_png_diagnostics": plot_concat_traces_phase_raw.get("plot", {}).get(
-					"disable_all_png_diagnostics",
-					concat_plot_defaults.disable_all_png_diagnostics,
-				),
-				"layouts": plot_concat_traces_phase_raw.get("plot", {}).get("layouts", concat_plot_defaults.layouts),
-				"output_dir": plot_concat_traces_phase_raw.get("plot", {}).get("output_dir", concat_plot_defaults.output_dir),
-				"assay_stats_relpath": plot_concat_traces_phase_raw.get("plot", {}).get(
-					"assay_stats_relpath",
-					concat_plot_defaults.assay_stats_relpath,
-				),
-				"channel_layouts_subdir": plot_concat_traces_phase_raw.get("plot", {}).get(
-					"channel_layouts_subdir",
-					concat_plot_defaults.channel_layouts_subdir,
-				),
-			},
-		}
-	plot_concat_channel_layout_phase = PreprocessPlotConcatChannelLayoutPhaseConfig(
-		enabled=_as_bool(
-			plot_concat_channel_layout_phase_raw.get(
-				"enabled",
-				concat_plot_defaults.layouts,
-			),
-			concat_plot_defaults.layouts,
-		),
-		summary_json_relpath=str(
-			plot_concat_channel_layout_phase_raw.get(
-				"summary_json_relpath",
-				"context/plot_concat_channel_layout_summary.json",
-			)
-			or "context/plot_concat_channel_layout_summary.json"
-		),
-		resource_class=_phase_resource_class(
-			plot_concat_channel_layout_phase_raw,
-			"plot_concat_channel_layout",
-		),
-		plot=_parse_plot_phase_config(
-			raw_cfg=plot_concat_channel_layout_phase_raw.get("plot", {}),
-			defaults=PreprocessPlotConfig(
-				disable_all_png_diagnostics=concat_plot_defaults.disable_all_png_diagnostics,
-				layouts=concat_plot_defaults.layouts,
-				concat_trace=False,
-				segment_traces=False,
-				output_dir=concat_plot_defaults.output_dir,
-				epoch_markers_output_dir=concat_plot_defaults.epoch_markers_output_dir,
-				assay_stats_relpath=concat_plot_defaults.assay_stats_relpath,
-				channel_layouts_subdir=concat_plot_defaults.channel_layouts_subdir,
-				segment_traces_subdir=concat_plot_defaults.segment_traces_subdir,
-				concat_trace_relpath=concat_plot_defaults.concat_trace_relpath,
-				n_representative_channels=concat_plot_defaults.n_representative_channels,
-				concat_trace_n_reps=concat_plot_defaults.concat_trace_n_reps,
-				segment_trace_n_reps=concat_plot_defaults.segment_trace_n_reps,
-				n_jobs=concat_plot_defaults.n_jobs,
-				trace_downsample_hz=concat_plot_defaults.trace_downsample_hz,
-				trace_max_points=concat_plot_defaults.trace_max_points,
-			),
-		),
-	)
+	# `concat_plot_defaults` (and the concat-plot phase parsing it informed)
+	# moved to spikesort in phase_roster_cleanup_plan slice 8.
+	# plot_concat_traces / plot_concat_channel_layout moved to spikesort in
+	# phase_roster_cleanup_plan slice 8.
 	plot_raster_threshold_phase = _parse_plot_raster_threshold_phase_config(
 		raw_cfg=plot_raster_threshold_phase_cfg,
 		resource_class=_phase_resource_class(plot_raster_threshold_phase_cfg, "plot_raster_threshold"),
@@ -1038,8 +938,6 @@ def parse_preprocess_stage_config(
 			preprocess_segments=preprocess_segments_phase,
 			plot_segment_traces=plot_segment_traces_phase,
 			plot_segment_channel_layouts=plot_segment_channel_layouts_phase,
-			plot_concat_traces=plot_concat_traces_phase,
-			plot_concat_channel_layout=plot_concat_channel_layout_phase,
 			plot_raster_threshold=plot_raster_threshold_phase,
 		),
 	)

@@ -28,12 +28,6 @@ from .runner import build_stage_allocation_previews, format_stage_allocation_pre
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
 from .stages.preprocess.cli import (
-	_run_plot_concat_channel_layout_from_args as _run_preprocess_plot_concat_channel_layout_from_args,
-)
-from .stages.preprocess.cli import (
-	_run_plot_concat_traces_from_args as _run_preprocess_plot_concat_traces_from_args,
-)
-from .stages.preprocess.cli import (
 	_run_plot_raster_threshold_from_args as _run_preprocess_plot_raster_threshold_from_args,
 )
 from .stages.preprocess.cli import (
@@ -94,6 +88,12 @@ from .stages.spikesort.cli import (
 )
 from .stages.spikesort.cli import (
 	_run_concat_binary_from_args as _run_spikesort_concat_binary_from_args,
+)
+from .stages.spikesort.cli import (
+	_run_plot_concat_channel_layout_from_args as _run_spikesort_plot_concat_channel_layout_from_args,
+)
+from .stages.spikesort.cli import (
+	_run_plot_concat_traces_from_args as _run_spikesort_plot_concat_traces_from_args,
 )
 from .stages.spikesort.cli import (
 	_run_cleanup_analyzers_from_args as _run_spikesort_cleanup_analyzers_from_args,
@@ -170,23 +170,29 @@ _STAGE_ALIASES: dict[str, str] = {
 	# pre.concat_segments / preproc.concat_segments tokens still resolve, but
 	# they redirect to the new canonical spikesort.concat_binary route.
 	"pre.concat_segments": "spikesort.concat_binary",
-	"pre.plot_concat_traces": "preprocess.plot_concat_traces",
-	"pre.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
+	# `plot_concat_traces` / `plot_concat_channel_layout` moved from preprocess
+	# to spikesort in phase_roster_cleanup_plan slice 8 (they consume the
+	# spikesort.concat_binary cache). Legacy preprocess / pre / preproc tokens
+	# still resolve, but they redirect to the new canonical spikesort routes.
+	"pre.plot_concat_traces": "spikesort.plot_concat_traces",
+	"pre.plot_concat_channel_layout": "spikesort.plot_concat_channel_layout",
 	"pre.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"preproc.save_rec_metadata": "preprocess.save_rec_metadata",
 	"preproc.preprocess_segments": "preprocess.preprocess_segments",
 	"preproc.plot_segment_traces": "preprocess.plot_segment_traces",
 	"preproc.plot_segment_channel_layouts": "preprocess.plot_segment_channel_layouts",
 	"preproc.concat_segments": "spikesort.concat_binary",
-	"preproc.plot_concat_traces": "preprocess.plot_concat_traces",
-	"preproc.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
+	"preproc.plot_concat_traces": "spikesort.plot_concat_traces",
+	"preproc.plot_concat_channel_layout": "spikesort.plot_concat_channel_layout",
 	"preproc.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"preprocess.plot_segment_channel_layouts": "preprocess.plot_segment_channel_layouts",
 	"preprocess.plot_segment_traces": "preprocess.plot_segment_traces",
 	"preprocess.concat_segments": "spikesort.concat_binary",
-	"preprocess.plot_concat_traces": "preprocess.plot_concat_traces",
-	"preprocess.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
+	"preprocess.plot_concat_traces": "spikesort.plot_concat_traces",
+	"preprocess.plot_concat_channel_layout": "spikesort.plot_concat_channel_layout",
 	"preprocess.plot_raster_threshold": "preprocess.plot_raster_threshold",
+	"plot_concat_traces": "spikesort.plot_concat_traces",
+	"plot_concat_channel_layout": "spikesort.plot_concat_channel_layout",
 	"sort": "spikesort",
 	# `bootstrap_concat_binary` was renamed to `concat_binary` in
 	# phase_roster_cleanup_plan slice 7. Legacy spikesort.bootstrap_concat_binary
@@ -300,11 +306,11 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"preprocess.preprocess_segments": _run_preprocess_preprocess_segments_from_args,
 	"preprocess.plot_segment_traces": _run_preprocess_plot_segment_traces_from_args,
 	"preprocess.plot_segment_channel_layouts": _run_preprocess_plot_segment_channel_layouts_from_args,
-	"preprocess.plot_concat_traces": _run_preprocess_plot_concat_traces_from_args,
-	"preprocess.plot_concat_channel_layout": _run_preprocess_plot_concat_channel_layout_from_args,
 	"preprocess.plot_raster_threshold": _run_preprocess_plot_raster_threshold_from_args,
 	"spikesort": _run_spikesort_from_args,
 	"spikesort.concat_binary": _run_spikesort_concat_binary_from_args,
+	"spikesort.plot_concat_traces": _run_spikesort_plot_concat_traces_from_args,
+	"spikesort.plot_concat_channel_layout": _run_spikesort_plot_concat_channel_layout_from_args,
 	"spikesort.cleanup_concat_binary": _run_spikesort_cleanup_concat_binary_from_args,
 	"spikesort.cleanup_analyzers": _run_spikesort_cleanup_analyzers_from_args,
 	"spikesort.sort": _run_spikesort_sort_from_args,

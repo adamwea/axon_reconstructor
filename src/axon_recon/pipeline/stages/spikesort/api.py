@@ -13,6 +13,8 @@ from .orchestrators import (
 	run_spikesort_cleanup_concat_binary,
 	run_spikesort_concat_analyzer,
 	run_spikesort_merge_units,
+	run_spikesort_plot_concat_channel_layout as _run_spikesort_plot_concat_channel_layout_orchestrator,
+	run_spikesort_plot_concat_traces as _run_spikesort_plot_concat_traces_orchestrator,
 	run_spikesort_restore_sorter_output,
 	run_spikesort_snapshot_sorter_output,
 	run_spikesort_sort,
@@ -192,6 +194,44 @@ def build_spikesort_concat_analyzer(
 	force_restart: bool,
 ) -> SpikesortResult:
 	return run_spikesort_concat_analyzer(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		force_restart=force_restart,
+	)
+
+
+def run_spikesort_plot_concat_traces(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	return _run_spikesort_plot_concat_traces_orchestrator(
+		h5_path=h5_path,
+		stream_id=stream_id,
+		mea_output_root=mea_output_root,
+		output_rel_root=output_rel_root,
+		stage_config=stage_config,
+		force_restart=force_restart,
+	)
+
+
+def run_spikesort_plot_concat_channel_layout(
+	*,
+	h5_path: Path,
+	stream_id: str,
+	mea_output_root: Path,
+	output_rel_root: str,
+	stage_config: Any,
+	force_restart: bool,
+) -> SpikesortResult:
+	return _run_spikesort_plot_concat_channel_layout_orchestrator(
 		h5_path=h5_path,
 		stream_id=stream_id,
 		mea_output_root=mea_output_root,

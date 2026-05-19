@@ -2,8 +2,6 @@
 
 from .api import (
 	run_preprocess,
-	run_preprocess_plot_concat_channel_layout,
-	run_preprocess_plot_concat_traces,
 	run_preprocess_plot_raster_threshold,
 	run_preprocess_plot_segment_channel_layouts,
 	run_preprocess_plot_segment_traces,
@@ -13,8 +11,6 @@ from .api import (
 
 __all__ = [
 	"run_preprocess",
-	"run_preprocess_plot_concat_channel_layout",
-	"run_preprocess_plot_concat_traces",
 	"run_preprocess_plot_raster_threshold",
 	"run_preprocess_plot_segment_channel_layouts",
 	"run_preprocess_plot_segment_traces",

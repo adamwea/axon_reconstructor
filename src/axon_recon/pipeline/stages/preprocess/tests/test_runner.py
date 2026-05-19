@@ -14,8 +14,6 @@ import pytest
 from axon_recon.pipeline.stages.preprocess.models.inputs import (
     PreprocessInputs,
     PreprocessPhasesConfig,
-    PreprocessPlotConcatChannelLayoutPhaseConfig,
-    PreprocessPlotConcatTracesPhaseConfig,
     PreprocessPlotRasterThresholdPhaseConfig,
     PreprocessPlotSegmentChannelLayoutsPhaseConfig,
     PreprocessPlotSegmentTracesPhaseConfig,
@@ -47,13 +45,11 @@ def _write_test_png(path: Path) -> None:
 def _full_stage_phases() -> PreprocessPhasesConfig:
     # After phase_roster_cleanup_plan slice 7, the preprocess stage no longer
     # owns the concat-recording materialization step (it lives in
-    # spikesort.concat_binary now). The plot_concat_* phases are kept in
-    # preprocess code but default to disabled because they depend on the
-    # concat artifacts that the preprocess stage no longer produces.
+    # spikesort.concat_binary now). After slice 8, the plot_concat_* phases
+    # moved to spikesort as well — they consume the concat_binary cache they
+    # plot.
     return PreprocessPhasesConfig(
         save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
-        plot_concat_traces=PreprocessPlotConcatTracesPhaseConfig(enabled=False),
-        plot_concat_channel_layout=PreprocessPlotConcatChannelLayoutPhaseConfig(enabled=False),
     )
 
 
@@ -224,19 +220,6 @@ def _install_success_fakes(
             "segment_count": 2,
         }
 
-    def _fake_run_plot_concat_channel_layout_core(**kwargs):
-        _capture("plot_concat_channel_layout", kwargs)
-        plot_output_dir = Path(str(kwargs["plot_output_dir"]))
-        plot_output_dir.mkdir(parents=True, exist_ok=True)
-        layout_path = plot_output_dir / str(kwargs["channel_layouts_subdir"]) / f"concat_channel_layout_{kwargs['stream_id']}.png"
-        _write_test_png(layout_path)
-        return {
-            "phase": "plot_concat_channel_layout",
-            "layout_plot_paths": [str(layout_path)],
-            "representative_channel_count": 3,
-            "representative_channel_ids": [11, 22, 33],
-        }
-
     def _fake_run_plot_raster_threshold_core(**kwargs):
         _capture("plot_raster_threshold", kwargs)
         raster_output_dir = Path(str(kwargs["raster_output_dir"]))
@@ -253,18 +236,8 @@ def _install_success_fakes(
             "total_event_count": 7,
         }
 
-    def _fake_run_plot_concat_traces_core(**kwargs):
-        _capture("plot_concat_traces", kwargs)
-        plot_output_dir = Path(str(kwargs["plot_output_dir"]))
-        plot_output_dir.mkdir(parents=True, exist_ok=True)
-        trace_plot_path = plot_output_dir / str(kwargs["concat_trace_relpath"])
-        _write_test_png(trace_plot_path)
-        return {
-            "phase": "plot_concat_traces",
-            "trace_plot_path": str(trace_plot_path),
-            "segment_count": 2,
-            "stitch_frame_count": 1,
-        }
+    # plot_concat_traces / plot_concat_channel_layout moved to spikesort in
+    # slice 8; their fake cores live in the spikesort tests now.
 
     monkeypatch.setattr(preprocess_runner, "compute_mea_analysis_output_dir", _fake_compute_mea_analysis_output_dir)
     monkeypatch.setattr(preprocess_runner, "compute_pipeline_log_file", _fake_compute_pipeline_log_file)
@@ -272,8 +245,6 @@ def _install_success_fakes(
     monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _fake_run_save_rec_metadata_core)
     monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _fake_run_preprocess_segments_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _fake_run_plot_segment_traces_core)
-    monkeypatch.setattr(preprocess_runner, "run_plot_concat_traces_core", _fake_run_plot_concat_traces_core)
-    monkeypatch.setattr(preprocess_runner, "run_plot_concat_channel_layout_core", _fake_run_plot_concat_channel_layout_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_raster_threshold_core", _fake_run_plot_raster_threshold_core)
     return well_out_dir, fake_log
 
@@ -318,7 +289,10 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
     assert "plot_segment_channel_layouts_summary_json" in outputs
     # concat_segments was consolidated into spikesort.concat_binary in slice 7.
     assert "concat_segments_summary_json" not in outputs
-    assert "plot_concat_traces_summary_json" in outputs
+    # plot_concat_traces / plot_concat_channel_layout moved to spikesort in
+    # slice 8; the preprocess stage no longer emits their summary_jsons.
+    assert "plot_concat_traces_summary_json" not in outputs
+    assert "plot_concat_channel_layout_summary_json" not in outputs
     assert "observability.run_manifest_json" in outputs
     assert "observability.event_timeline_jsonl" in outputs
     assert "observability.environment_json" in outputs
@@ -670,11 +644,9 @@ def test_run_preprocess_stage_force_restart_clears_outputs_and_reruns_enabled_ph
     outputs = dict(summary.get("outputs", {}))
 
     assert not stale_path.exists()
-    # After slice 7, plot_concat_traces / plot_concat_channel_layout default
-    # to disabled in `_full_stage_phases` because the concat-recording phase
-    # they consumed (`preprocess.concat_segments`) was consolidated into
-    # spikesort.concat_binary; the preprocess stage no longer materializes
-    # those concat artifacts.
+    # After slice 8, plot_concat_traces / plot_concat_channel_layout were
+    # moved to spikesort (alongside concat_binary, slice 7); preprocess no
+    # longer owns those phases.
     assert phase_call_order == [
         "save_rec_metadata",
         "preprocess_segments",
@@ -771,11 +743,10 @@ def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypa
         run_preprocess_stage(inputs)
 
     messages = [record.getMessage() for record in caplog.records]
-    # phase_count is 4 after slice 7:
+    # phase_count is 4 after slice 8:
     # save_rec_metadata + preprocess_segments + plot_segment_traces + plot_segment_channel_layouts
-    # are enabled. plot_concat_traces / plot_concat_channel_layout default to
-    # disabled in the test fixture (they no longer have an upstream concat
-    # phase to feed them), and plot_raster_threshold defaults to disabled.
+    # are enabled. plot_concat_traces / plot_concat_channel_layout moved to
+    # spikesort in slice 8, and plot_raster_threshold defaults to disabled.
     assert any("Starting preprocess work for well=well001 phase_count=4 selected_phase=all" in message for message in messages)
     assert any(
         "Preprocess phase worker allocation stage=preprocess phase=preprocess_segments well=well001 well_workers=2 n_jobs=12 n_jobs_source=derived phase_n_jobs=12"
@@ -1010,7 +981,6 @@ def test_run_preprocess_stage_reruns_phase_when_resume_artifact_is_incomplete(tm
     monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _tracked_plot_segment_traces_core)
-    monkeypatch.setattr(preprocess_runner, "run_plot_concat_traces_core", _explode)
 
     second_result = run_preprocess_stage(inputs)
     assert rerun_calls == ["plot_segment_traces"]
@@ -1462,7 +1432,6 @@ def test_run_preprocess_stage_resumes_lazy_preprocess_segments_artifacts_without
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, output_mode="lazy"),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
             plot_segment_channel_layouts=PreprocessPlotSegmentChannelLayoutsPhaseConfig(enabled=False),
-            plot_concat_traces=PreprocessPlotConcatTracesPhaseConfig(enabled=False),
         ),
     )
 
@@ -1719,7 +1688,6 @@ def test_run_preprocess_plot_raster_threshold_phase_writes_targeted_summary(tmp_
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
             plot_segment_channel_layouts=PreprocessPlotSegmentChannelLayoutsPhaseConfig(enabled=False),
-            plot_concat_traces=PreprocessPlotConcatTracesPhaseConfig(enabled=False),
             plot_raster_threshold=PreprocessPlotRasterThresholdPhaseConfig(
                 enabled=True,
                 debug_mode_enabled=True,

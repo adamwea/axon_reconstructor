@@ -3,8 +3,15 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from .artifacts import load_saved_recording
-from .plot_segment_traces import _plot_channel_layout, _resolve_representative_channels
+# `plot_concat_channel_layout` moved from the preprocess stage to the spikesort
+# stage in phase_roster_cleanup_plan slice 8 (alongside `concat_binary`). The
+# core artifact / channel-layout helpers still live in the preprocess core
+# package, so import them across the stage boundary.
+from ...preprocess.core.artifacts import load_saved_recording
+from ...preprocess.core.plot_segment_traces import (
+	_plot_channel_layout,
+	_resolve_representative_channels,
+)
 
 
 def run_plot_concat_channel_layout_core(

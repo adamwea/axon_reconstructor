@@ -266,6 +266,8 @@ def _as_list_of_strings(value: Any) -> list[str]:
 
 DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
 	"concat_binary",
+	"plot_concat_traces",
+	"plot_concat_channel_layout",
 	"sort",
 	"summarize_sort",
 	"snapshot_sorter_output",
@@ -286,6 +288,10 @@ _SPIKESORT_PHASE_ALIASES: dict[str, str] = {
 	"bootstrap_concat": "concat_binary",
 	"bootstrap_binary": "concat_binary",
 	"bootstrap": "concat_binary",
+	"plot_concat_traces": "plot_concat_traces",
+	"plot_concatenated_traces": "plot_concat_traces",
+	"plot_concat_channel_layout": "plot_concat_channel_layout",
+	"plot_concatenated_channel_layout": "plot_concat_channel_layout",
 	"sort": "sort",
 	"spikesort": "sort",
 	"summarize_sort": "summarize_sort",
@@ -506,6 +512,23 @@ class SpikesortStageConfig:
 	concat_binary_n_jobs: int | None
 	concat_binary_chunk_duration: str | None
 	concat_binary_progress_bar: bool
+	plot_concat_traces_enabled: bool
+	plot_concat_traces_resource_class: str | None
+	plot_concat_traces_summary_json_relpath: str
+	plot_concat_traces_plot_output_dir_relpath: str
+	plot_concat_traces_concat_trace: bool
+	plot_concat_traces_concat_trace_relpath: str
+	plot_concat_traces_n_reps: int
+	plot_concat_traces_n_jobs: int | None
+	plot_concat_traces_trace_downsample_hz: float | None
+	plot_concat_traces_trace_max_points: int | None
+	plot_concat_channel_layout_enabled: bool
+	plot_concat_channel_layout_resource_class: str | None
+	plot_concat_channel_layout_summary_json_relpath: str
+	plot_concat_channel_layout_plot_output_dir_relpath: str
+	plot_concat_channel_layout_subdir: str
+	plot_concat_channel_layout_n_reps: int
+	plot_concat_channel_layout_n_jobs: int | None
 	cleanup_concat_binary_enabled: bool
 	cleanup_concat_binary_relpath: str
 	cleanup_concat_binary_summary_json_relpath: str
@@ -768,6 +791,10 @@ def parse_spikesort_stage_config(
 	concat_binary_phase_cfg = _as_section(
 		phases_cfg.get("concat_binary", phases_cfg.get("bootstrap_concat_binary", {}))
 	)
+	plot_concat_traces_phase_cfg = _as_section(phases_cfg.get("plot_concat_traces", {}))
+	plot_concat_channel_layout_phase_cfg = _as_section(
+		phases_cfg.get("plot_concat_channel_layout", {})
+	)
 	cleanup_concat_binary_phase_cfg = _as_section(
 		_coalesce(
 			phases_cfg.get("cleanup_concat_binary", None),
@@ -838,6 +865,14 @@ def parse_spikesort_stage_config(
 	concat_binary_resource_class = _phase_resource_class(
 		concat_binary_phase_cfg,
 		"concat_binary",
+	)
+	plot_concat_traces_resource_class = _phase_resource_class(
+		plot_concat_traces_phase_cfg,
+		"plot_concat_traces",
+	)
+	plot_concat_channel_layout_resource_class = _phase_resource_class(
+		plot_concat_channel_layout_phase_cfg,
+		"plot_concat_channel_layout",
 	)
 	sort_resource_class = _phase_resource_class(sort_phase_cfg, "sort")
 	summarize_sort_resource_class = _phase_resource_class(summarize_sort_phase_cfg, "summarize_sort")
@@ -1358,6 +1393,100 @@ def parse_spikesort_stage_config(
 			True,
 		),
 		True,
+	)
+	# plot_concat_traces / plot_concat_channel_layout — diagnostic phases moved
+	# from preprocess to spikesort in phase_roster_cleanup_plan slice 8. Default
+	# enabled=False; consumed inputs are the concat_binary cache outputs.
+	plot_concat_traces_enabled = _as_bool(
+		_coalesce(plot_concat_traces_phase_cfg.get("enabled", None), False),
+		False,
+	)
+	plot_concat_traces_summary_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			plot_concat_traces_phase_cfg.get("summary_json_relpath", None),
+			"cache/concat_binary/plot_concat_traces_summary.json",
+		)
+	) or "cache/concat_binary/plot_concat_traces_summary.json"
+	plot_concat_traces_plot_output_dir_relpath = _normalize_optional_relpath(
+		_coalesce(
+			plot_concat_traces_phase_cfg.get("plot_output_dir_relpath", None),
+			plot_concat_traces_phase_cfg.get("output_dir_relpath", None),
+			"cache/concat_binary/plots",
+		)
+	) or "cache/concat_binary/plots"
+	_plot_concat_traces_plot_cfg = _as_section(plot_concat_traces_phase_cfg.get("plot", {}))
+	_plot_concat_traces_concat_trace_cfg = _as_section(
+		_plot_concat_traces_plot_cfg.get("concat_trace", {})
+	)
+	plot_concat_traces_concat_trace = _as_bool(
+		_coalesce(
+			_plot_concat_traces_concat_trace_cfg.get("enabled", None),
+			_plot_concat_traces_plot_cfg.get("concat_trace", None),
+			True,
+		),
+		True,
+	)
+	plot_concat_traces_concat_trace_relpath = str(
+		_coalesce(
+			_plot_concat_traces_plot_cfg.get("concat_trace_relpath", None),
+			"concat_cluster_reps_{stream_id}.png",
+		)
+		or "concat_cluster_reps_{stream_id}.png"
+	)
+	plot_concat_traces_n_reps = _as_int(
+		_coalesce(
+			_plot_concat_traces_concat_trace_cfg.get("n_reps", None),
+			_plot_concat_traces_plot_cfg.get("concat_trace_n_reps", None),
+			3,
+		),
+		3,
+	)
+	plot_concat_traces_n_jobs = _as_optional_positive_int(
+		_plot_concat_traces_plot_cfg.get("n_jobs", None)
+	)
+	plot_concat_traces_trace_downsample_hz = _as_optional_float(
+		_plot_concat_traces_plot_cfg.get("trace_downsample_hz", None)
+	)
+	plot_concat_traces_trace_max_points = _as_optional_int(
+		_plot_concat_traces_plot_cfg.get("trace_max_points", None)
+	)
+	plot_concat_channel_layout_enabled = _as_bool(
+		_coalesce(plot_concat_channel_layout_phase_cfg.get("enabled", None), False),
+		False,
+	)
+	plot_concat_channel_layout_summary_json_relpath = _normalize_optional_relpath(
+		_coalesce(
+			plot_concat_channel_layout_phase_cfg.get("summary_json_relpath", None),
+			"cache/concat_binary/plot_concat_channel_layout_summary.json",
+		)
+	) or "cache/concat_binary/plot_concat_channel_layout_summary.json"
+	plot_concat_channel_layout_plot_output_dir_relpath = _normalize_optional_relpath(
+		_coalesce(
+			plot_concat_channel_layout_phase_cfg.get("plot_output_dir_relpath", None),
+			plot_concat_channel_layout_phase_cfg.get("output_dir_relpath", None),
+			"cache/concat_binary/plots",
+		)
+	) or "cache/concat_binary/plots"
+	_plot_concat_channel_layout_plot_cfg = _as_section(
+		plot_concat_channel_layout_phase_cfg.get("plot", {})
+	)
+	plot_concat_channel_layout_subdir = str(
+		_coalesce(
+			_plot_concat_channel_layout_plot_cfg.get("channel_layouts_subdir", None),
+			"channel_layouts",
+		)
+		or "channel_layouts"
+	)
+	plot_concat_channel_layout_n_reps = _as_int(
+		_coalesce(
+			_plot_concat_channel_layout_plot_cfg.get("n_reps", None),
+			_plot_concat_channel_layout_plot_cfg.get("n_representative_channels", None),
+			3,
+		),
+		3,
+	)
+	plot_concat_channel_layout_n_jobs = _as_optional_positive_int(
+		_plot_concat_channel_layout_plot_cfg.get("n_jobs", None)
 	)
 	sort_source_cfg = _as_section(sort_phase_cfg.get("source", {}))
 	sort_use_bootstrapped_default = bool(
@@ -3527,6 +3656,23 @@ def parse_spikesort_stage_config(
 		concat_binary_n_jobs=concat_binary_n_jobs,
 		concat_binary_chunk_duration=concat_binary_chunk_duration,
 		concat_binary_progress_bar=bool(concat_binary_progress_bar),
+		plot_concat_traces_enabled=bool(plot_concat_traces_enabled),
+		plot_concat_traces_resource_class=plot_concat_traces_resource_class,
+		plot_concat_traces_summary_json_relpath=str(plot_concat_traces_summary_json_relpath),
+		plot_concat_traces_plot_output_dir_relpath=str(plot_concat_traces_plot_output_dir_relpath),
+		plot_concat_traces_concat_trace=bool(plot_concat_traces_concat_trace),
+		plot_concat_traces_concat_trace_relpath=str(plot_concat_traces_concat_trace_relpath),
+		plot_concat_traces_n_reps=int(plot_concat_traces_n_reps),
+		plot_concat_traces_n_jobs=plot_concat_traces_n_jobs,
+		plot_concat_traces_trace_downsample_hz=plot_concat_traces_trace_downsample_hz,
+		plot_concat_traces_trace_max_points=plot_concat_traces_trace_max_points,
+		plot_concat_channel_layout_enabled=bool(plot_concat_channel_layout_enabled),
+		plot_concat_channel_layout_resource_class=plot_concat_channel_layout_resource_class,
+		plot_concat_channel_layout_summary_json_relpath=str(plot_concat_channel_layout_summary_json_relpath),
+		plot_concat_channel_layout_plot_output_dir_relpath=str(plot_concat_channel_layout_plot_output_dir_relpath),
+		plot_concat_channel_layout_subdir=str(plot_concat_channel_layout_subdir),
+		plot_concat_channel_layout_n_reps=int(plot_concat_channel_layout_n_reps),
+		plot_concat_channel_layout_n_jobs=plot_concat_channel_layout_n_jobs,
 		cleanup_concat_binary_enabled=bool(cleanup_concat_binary_enabled),
 		cleanup_concat_binary_relpath=str(cleanup_concat_binary_relpath),
 		cleanup_concat_binary_summary_json_relpath=str(cleanup_concat_binary_summary_json_relpath),
