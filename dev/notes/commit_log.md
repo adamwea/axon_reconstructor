@@ -3928,3 +3928,4 @@ e2a4200 | feat [sonnet]     | switch plot_recons template_circles base to render
 34bb353 | slice 1a [opus]    | delete legacy reports phase from reconstruct stage
 2c9e1d3 | slice 1b [opus] | delete legacy plot_templates v1 phase from reconstruct stage
 17ca304 | slice 1c [opus] | delete legacy per_unit_processing phase + monolithic pipeline helpers
+d5def7c | slice 2a [opus] | delete legacy prepare_raw_binaries phase from preprocess stage
