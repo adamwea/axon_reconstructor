@@ -42,6 +42,13 @@ dev/**/smoke_logs/
 # Bind-mount overlays (legacy; should not exist — siblings live in ~/dev/pkgs/)
 axon_recon_overlay/
 
+# Lazy sibling-clone landing zone for tools/install_dev_siblings.sh
+# (per env_install_unification_plan slice 7). Used when --from-local
+# isn't supplied or doesn't have the sibling — the script clones the
+# upstream public repo into deps/<sibling>/ as an on-demand fallback.
+# Never tracked by axon_recon; siblings have their own git history.
+deps/
+
 # Claude Code harness state (per-checkout, not source)
 .claude/
 
