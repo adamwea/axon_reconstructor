@@ -1,5 +1,22 @@
 # Env-install unification plan
 
+> **Status (2026-05-19)**: ✅ **v1 COMPLETE — slices 1-8 SHIPPED.**
+>
+> Shipped commits:
+> - Slice 1 audit: `274b62e` (`env_install_unification_audit.md`)
+> - Slice 2 pyproject.toml `[full]`: `dbd8ae7`
+> - Slice 3 environment.yml shrink: `b571824`
+> - Slice 4 `install_dev_siblings.sh`: `2939194`
+> - Slice 5 `setup_env.sh`: `ba290a8`
+> - Slice 6 Dockerfile collapse: `7d7ced1` (**shifter rebuild needed** — see `current_state.md` USER INJECTIONS)
+> - Slice 7 `deps/` .gitignore: `03ce49c`
+> - Slice 8 README docs: `f743abe`
+>
+> The remaining open items are: (a) user-initiated shifter rebuild;
+> (b) lift the `kssynth` / `unitlink` GH-remotes hold (USER INJECTION #4)
+> and add them to `[full]`; (c) decide on SLAy's install path
+> (currently editable-only via `install_dev_siblings.sh`).
+
 ## Motivation
 
 Today's install story has three+ artifacts to keep in sync:
