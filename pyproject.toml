@@ -20,6 +20,61 @@ dev = [
   "pytest>=7",
   "ruff>=0.4",
 ]
+# `full` is the production-grade runtime dep set — every pip dep that
+# today lives across `environment.yml` (pip:) + the Dockerfile's
+# `AXON_RECON_RUNTIME_SPEC` / SPIKEINTERFACE_SPEC / AXON_VELOCITY_SPEC /
+# UNITMATCH_RUNTIME_SPEC / SLAY_RUNTIME_SPEC / MPI4PY_SPEC ARGs. Pinning
+# here lets slice 3 of the env_install_unification_plan shrink
+# environment.yml to conda-only with `- -e .[dev,full]`, and slice 6
+# collapses the Dockerfile to `pip install -e .[full]`. Conda-installed
+# packages (numpy, scipy, etc.) on the dev env path are not re-installed
+# when pip sees them already satisfied. Version pins mirror the
+# Dockerfile (production-tested).
+#
+# UnitMatchPy is fetched from its public GitHub upstream as a
+# subdirectory of the parent UnitMatch repo. kssynth + unitlink stay off
+# this list until their GH remotes exist (USER INJECTION #4 — hold).
+full = [
+  # Core scientific stack — pins from Dockerfile.
+  "numpy<2.0",
+  "h5py<4",
+  "tqdm<5",
+  "requests<3",
+  "psutil",
+  "matplotlib<4",
+  "pandas<3.0",
+  "pyarrow",
+  "plotly>=5.18",
+  "dash>=2.14",
+  "dash-ag-grid",
+  "statsmodels",
+  "kaleido",
+  "openpyxl",
+  "scipy<2.0",
+  "scikit-learn<2.0",
+  "pyyaml",
+  "docker",
+  "pypdf",
+  "nvidia-ml-py",
+  # SpikeInterface + axon_velocity (dedicated ARGs in the Dockerfile).
+  "spikeinterface==0.104.3",
+  "axon_velocity==0.1.2",
+  # MPI bindings.
+  "mpi4py",
+  # UnitMatchPy — sibling fetched from public upstream parent repo.
+  "UnitMatchPy @ git+https://github.com/EnnyvanBeest/UnitMatch.git#subdirectory=UnitMatchPy",
+  # UMPy runtime deps (the Dockerfile installs these in
+  # UNITMATCH_RUNTIME_SPEC; declaring here makes the conda env mirror
+  # so `mat73` doesn't have to be installed manually after env create —
+  # see USER INJECTION #1 history for the manual workaround).
+  "mat73",
+  "mtscomp",
+  "joblib",
+  # SLAy runtime dep (Dockerfile installs marshmallow under
+  # SLAY_RUNTIME_SPEC; SLAy itself stays Dockerfile-only via SLAY_SPEC
+  # until a public remote is selected).
+  "marshmallow",
+]
 
 [project.scripts]
 axon-recon = "axon_recon.pipeline.cli:main"
