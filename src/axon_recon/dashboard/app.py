@@ -27,6 +27,7 @@ from dash import Input, Output, State, dcc, html
 
 from . import filters as filter_helpers
 from . import significance as significance_helpers
+from .style import CATEGORICAL_PALETTE, apply_dashboard_style
 
 
 # Component IDs (also used by tests).
@@ -1829,6 +1830,7 @@ def _empty_dashboard_figure(*, message: str, sub_message: str | None = None) -> 
 	"""
 
 	fig = px.scatter(pd.DataFrame({"_": []}), x="_", y="_")
+	apply_dashboard_style(fig)
 	fig.update_layout(
 		xaxis={"visible": False, "showgrid": False, "zeroline": False, "showticklabels": False},
 		yaxis={"visible": False, "showgrid": False, "zeroline": False, "showticklabels": False},
@@ -1881,7 +1883,14 @@ def _build_histogram(df: pd.DataFrame, *, x_column: Any, color_column: Any) -> A
 	color = None
 	if color_column and color_column != _HISTOGRAM_COLOR_DEFAULT and str(color_column) in df.columns:
 		color = str(color_column)
-	return px.histogram(df, x=x, color=color, barmode="overlay" if color else "relative")
+	fig = px.histogram(
+		df,
+		x=x,
+		color=color,
+		barmode="overlay" if color else "relative",
+		color_discrete_sequence=list(CATEGORICAL_PALETTE),
+	)
+	return apply_dashboard_style(fig)
 
 
 def _sorted_present_categories(df: pd.DataFrame, column: str) -> list[Any]:
@@ -2021,7 +2030,9 @@ def build_box_plot(
 		color=color,
 		points=px_points,
 		category_orders=category_orders,
+		color_discrete_sequence=list(CATEGORICAL_PALETTE),
 	)
+	apply_dashboard_style(fig)
 	# Force category type so brackets at integer indices align with the boxes,
 	# even when the group column is numeric. Empty groups are absent from
 	# `sorted_present` so they don't render.
@@ -2197,7 +2208,17 @@ def build_scatter(
 	if facet_row and facet_row != _FACET_NONE and str(facet_row) in df.columns:
 		fr = str(facet_row)
 	plot_df = _apply_scatter_jitter(df, x_col=x, y_col=y) if jitter else df
-	return px.scatter(plot_df, x=x, y=y, color=color, facet_col=fc, facet_row=fr, opacity=0.7)
+	fig = px.scatter(
+		plot_df,
+		x=x,
+		y=y,
+		color=color,
+		facet_col=fc,
+		facet_row=fr,
+		opacity=0.7,
+		color_discrete_sequence=list(CATEGORICAL_PALETTE),
+	)
+	return apply_dashboard_style(fig)
 
 
 def _apply_scatter_jitter(df: pd.DataFrame, *, x_col: str, y_col: str) -> pd.DataFrame:
