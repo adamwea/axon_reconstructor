@@ -285,6 +285,13 @@ def run_analysis_propagation_video(
 
 	render_callable = _resolve_render_callable(stage_config)
 
+	# Slice 5: per-phase YAML knobs forwarded to every render call.
+	render_kwargs: dict[str, Any] = {
+		"fps": int(getattr(stage_config, "propagation_video_fps", 20) or 20),
+		"skip_frames": int(getattr(stage_config, "propagation_video_skip_frames", 2) or 2),
+		"cmap": str(getattr(stage_config, "propagation_video_cmap", "coolwarm") or "coolwarm"),
+	}
+
 	units_processed: list[dict[str, Any]] = []
 	for unit_id in unit_ids:
 		try:
@@ -310,6 +317,7 @@ def run_analysis_propagation_video(
 				inputs=inputs,
 				out_path=out_path,
 				force_restart=bool(force_restart),
+				**render_kwargs,
 			)
 		except Exception as exc:
 			LOGGER.exception(

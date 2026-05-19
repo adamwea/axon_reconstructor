@@ -125,12 +125,17 @@ class AnalysisStageConfig:
 	unitmatch_enabled: bool = False
 	unitmatch_resource_class: str | None = None
 	unitmatch_rel_output_root: str = "unitmatch"
-	# Slice 2 of analysis_propagation_video_plan: scaffold-only fields.
-	# Phase defaults to disabled; subsequent slices wire YAML knobs
-	# (fps, skip_frames, cmap, clip_quantile, …) as separate fields.
+	# Slice 2 of analysis_propagation_video_plan: scaffold fields.
+	# Slice 5 added the per-phase render knobs (fps, skip_frames, cmap).
+	# Slice 4's v1-port elaborations (clip_quantile, crop, colorbar
+	# overlay, time counter) stay TBD until the slice-8 HARD-gate
+	# diagnostic confirms basic output is correct.
 	propagation_video_enabled: bool = False
 	propagation_video_resource_class: str | None = None
 	propagation_video_rel_output_root: str = "propagation_video"
+	propagation_video_fps: int = 20
+	propagation_video_skip_frames: int = 2
+	propagation_video_cmap: str = "coolwarm"
 	well_metadata_lookup: dict[tuple[int, str], dict[str, Any]] = field(default_factory=dict)
 	force_restart: bool = False
 	replot: bool = False
@@ -189,6 +194,15 @@ def parse_analysis_stage_config(
 	propagation_video_rel_output_root = str(
 		propagation_video_phase_cfg.get("rel_output_root", "propagation_video") or "propagation_video"
 	)
+	propagation_video_fps = (
+		_as_optional_positive_int(propagation_video_phase_cfg.get("fps", None)) or 20
+	)
+	propagation_video_skip_frames = (
+		_as_optional_positive_int(propagation_video_phase_cfg.get("skip_frames", None)) or 2
+	)
+	propagation_video_cmap = str(
+		propagation_video_phase_cfg.get("cmap", "coolwarm") or "coolwarm"
+	)
 
 	well_metadata_lookup: dict[tuple[int, str], dict[str, Any]] = {}
 	if data_config is not None:
@@ -225,6 +239,9 @@ def parse_analysis_stage_config(
 		propagation_video_enabled=propagation_video_enabled,
 		propagation_video_resource_class=propagation_video_resource_class,
 		propagation_video_rel_output_root=propagation_video_rel_output_root,
+		propagation_video_fps=int(propagation_video_fps),
+		propagation_video_skip_frames=int(propagation_video_skip_frames),
+		propagation_video_cmap=str(propagation_video_cmap),
 		well_metadata_lookup=well_metadata_lookup,
 		force_restart=bool(force_restart_override or False),
 		replot=bool(replot_override or False),

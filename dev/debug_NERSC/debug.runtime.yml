@@ -1856,6 +1856,7 @@ stages:
     phase_sequence:
       - compute_metrics
       - unitmatch
+      - propagation_video
     phases:
       compute_metrics:
         enabled: true
@@ -1871,6 +1872,17 @@ stages:
         enabled: false
         resource_class: disk_cleanup
         rel_output_root: unitmatch
+      # analysis_propagation_video_plan slices 2-7 shipped; phase scaffolded
+      # but disabled per the plan (opt-in per run — each video is N minutes
+      # of compute). Flip enabled: true after the slice-8 HARD-gate visual
+      # diagnostic confirms output is correct.
+      propagation_video:
+        enabled: false
+        resource_class: disk_cleanup
+        rel_output_root: propagation_video
+        fps: 20
+        skip_frames: 2
+        cmap: coolwarm
 
   cleanup:
     # `wipe_src_scratch` moved here from preprocess in phase_roster_cleanup

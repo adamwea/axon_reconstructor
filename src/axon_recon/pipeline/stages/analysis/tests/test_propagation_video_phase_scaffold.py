@@ -86,6 +86,41 @@ def test_propagation_video_yaml_enable() -> None:
 	assert cfg.propagation_video_enabled is True
 
 
+def test_yaml_render_knobs_default_to_v1_conventions() -> None:
+	cfg = parse_analysis_stage_config(
+		runtime_config=RuntimeConfig({"stages": {"analysis": {}}}),
+	)
+	# Slice 5: defaults match v1 conventions (PillowWriter ~20 FPS,
+	# skip_frames=2 → halve the frame count, coolwarm cmap).
+	assert cfg.propagation_video_fps == 20
+	assert cfg.propagation_video_skip_frames == 2
+	assert cfg.propagation_video_cmap == "coolwarm"
+
+
+def test_yaml_render_knobs_can_be_overridden() -> None:
+	cfg = parse_analysis_stage_config(
+		runtime_config=RuntimeConfig(
+			{
+				"stages": {
+					"analysis": {
+						"phases": {
+							"propagation_video": {
+								"enabled": True,
+								"fps": 30,
+								"skip_frames": 4,
+								"cmap": "viridis",
+							},
+						}
+					}
+				}
+			}
+		),
+	)
+	assert cfg.propagation_video_fps == 30
+	assert cfg.propagation_video_skip_frames == 4
+	assert cfg.propagation_video_cmap == "viridis"
+
+
 def test_yaml_alias_canonicalizes() -> None:
 	# `video` and `prop_video` aliases should both resolve to the
 	# canonical phase name in phase_sequence parsing.
@@ -376,6 +411,41 @@ def test_dry_run_summary_persists_to_disk(tmp_path: Path) -> None:
 	assert len(matches) == 1
 	payload = json.loads(matches[0].read_text(encoding="utf-8"))
 	assert payload["status"] == "dry_run_ok"
+
+
+def test_orchestrator_forwards_yaml_knobs_to_render(tmp_path: Path) -> None:
+	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5,))
+	cfg = _parse_config(enabled=True)
+	# Override YAML knobs on the shim. These should flow through to the
+	# render callable.
+	cfg.__dict__["propagation_video_fps"] = 30
+	cfg.__dict__["propagation_video_skip_frames"] = 4
+	cfg.__dict__["propagation_video_cmap"] = "viridis"
+
+	render_kwargs_captured: list[dict] = []
+
+	def _capture_render(*, inputs, out_path, force_restart=False, **kwargs):
+		render_kwargs_captured.append(kwargs)
+		Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+		Path(out_path).write_bytes(b"GIF")
+		return {"status": "ok", "reason": "rendered", "out_path": str(out_path)}
+
+	cfg.__dict__["_propagation_video_render_override"] = _capture_render
+
+	run_analysis_propagation_video(
+		dataset_index=0,
+		dataset_id="ds0",
+		h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=cfg,
+		force_restart=False,
+	)
+	assert len(render_kwargs_captured) == 1
+	assert render_kwargs_captured[0]["fps"] == 30
+	assert render_kwargs_captured[0]["skip_frames"] == 4
+	assert render_kwargs_captured[0]["cmap"] == "viridis"
 
 
 def test_orchestrator_partial_status_when_some_units_fail(tmp_path: Path) -> None:
