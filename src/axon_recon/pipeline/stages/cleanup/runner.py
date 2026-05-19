@@ -4,12 +4,16 @@ import logging
 import traceback
 from pathlib import Path
 
+from ...checkpoint import find_first_broken_phase
 from ...execution.context import ExecutionTarget
 from ...execution.results import MultiTargetStageResult, TargetStageResult
 
 from .config import CleanupStageConfig
 from .models.inputs import CleanupInputs
-from .phases.wipe_src_scratch import run_cleanup_wipe_src_scratch_phase
+from .phases.wipe_src_scratch import (
+	_resolve_summary_json_path as _resolve_wipe_summary_path,
+	run_cleanup_wipe_src_scratch_phase,
+)
 
 
 LOGGER = logging.getLogger("axon_recon.cleanup.runner")
@@ -82,6 +86,45 @@ _CLEANUP_TARGET_RUNNERS = {
 }
 
 
+# phase_name -> function computing the phase's summary_json_path from a
+# fully-built CleanupInputs. Used by the slice-14 auto-restart check to
+# read each phase's checkpoint status without invoking the phase itself.
+_CLEANUP_SUMMARY_PATH_RESOLVERS = {
+	"wipe_src_scratch": _resolve_wipe_summary_path,
+}
+
+
+def _summary_json_paths_for_target(
+	*,
+	target: ExecutionTarget,
+	stage_config: CleanupStageConfig,
+) -> dict[str, Path]:
+	"""Compute the summary_json path for each phase in `phase_sequence` on `target`."""
+	inputs = build_cleanup_inputs_for_target(target=target, stage_config=stage_config)
+	out: dict[str, Path] = {}
+	for phase_name in stage_config.phase_sequence:
+		resolver = _CLEANUP_SUMMARY_PATH_RESOLVERS.get(str(phase_name))
+		if resolver is None:
+			continue
+		out[str(phase_name)] = resolver(inputs)
+	return out
+
+
+def _yaml_skipped_phases(stage_config: CleanupStageConfig) -> frozenset[str]:
+	"""Return the set of phase names whose YAML block has enabled:false.
+
+	The cleanup stage's wipe_src_scratch defaults to enabled:false in both
+	debug.runtime.yml files, so this helper is load-bearing for "don't
+	rerun a YAML-disabled phase whose summary is missing".
+	"""
+	skipped: list[str] = []
+	for phase_name in stage_config.phase_sequence:
+		phase_cfg = getattr(stage_config.phases, str(phase_name), None)
+		if phase_cfg is not None and not bool(getattr(phase_cfg, "enabled", True)):
+			skipped.append(str(phase_name))
+	return frozenset(skipped)
+
+
 def run_cleanup_stage(
 	stage_config: CleanupStageConfig,
 	*,
@@ -135,9 +178,54 @@ def run_cleanup_stage(
 
 	all_target_results: list[TargetStageResult] = []
 	final_stage_name = "cleanup"
-	for phase_name in stage_config.phase_sequence:
-		runner_fn = _CLEANUP_TARGET_RUNNERS[phase_name]
-		for target in target_list:
+
+	# Auto-restart-from-first-broken (slice 14): mirrors init/runner.py.
+	# When no --force-restart / --replot is set, the runner walks each
+	# target's phase summaries and identifies the first phase that is NOT
+	# ok. Phases before it are reused; phases from there onwards run.
+	# --force-restart bypasses the check; every phase runs. --replot
+	# bypasses too, but cleanup has no plot/report phases so it's a noop.
+	bypass_auto_restart = bool(stage_config.force_restart) or bool(stage_config.replot)
+	yaml_skipped = _yaml_skipped_phases(stage_config)
+
+	for target in target_list:
+		restart_from_index: int | None = None
+		if not bypass_auto_restart:
+			summary_paths = _summary_json_paths_for_target(
+				target=target, stage_config=stage_config
+			)
+			broken = find_first_broken_phase(
+				stage_config.phase_sequence,
+				summary_paths,
+				yaml_skipped_phases=yaml_skipped,
+			)
+			if broken is None:
+				LOGGER.info(
+					"cleanup stage auto-restart: all phases ok for target dataset=%s stream_id=%s; skipping",
+					str(getattr(target, "dataset_index", "?")),
+					str(getattr(target, "stream_id", "?")),
+				)
+				all_target_results.append(
+					TargetStageResult(
+						target=target,
+						status="ok",
+						result={"stage": "cleanup", "status": "skipped", "reason": "all_phases_ok"},
+						error=None,
+					)
+				)
+				continue
+			restart_from_index, restart_status = broken
+			LOGGER.info(
+				"cleanup stage auto-restart: first broken phase index=%d status=%s target dataset=%s stream_id=%s",
+				int(restart_from_index),
+				str(restart_status),
+				str(getattr(target, "dataset_index", "?")),
+				str(getattr(target, "stream_id", "?")),
+			)
+		for phase_index, phase_name in enumerate(stage_config.phase_sequence):
+			if restart_from_index is not None and phase_index < restart_from_index:
+				continue
+			runner_fn = _CLEANUP_TARGET_RUNNERS[phase_name]
 			result = runner_fn(target=target, stage_config=stage_config)
 			all_target_results.append(result)
 
