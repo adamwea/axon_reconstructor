@@ -3952,3 +3952,4 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 (slice 5) | parallelism slice 5 [opus] | relabel current_phase_worker_allocation fallback source from "inputs.n_jobs" to "fallback_workers"
 (preflight) | tech_debt [opus] | soften container preflight output_root check when publish_outputs is false; tracker entry marked SHIPPED
 (kssynth-1) | kssynth slice 1 [opus] | scaffold sibling package at ~/dev/pkgs/kssynth/ (`git init`, no remote); 2 tests; commit 7e236f3 in kssynth repo
+(unitlink-1) | unitlink slice 1 [opus] | scaffold sibling package at ~/dev/pkgs/unitlink/ (`git init`, no remote); 2 tests; commit 81e4d3c in unitlink repo
