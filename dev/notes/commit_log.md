@@ -3937,3 +3937,4 @@ cd35d48 | slice 3 [opus]  | rename generate_gtrs phase to axon_velocity_gtrs acr
 fcff9b5 | slice 6 [opus]  | scaffold cleanup stage + move wipe_src_scratch preprocess→cleanup; smoke wiped 115 files OK
 38e6e0f | injection [opus] | user-authored: USER INJECTIONS channel + first injection (YAML hygiene as you go)
 5c42ed3 | slice 7 [opus]  | concat_binary consolidation: delete preprocess.concat_segments; rename spikesort.bootstrap_concat_binary→concat_binary; YAML audit (slices 1-2 leftovers) clean
+cec709b | slice 8 [opus]  | move plot_concat_traces + plot_concat_channel_layout preprocess→spikesort; both stay enabled:false (diagnostic)

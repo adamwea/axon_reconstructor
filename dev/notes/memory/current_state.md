@@ -41,7 +41,7 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 ## In-flight
 
-- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-6 shipped (legacy reconstruct + preprocess deletions, `generate_gtrs` → `axon_velocity_gtrs` rename, `init` + `cleanup` stage scaffolds with their first phases moved over) plus slice 7 (concat_binary consolidation: preprocess `concat_segments` deleted, spikesort `bootstrap_concat_binary` renamed to `concat_binary` and absorbed the former preprocess core). Slices 8-14 still queued. Next up: slice 8 — move `plot_concat_traces` + `plot_concat_channel_layout` phases from preprocess to spikesort (alongside `concat_binary`).
+- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-8 shipped (slices 1-2 legacy phase deletions; slice 3 generate_gtrs rename; slices 4-5 init scaffold + copy_src_to_scratch move + `--scratch-output` CLI flag; slice 6 cleanup scaffold + wipe_src_scratch move; slice 7 concat_binary consolidation; slice 8 plot_concat_* phases moved preprocess→spikesort). Slices 9-14 still queued. Next up: slice 9 — disable `bombcell_label` + `merge_SLAy` in `stages.spikesort.phase_sequence` (YAML-only change; phase implementations stay in code).
 - **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. New sibling packages (`~/dev/pkgs/kssynth/`, `~/dev/pkgs/unitlink/`) don't exist yet. axon_recon analysis-stage `unitmatch` phase doesn't exist yet.
 
 ## Locked decisions from 2026-05-18 pre-loop Q&A
