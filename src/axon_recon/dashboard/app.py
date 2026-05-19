@@ -2200,6 +2200,144 @@ def _annotate_omnibus(
 	)
 
 
+def aggregate_by_group(
+	df: pd.DataFrame,
+	*,
+	value_col: str,
+	group_col: str,
+	color_col: str | None = None,
+	aggregate: str = "mean",
+	error: str = "std",
+) -> pd.DataFrame:
+	"""Slice 6 of dashboard_ui_refinement_plan: shared aggregate helper
+	for the bar-plot path. Returns a DataFrame with one row per
+	(group, optionally color) combination + center + error columns.
+
+	Arguments
+	---------
+	aggregate: ``mean`` (default) or ``median``.
+	error: ``std`` (default), ``sem`` (standard error of mean), or
+	    ``ci95`` (~1.96 * sem; quick gaussian approximation), or
+	    ``none`` (no error bars).
+	"""
+
+	if df is None or df.empty or value_col not in df.columns or group_col not in df.columns:
+		return pd.DataFrame(columns=[group_col, value_col, "error"])
+	by_cols = [group_col]
+	if color_col and color_col in df.columns:
+		by_cols.append(color_col)
+	# Coerce value_col to numeric; non-numeric rows drop out via NaN.
+	num = pd.to_numeric(df[value_col], errors="coerce")
+	work = df.assign(__value=num).dropna(subset=["__value"])
+	if work.empty:
+		return pd.DataFrame(columns=[*by_cols, value_col, "error"])
+	groups = work.groupby(by_cols, dropna=False, observed=True)
+	if str(aggregate).lower() == "median":
+		center = groups["__value"].median().reset_index().rename(columns={"__value": value_col})
+	else:
+		center = groups["__value"].mean().reset_index().rename(columns={"__value": value_col})
+	err_kind = str(error).lower()
+	if err_kind in ("std", "stdev"):
+		err = groups["__value"].std(ddof=1).reset_index().rename(columns={"__value": "error"})
+	elif err_kind == "sem":
+		err_std = groups["__value"].std(ddof=1)
+		err_n = groups["__value"].count()
+		err_sem = (err_std / err_n.pow(0.5)).reset_index().rename(columns={"__value": "error"})
+		err = err_sem
+	elif err_kind in ("ci95", "ci"):
+		err_std = groups["__value"].std(ddof=1)
+		err_n = groups["__value"].count()
+		err_ci = (1.96 * err_std / err_n.pow(0.5)).reset_index().rename(columns={"__value": "error"})
+		err = err_ci
+	else:
+		err = pd.DataFrame({"error": [0.0] * len(center)})
+		err.index = center.index
+		err[by_cols] = center[by_cols].values
+	out = center.merge(err, on=by_cols, how="left")
+	return out
+
+
+def build_bar_plot(
+	df: pd.DataFrame,
+	*,
+	value_col: Any,
+	group_col: Any,
+	color_col: Any = _BOX_COLOR_NONE,
+	aggregate: str = "mean",
+	error: str = "std",
+	log_transform: bool = False,
+) -> Any:
+	"""Plotly bar-with-error-bars figure — slice 6 of
+	`dashboard_ui_refinement_plan.md`.
+
+	Each group's bar height = mean/median of `value_col`. Error bars =
+	std/sem/95% CI (or none). Same empty-state UX as the other plot
+	builders (`_empty_dashboard_figure`).
+	"""
+
+	if df is None or df.empty:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="No rows match the active filters.",
+		)
+	if not value_col or not group_col:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="Pick a value column and a group column to plot.",
+		)
+	value = str(value_col)
+	group = str(group_col)
+	if value not in df.columns or group not in df.columns:
+		missing = [c for c in (value, group) if c not in df.columns]
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message=f"Column(s) {missing!r} not present in any selected recording's output.",
+		)
+	color = None
+	if color_col and color_col != _BOX_COLOR_NONE and str(color_col) in df.columns:
+		color = str(color_col)
+	# log_transform: drop non-positive rows on the value column.
+	if log_transform:
+		df = df.copy()
+		df[value] = pd.to_numeric(df[value], errors="coerce")
+		df = df[df[value] > 0]
+		if df.empty:
+			return _empty_dashboard_figure(
+				message="No data available",
+				sub_message=(
+					f"Log transform requires positive values; no rows in column "
+					f"{value!r} pass that filter under the active selection."
+				),
+			)
+		import numpy as _np
+
+		df["__log_" + value] = _np.log10(df[value])
+		value = "__log_" + value
+	agg = aggregate_by_group(
+		df,
+		value_col=value,
+		group_col=group,
+		color_col=color,
+		aggregate=str(aggregate),
+		error=str(error),
+	)
+	if agg.empty:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="Every row was non-numeric for the value column under the active selection.",
+		)
+	fig = px.bar(
+		agg,
+		x=group,
+		y=value,
+		color=color,
+		error_y="error" if "error" in agg.columns else None,
+		color_discrete_sequence=list(CATEGORICAL_PALETTE),
+		barmode="group",
+	)
+	return apply_dashboard_style(fig)
+
+
 def build_scatter(
 	df: pd.DataFrame,
 	*,
