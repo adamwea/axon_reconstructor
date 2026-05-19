@@ -20,13 +20,9 @@ broken behavior) and `roadmap.md` (which is new ambitions).
 
 ## Open entries
 
-### Scaffold `tools/bootstrap_editable_deps.sh`
-- **Status**: open
-- **Tags**: missing-script, env-parity, repo-footprint
-- **Where**: `tools/bootstrap_editable_deps.sh` (doesn't exist yet); `environment.yml` line 32 references it
-- **Why it's debt**: `environment.yml` keeps sibling editables out of the spec ("Keep sibling editable repos out of the base env spec. Install them after env creation with tools/bootstrap_editable_deps.sh.") but the script has never been written. The env_parity guardrail (`guardrails/env_parity.md`) requires this script to land along with the next sibling editable install (likely kssynth slice 9 / unitlink real-call integration). Without it, sibling installs are documented under USER INJECTIONS instead of being reproducible — that's fine short-term, but `conda env create -f environment.yml` does not produce a working axon_recon dev env on its own.
-- **Suggested cleanup**: Scaffold the script with `pip install -e` lines for each sibling at `/global/homes/a/adammwea/dev/pkgs/{SLAy,UnitMatchPy,kssynth,unitlink}/`. Make idempotent (skip if already installed). Run in CI / smoke-test after `conda env create` to verify. Touch size: S. Land alongside kssynth slice 9 or in a dedicated infra slice.
-- **See also**: `guardrails/env_parity.md` §"Open exceptions"; `environment.yml` line 31-32; `current_state.md` USER INJECTIONS [2026-05-19] env-parity entry.
+### ~~Scaffold `tools/bootstrap_editable_deps.sh`~~ — SUPERSEDED 2026-05-19
+- **Status**: superseded by `plans/active/env_install_unification_plan.md` slice 4 (`tools/install_dev_siblings.{sh,py}`)
+- **Notes**: original entry called for a single bootstrap script to install sibling editables. The unification plan absorbs this into a flag-driven entry point (`tools/setup_env.sh --editable-siblings`) plus a sub-helper (`tools/install_dev_siblings.{sh,py}`), aligning sibling installs with the broader migration of pip deps onto `pyproject.toml` extras. Tracker entry kept for audit; remove on next prune.
 
 ### Phase-level auto-restart granularity in monolithic stage runners
 - **Status**: open (deferred from phase_roster_cleanup slice 14c — target-level skip approach A shipped instead)

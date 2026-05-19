@@ -19,17 +19,33 @@ capabilities** — anything that runs in one should run in the other —
 Outside those two carve-outs, anything installable in one should be
 present in the other, at the same major+minor version where feasible.
 
-## The three artifacts that encode capability
+## The artifacts that encode capability
 
-Parity is maintained across three files; a slice that touches capabilities
-touches some subset of these in the SAME commit range. Don't leave one
-stale.
+Parity is maintained across a set of artifacts; a slice that touches
+capabilities touches some subset of them in the SAME commit range. Don't
+leave one stale.
+
+**Target shape** (per `plans/active/env_install_unification_plan.md` — under
+execution; some artifacts don't exist yet):
 
 | Artifact | What it covers | Sibling editables? |
 |---|---|---|
-| `environment.yml` (repo root) | Conda env source-of-truth: main conda deps + a `pip:` list for non-sibling pip packages. Recreating the env from this file is the contract. | NO — sibling editables are explicitly excluded; see env.yml's comment. |
-| `tools/bootstrap_editable_deps.sh` | Editable installs of sibling packages (`SLAy`, `UnitMatchPy`, `kssynth`, `unitlink`, etc.) into the conda env post-`conda env create`. **DOES NOT YET EXIST** — see Open exceptions. | YES — exclusive home. |
-| `containers/axon-recon/Dockerfile` | Shifter image — ARG-driven: `AXON_RECON_RUNTIME_SPEC` (pip deps), `UNITMATCH_SPEC` / `UNITMATCH_RUNTIME_SPEC`, `SLAY_SPEC` / `SLAY_RUNTIME_SPEC`, `MPI4PY_SPEC`, etc. All capability deltas land here, default-args or via `--build-arg` at build time. | YES — via the per-sibling `<NAME>_SPEC` ARG. |
+| **`pyproject.toml` extras** | Single source of truth for pip deps. Extras: `[dev]` (testing/linting), `[full]` (production siblings as git URL pins where they have public GH presence). | Production siblings: git URL pins under `[full]` |
+| **`environment.yml`** | Conda-only deps (python, conda-forge-preferred scientific stack). Ends in `pip: - -e .[dev,full]` (or `.[dev]` only when editable-siblings is used). | No — excluded by design |
+| **`tools/setup_env.sh [--editable-siblings] [--from-local PATH]`** | One user-facing install command. Wraps `conda env create` + `pip install -e .[dev,full]` + optional editable-siblings sub-step. **Does not exist yet** — slice 5 of the plan. | Optional via `--editable-siblings` |
+| **`tools/install_dev_siblings.{sh,py}`** | Editable install of siblings. Prefers `~/dev/pkgs/<name>/` via `--from-local`; falls back to gitignored `deps/` inside repo. **Does not exist yet** — slice 4 of the plan. | Yes (editable) |
+| **`containers/axon-recon/Dockerfile`** | Shifter image — mirrors via `pip install -e .[full]` once plan slice 6 lands. Kilosort + CUDA + NERSC/HPC plumbing remain shifter-only. | Production via `[full]` |
+
+**Current shape (pre-plan)** — what's actually in the repo today:
+
+- `environment.yml`: main conda deps + a `pip:` list with `docker`, `pypdf`, `-e .[dev]`. Sibling editables explicitly excluded ("see comment line 31-32").
+- `pyproject.toml`: exists but has no `[full]` extra yet — pip deps still scattered across env.yml and the Dockerfile.
+- `containers/axon-recon/Dockerfile`: ARG-driven per-sibling spec strings (`AXON_RECON_RUNTIME_SPEC`, `UNITMATCH_SPEC`, `UNITMATCH_RUNTIME_SPEC`, `SLAY_SPEC`, `SLAY_RUNTIME_SPEC`, `MPI4PY_SPEC`).
+- `tools/setup_env.sh`, `tools/install_dev_siblings.{sh,py}`: do not exist.
+
+Until the plan ships, slices interpret the guardrail against the current
+shape; once plan slices land, the artifacts they touch move under the
+target-shape contract.
 
 ## Why
 
@@ -50,61 +66,67 @@ stale.
 
 ## Sub-rules
 
-1. **New runtime Python dep** (e.g. `pip install mat73`, or any non-sibling
-   package): the dep must land in BOTH:
-   - **`environment.yml`** — added under the `pip:` list (or main conda deps
-     if conda-forge has it) so `conda env create -f environment.yml` reproduces
-     the capability.
-   - **`containers/axon-recon/Dockerfile`** — added to the appropriate
-     `*_RUNTIME_SPEC` ARG default (usually `AXON_RECON_RUNTIME_SPEC` for
-     general deps, or a sibling-specific spec if the dep is for that sibling).
-     If the dep is hidden behind an inactive ARG (e.g. `mat73` lives in
-     `UNITMATCH_RUNTIME_SPEC` but is only installed when `UNITMATCH_SPEC` is
-     non-empty), the slice fixes that activation gap or moves the dep to an
-     always-installed ARG.
+These rules apply against whichever shape (current or target) is live for
+the artifact in question. As the unification plan
+(`plans/active/env_install_unification_plan.md`) ships slice by slice, the
+governing artifact for a given concern shifts.
 
-   The loop never triggers the shifter rebuild itself — instead it posts a
+1. **New runtime Python dep** (e.g. `mat73`, or any non-sibling package):
+   - **Target shape**: add to `pyproject.toml`'s `[full]` extra (or `[dev]`
+     if it's a testing/linting tool). Conda-installable packages preferred
+     via conda-forge can additionally live in `environment.yml`'s conda
+     deps; everything else flows through pyproject.
+   - **Current shape (pre-plan)**: add to BOTH `environment.yml` (under
+     `pip:` or main conda deps) AND the Dockerfile's appropriate
+     `*_RUNTIME_SPEC` ARG default. If hidden behind an inactive ARG (e.g.
+     `mat73` is in `UNITMATCH_RUNTIME_SPEC` but gated by `UNITMATCH_SPEC`),
+     fix the activation gap or move the dep to an always-installed ARG.
+
+   The loop never triggers the shifter rebuild itself — it posts a
    "shifter rebuild needed: X" line under
    `dev/notes/memory/current_state.md` §"⚡ USER INJECTIONS" so the user
    knows what to bake into the next rebuild.
 
-2. **Sibling-package editable install** (`kssynth`, `unitlink`, `SLAy`,
-   `UnitMatchPy`): editables are kept OUT of `environment.yml` by design.
-   They land in BOTH:
-   - **`tools/bootstrap_editable_deps.sh`** — a `pip install -e <path>` line
-     for the sibling. Until this script exists (see Open exceptions), the
-     slice that needs the install documents the explicit `pip install -e`
-     command in `dev/notes/memory/current_state.md` §"⚡ USER INJECTIONS".
-   - **`containers/axon-recon/Dockerfile`** — the relevant `<NAME>_SPEC` ARG
-     default is set so the build installs the sibling. If a sibling doesn't
-     have an ARG block yet (kssynth, unitlink), add one alongside the
-     existing UNITMATCH_SPEC / SLAY_SPEC blocks.
-
-   Both artifacts must reflect the install before any axon_recon integration
-   slice can claim parity.
+2. **Sibling-package install** (`SLAy`, `UnitMatchPy`, `kssynth`, `unitlink`):
+   - **Target shape, production (non-editable)**: add to
+     `pyproject.toml`'s `[full]` extra as a git URL pin (e.g.
+     `unitlink @ git+https://github.com/<owner>/unitlink.git@<sha>`). Only
+     possible once the sibling has a public GH remote.
+   - **Target shape, editable for dev**: add a `pip install -e <path>` line
+     to `tools/install_dev_siblings.{sh,py}`. The script prefers
+     `~/dev/pkgs/<name>/` clones via `--from-local`; falls back to cloning
+     into gitignored `deps/`.
+   - **Current shape (pre-plan)**: editables documented in
+     `current_state.md` §"⚡ USER INJECTIONS" with the explicit
+     `pip install -e` command (the bootstrap script doesn't exist yet —
+     superseded by the plan). Dockerfile: relevant `<NAME>_SPEC` ARG
+     default is set so the build installs the sibling; new siblings
+     (kssynth, unitlink) get new ARG blocks alongside `UNITMATCH_SPEC` /
+     `SLAY_SPEC` until plan slice 6 simplifies this.
 
 3. **Tool / binary additions** (rare): same parity rule. Conda env via
-   `environment.yml` if conda-installable, otherwise an apt or pip install
-   in a bootstrap step. Mirror in Dockerfile.
+   `environment.yml` if conda-installable, otherwise an apt step. Mirror
+   in Dockerfile.
 
 4. **CUDA-stack or NERSC-stack additions**: carve-out — shifter only.
    Document the carve-out reason on the Dockerfile line so the next reader
    understands why the conda env doesn't mirror it. NEVER add to
    `environment.yml`.
 
-5. **Removing a dep from conda env**: remove from BOTH `environment.yml`
-   (or `bootstrap_editable_deps.sh` for siblings) AND the Dockerfile in the
-   same slice. No silent skew in either direction.
+5. **Removing a dep**: remove from BOTH halves — target shape:
+   `pyproject.toml` extras AND Dockerfile (which mirrors via
+   `pip install -e .[full]` once plan slice 6 lands); pre-plan:
+   `environment.yml` AND Dockerfile. No silent skew either direction.
 
-6. **Version drift**: when a dep exists in both envs and a slice updates the
-   conda version, update the corresponding Dockerfile ARG too. If it's not
-   feasible (e.g. shifter is stuck on an older version for a container-level
-   reason), document the divergence in §"Open exceptions" below.
+6. **Version drift**: when a dep exists in both envs and a slice updates
+   its pinned version, update the matching artifact too. If it's not
+   feasible (e.g. shifter is stuck on an older version for a
+   container-level reason), document the divergence in §"Open exceptions"
+   below.
 
-7. **Slice-level commit discipline**: any slice that adds/removes/upgrades a
-   conda dep MUST touch `environment.yml` (or `bootstrap_editable_deps.sh`)
-   AND the Dockerfile in the same commit range. Absence of one is a
-   regression of this guardrail.
+7. **Slice-level commit discipline**: any slice that adds/removes/upgrades
+   a conda dep MUST touch the appropriate artifact pair in the same commit
+   range. Absence of one is a regression of this guardrail.
 
 ## Tests / verification
 
@@ -125,41 +147,50 @@ stale.
 
 ## Open exceptions / follow-ups
 
-- **`tools/bootstrap_editable_deps.sh` doesn't exist yet**: `environment.yml`
-  references it ("Install them after env creation with
-  tools/bootstrap_editable_deps.sh") but the script has never been written.
-  Until it lands, sibling editable installs are documented in
-  `dev/notes/memory/current_state.md` §"⚡ USER INJECTIONS" with the explicit
-  `pip install -e` command per sibling. **Action**: book a tracker item to
-  scaffold this script + populate it with `SLAy`, `UnitMatchPy`, `kssynth`,
-  `unitlink` editable installs. Run it in CI / smoke-test after `conda env
-  create` to verify it works.
+- **Unification plan in flight**: `plans/active/env_install_unification_plan.md`
+  is the destination spec for the artifact set described in §"The artifacts
+  that encode capability". Until that plan ships (slices 1-8), the
+  guardrail's sub-rules cover BOTH the current shape (env.yml + Dockerfile)
+  and the target shape (pyproject.toml extras + setup_env.sh +
+  install_dev_siblings + Dockerfile). Each slice of the plan flips one
+  artifact pair from current to target; this guardrail is amended to match.
+- **`tools/bootstrap_editable_deps.sh` doesn't get built**: the
+  `environment.yml` comment (line 31-32) references this script, but per
+  the unification plan it's superseded by
+  `tools/install_dev_siblings.{sh,py}` (slice 4) — same role, fits the
+  flag-driven `setup_env.sh` entry point cleanly. The `environment.yml`
+  comment should be updated as part of plan slice 3.
 - **Current gap (2026-05-19)**: this iteration's UMPy unblocker landed
   `pip install -e /global/homes/a/adammwea/dev/pkgs/UnitMatch/UnitMatchPy/`
-  + `pip install mat73` into the conda env directly, without updating
-  `environment.yml` or the Dockerfile. To close:
-  - **`environment.yml`**: add `mat73` to the `pip:` list. UnitMatchPy stays
-    out (sibling editable) but the install command is documented under USER
-    INJECTIONS until the bootstrap script exists.
-  - **Dockerfile**: `mat73` is already in `UNITMATCH_RUNTIME_SPEC` (line 15)
-    but is gated behind `if [ -n "${UNITMATCH_SPEC}" ]` (line 50). Either set
-    `UNITMATCH_SPEC` default to a UMPy install spec, OR move `mat73` to
-    `AXON_RECON_RUNTIME_SPEC` (always installed), OR pass
-    `--build-arg UNITMATCH_SPEC=...` at build time. Pick the cleanest
-    approach when doing the rebuild.
-  - Tracked under `current_state.md` USER INJECTIONS [2026-05-19].
+  + `pip install mat73` into the conda env directly, without updating any
+  capability artifact. The unification plan resolves this cleanly:
+  - **Plan slice 2** moves `mat73` into `pyproject.toml`'s `[full]` extra,
+    and `UnitMatchPy` too (as git URL pin) — UMPy has a public GH remote.
+  - **Plan slice 4** adds the editable install of `UnitMatchPy` (and
+    `SLAy`) to `tools/install_dev_siblings.{sh,py}` so dev workflows can
+    edit in place.
+  - **Plan slice 6** rebuilds the Dockerfile to install via
+    `pip install -e .[full]`, closing the shifter side.
+
+  Short-term (until plan slices land), the existing
+  `current_state.md` USER INJECTIONS [2026-05-19] entry documents the
+  manual `pip install -e ...` + `pip install mat73` workaround.
+
 - **kssynth + unitlink (v1)**: both live at
   `~/dev/pkgs/{kssynth,unitlink}/` with their own `git init` history;
-  neither is installed in conda env yet (pytest runs from each package's
-  own dir). When kssynth slice 9 (axon_recon recon-stage integration) ships,
-  THAT slice MUST:
-  - add the editable install commands to (the future)
-    `bootstrap_editable_deps.sh` or document under USER INJECTIONS,
-  - add new ARG blocks to the Dockerfile (`KSSYNTH_SPEC` + `UNITLINK_SPEC`
-    alongside `UNITMATCH_SPEC` / `SLAY_SPEC`), each set to install the
-    package editable from `/opt/axon_recon/.../` post-`COPY . /opt/axon_recon`,
-  - post a "shifter rebuild needed: kssynth + unitlink editable installs"
-    line under USER INJECTIONS for the user to action.
+  no GH remote yet (per "hold until real-data validation" directive).
+  Once GH remotes exist:
+  - they get added to `pyproject.toml`'s `[full]` extra as git URL pins
+    (production), plus
+  - `tools/install_dev_siblings.{sh,py}` (editable for dev), plus
+  - Dockerfile's `pip install -e .[full]` picks them up automatically
+    post-plan-slice-6.
+
+  Until then, when the loop hits kssynth slice 9 (axon_recon recon-stage
+  integration), that slice documents the editable install command under
+  USER INJECTIONS and uses the pre-plan Dockerfile ARG approach
+  (`KSSYNTH_SPEC` + `UNITLINK_SPEC` blocks alongside `UNITMATCH_SPEC`).
+  These ARG blocks become unnecessary once plan slice 6 ships.
 - **mpi4py version**: conda env's pip-installed `mpi4py` will differ from
   shifter's NERSC-compatible build (which links against cray-mpich). This
   is the canonical "NERSC carve-out" case; acceptable but worth recording
