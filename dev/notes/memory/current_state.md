@@ -31,7 +31,7 @@ Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old
 
 ## In-flight
 
-- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1 (legacy reconstruct phase deletions), 2 (preprocess pure deletions), 3 (`generate_gtrs` → `axon_velocity_gtrs` rename), 4 (scaffold `init` stage — disabled, empty phase_sequence), and 5 (move `copy_src_to_scratch` preprocess → init; add `--scratch-output` CLI flag) shipped. Slices 6-14 still queued. Next up: slice 6 — scaffold the `cleanup` stage + move `wipe_src_scratch` into it (same shape as slice 4 + 5 collapsed).
+- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1 (legacy reconstruct phase deletions), 2 (preprocess pure deletions), 3 (`generate_gtrs` → `axon_velocity_gtrs` rename), 4 (scaffold `init` stage — disabled, empty phase_sequence), 5 (move `copy_src_to_scratch` preprocess → init; add `--scratch-output` CLI flag), and 6 (scaffold `cleanup` stage + move `wipe_src_scratch` preprocess → cleanup) shipped. Slices 7-14 still queued. Next up: slice 7 — concat_binary consolidation (move preprocess `concat_segments` to spikesort; rename `bootstrap_concat_binary` → `concat_binary`; fold the two together).
 - **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. New sibling packages (`~/dev/pkgs/kssynth/`, `~/dev/pkgs/unitlink/`) don't exist yet. axon_recon analysis-stage `unitmatch` phase doesn't exist yet.
 
 ## Locked decisions from 2026-05-18 pre-loop Q&A
