@@ -3929,7 +3929,33 @@ def _run_analysis_phase_from_runtime(
 		target_count=len(targets),
 	)
 
+	# Slice 14c (target-level auto-restart skip) for analysis: when neither
+	# --force-restart nor --replot is set, short-circuit targets whose
+	# per-phase summary on disk already shows the phase is complete.
+	# Each per-phase orchestrator (compute_metrics, unitmatch) writes a
+	# per-target marker whose ``status`` reads "ok" / "skipped" / "noop"
+	# when the work is done; reading that summary here saves the per-target
+	# resource budget acquisition + log spin-up cost for already-done
+	# targets at cohort scale.
+	from .stages.analysis.runner import target_analysis_phase_summary_ok
+
+	bypass_auto_restart_skip = bool(
+		getattr(stage_config, "force_restart", False)
+		or getattr(stage_config, "replot", False)
+	)
+
 	def _worker(target):
+		if not bypass_auto_restart_skip and target_analysis_phase_summary_ok(
+			phase_name=str(phase_label),
+			target=target,
+			stage_config=stage_config,
+		):
+			return {
+				"stage": str(stage_name),
+				"status": "skipped",
+				"reason": f"{phase_label}_already_ok",
+				"phase": str(phase_label),
+			}
 		return _run_direct_phase_with_resource_tracking(
 			phase_name=str(phase_label),
 			runner=lambda: target_runner(

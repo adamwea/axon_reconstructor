@@ -115,6 +115,52 @@ def _resolve_under_well(*, well_out_dir: Path, relpath: str) -> Path:
 	return (well_out_dir / str(relpath).lstrip("/")).resolve()
 
 
+def target_analysis_phase_summary_ok(
+	*,
+	phase_name: str,
+	target: Any,
+	stage_config: Any,
+) -> bool:
+	"""Slice 14c (target-level auto-restart skip): True iff the per-target
+	per-phase summary for ``phase_name`` already shows the phase is
+	complete on disk.
+
+	``compute_metrics`` writes a per-target ``manifest.json`` at
+	``<analysis_outputs>/`` whose top-level ``status`` is ``ok`` on
+	success. ``unitmatch`` writes per-target ``context/unitmatch_summary.json``
+	whose ``status`` is one of ``ok`` / ``skipped`` / ``noop`` when the
+	group is already done or the phase is disabled. Both count as
+	"already ok" for slice 14c purposes.
+
+	Returns False for unknown phase names so the caller proceeds with
+	normal dispatch. Falsy / unreadable summaries also return False.
+	"""
+
+	output_rel_root = str(getattr(stage_config, "output_rel_root", "analysis_outputs") or "analysis_outputs")
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=Path(getattr(target, "mea_output_root", Path("."))),
+		data_file=Path(getattr(target, "h5_path", Path("."))),
+		well=str(getattr(target, "stream_id", "")),
+	)
+	stage_output_root = (well_out_dir / output_rel_root).resolve()
+	if str(phase_name).strip() == "compute_metrics":
+		manifest_rel = str(getattr(stage_config, "manifest_relpath", "manifest.json") or "manifest.json")
+		summary_path = stage_output_root / Path(manifest_rel)
+	elif str(phase_name).strip() == "unitmatch":
+		summary_path = stage_output_root / "context" / "unitmatch_summary.json"
+	else:
+		return False
+	if not summary_path.is_file():
+		return False
+	try:
+		payload = json.loads(summary_path.read_text(encoding="utf-8"))
+	except Exception:
+		return False
+	if not isinstance(payload, dict):
+		return False
+	return str(payload.get("status", "")).strip().lower() in ("ok", "skipped", "noop")
+
+
 def _resolve_under_analysis_output_root(
 	*,
 	well_out_dir: Path,
