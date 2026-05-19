@@ -7,7 +7,7 @@ from .models.results import ReconstructionResult
 from .runner import (
 	_quiet_unexpected_plot_logs,
 	run_reconstruct_clear_templates_cache_phase,
-	run_reconstruct_generate_gtrs_phase,
+	run_reconstruct_axon_velocity_gtrs_phase,
 	run_reconstruct_plot_branch_propagations_phase,
 	run_reconstruct_plot_branch_velocities_phase,
 	run_reconstruct_plot_unit_summary_phase,
@@ -67,8 +67,8 @@ def run_reconstruct_templates_report_templates(inputs: ReconstructionInputs) -> 
 	return _run_with_quiet_unexpected_plot_logs(inputs, run_reconstruct_templates_report_templates_phase)
 
 
-def run_reconstruct_generate_gtrs(inputs: ReconstructionInputs) -> dict[str, object]:
-	return _run_with_quiet_unexpected_plot_logs(inputs, run_reconstruct_generate_gtrs_phase)
+def run_reconstruct_axon_velocity_gtrs(inputs: ReconstructionInputs) -> dict[str, object]:
+	return _run_with_quiet_unexpected_plot_logs(inputs, run_reconstruct_axon_velocity_gtrs_phase)
 
 
 def run_reconstruct_plot_recons(inputs: ReconstructionInputs) -> dict[str, object]:

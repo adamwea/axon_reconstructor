@@ -10,7 +10,7 @@ from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallel
 from axon_recon.pipeline.runner import (
     run_reconstruct_clear_templates_cache_from_runtime,
     run_reconstruct_from_runtime,
-    run_reconstruct_generate_gtrs_from_runtime,
+    run_reconstruct_axon_velocity_gtrs_from_runtime,
     run_reconstruct_plot_branch_propagations_from_runtime,
     run_reconstruct_plot_branch_velocities_from_runtime,
     run_reconstruct_plot_recons_from_runtime,
@@ -59,11 +59,11 @@ def test_run_reconstruct_direct_phase_wraps_resource_chain(monkeypatch, tmp_path
         seen_descriptors.append(descriptor)
         return SimpleNamespace(result=descriptor.runner(), outcomes=())
 
-    def _fake_generate_gtrs(inputs: ReconstructionInputs):
+    def _fake_axon_velocity_gtrs(inputs: ReconstructionInputs):
         assert inputs is dummy_inputs
         return {
-            "phase": "generate_gtrs",
-            "summary_json": str(tmp_path / "generate_gtrs_summary.json"),
+            "phase": "axon_velocity_gtrs",
+            "summary_json": str(tmp_path / "axon_velocity_gtrs_summary.json"),
             "units_ok": 1,
             "units_error": 0,
             "units": [{"unit_id": 94, "status": "ok", "outputs": {}, "error": None}],
@@ -79,15 +79,15 @@ def test_run_reconstruct_direct_phase_wraps_resource_chain(monkeypatch, tmp_path
     monkeypatch.setattr(pipeline_runner, "parse_probe_geometry_from_data_config", lambda *, data_config: None)
     monkeypatch.setattr(pipeline_runner, "parse_reconstruction_stage_config", lambda **kwargs: object())
     monkeypatch.setattr(pipeline_runner, "build_reconstruction_inputs_for_target", lambda **kwargs: dummy_inputs)
-    monkeypatch.setattr(pipeline_runner, "run_reconstruct_generate_gtrs", _fake_generate_gtrs)
+    monkeypatch.setattr(pipeline_runner, "run_reconstruct_axon_velocity_gtrs", _fake_axon_velocity_gtrs)
     monkeypatch.setattr(pipeline_runner, "run_phase_chain", _fake_run_phase_chain)
 
-    agg = run_reconstruct_generate_gtrs_from_runtime(config_path=str(tmp_path / "runtime.yml"))
+    agg = run_reconstruct_axon_velocity_gtrs_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
     assert agg.succeeded_targets == 1
     assert seen_descriptors
     descriptor = seen_descriptors[0]
-    assert descriptor.name == "generate_gtrs"
+    assert descriptor.name == "axon_velocity_gtrs"
     assert descriptor.pipeline_thread_count == 3
 
 
@@ -390,7 +390,7 @@ def test_run_reconstruct_from_runtime_marks_target_error_when_no_units_succeed(m
 @pytest.mark.parametrize(
     ("wrapper", "runner_attr", "expected_stage", "phase_name"),
     [
-        (run_reconstruct_generate_gtrs_from_runtime, "run_reconstruct_generate_gtrs", "reconstruct.generate_gtrs", "generate_gtrs"),
+        (run_reconstruct_axon_velocity_gtrs_from_runtime, "run_reconstruct_axon_velocity_gtrs", "reconstruct.axon_velocity_gtrs", "axon_velocity_gtrs"),
         (run_reconstruct_plot_recons_from_runtime, "run_reconstruct_plot_recons", "reconstruct.plot_recons", "plot_recons"),
         (
             run_reconstruct_plot_branch_propagations_from_runtime,
@@ -614,7 +614,7 @@ def test_run_reconstruct_analyzers_from_runtime_accepts_non_unit_phase_result(mo
         (run_reconstruct_templates_build_templates_from_runtime, "reconstruct.build_templates"),
         (run_reconstruct_templates_compute_template_similarity_from_runtime, "reconstruct.compute_template_similarity"),
         (run_reconstruct_templates_report_templates_from_runtime, "reconstruct.report_templates"),
-        (run_reconstruct_generate_gtrs_from_runtime, "reconstruct.generate_gtrs"),
+        (run_reconstruct_axon_velocity_gtrs_from_runtime, "reconstruct.axon_velocity_gtrs"),
         (run_reconstruct_plot_recons_from_runtime, "reconstruct.plot_recons"),
         (run_reconstruct_plot_branch_propagations_from_runtime, "reconstruct.plot_branch_propagations"),
         (run_reconstruct_plot_branch_velocities_from_runtime, "reconstruct.plot_branch_velocities"),
@@ -717,7 +717,7 @@ def test_run_reconstruct_substage_applies_cli_target_limits_before_build(monkeyp
 
     result = pipeline_runner._run_reconstruct_substage_from_runtime(
         config_path=str(tmp_path / "runtime.yml"),
-        stage_name="reconstruct.generate_gtrs",
+        stage_name="reconstruct.axon_velocity_gtrs",
         runner_fn=lambda inputs: ReconstructionResult(
             well_out_dir=tmp_path / "well_out",
             reconstruction_out_dir=tmp_path / "recon_out",

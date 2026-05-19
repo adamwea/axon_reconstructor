@@ -68,7 +68,7 @@ from .stages.preprocess.models.results import PreprocessResult
 from .stages.reconstruct.api import (
 	run_reconstruct,
 	run_reconstruct_clear_templates_cache,
-	run_reconstruct_generate_gtrs,
+	run_reconstruct_axon_velocity_gtrs,
 	run_reconstruct_plot_branch_propagations,
 	run_reconstruct_plot_branch_velocities,
 	run_reconstruct_plot_recons,
@@ -822,7 +822,7 @@ def _distribute_runtime_targets(
 
 
 def _reconstruct_unit_progress(stage_name: str) -> PipelineProgress | None:
-	if str(stage_name) not in {"reconstruct", "reconstruct.generate_gtrs"}:
+	if str(stage_name) not in {"reconstruct", "reconstruct.axon_velocity_gtrs"}:
 		return None
 	return PipelineProgress(ProgressSpec(label=f"{stage_name} units", total=0, unit="unit"))
 
@@ -4908,7 +4908,7 @@ def run_reconstruct_templates_report_templates_from_runtime(
 	)
 
 
-def run_reconstruct_generate_gtrs_from_runtime(
+def run_reconstruct_axon_velocity_gtrs_from_runtime(
 	*,
 	config_path: str,
 	unit_id_override: int | None = None,
@@ -4924,8 +4924,8 @@ def run_reconstruct_generate_gtrs_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_reconstruct_substage_from_runtime(
 		config_path=config_path,
-		stage_name="reconstruct.generate_gtrs",
-		runner_fn=run_reconstruct_generate_gtrs,
+		stage_name="reconstruct.axon_velocity_gtrs",
+		runner_fn=run_reconstruct_axon_velocity_gtrs,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,

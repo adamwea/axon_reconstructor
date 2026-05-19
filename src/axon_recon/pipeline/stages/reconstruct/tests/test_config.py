@@ -39,7 +39,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			    resources:
 			      max_plotting_concurrency: 2
 			    debug_prints: true
-			    phase_sequence: [generate_gtrs, plot_recons, report_recons, report_recon_grid, report_summaries]
+			    phase_sequence: [axon_velocity_gtrs, plot_recons, report_recons, report_recon_grid, report_summaries]
 			    debug_mode:
 			      enabled: true
 			      limit_datasets: 2
@@ -48,7 +48,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			    execution:
 			      force_restart: false
 			    phases:
-			      generate_gtrs:
+			      axon_velocity_gtrs:
 			        outputs:
 			          template_source: merged
 			          write_gtr_pkl: true
@@ -135,7 +135,7 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.stream_id == "well001"
 	assert inputs.debug_prints is True
 	assert inputs.max_plotting_concurrency is None
-	assert inputs.phase_sequence == ("generate_gtrs", "plot_recons", "report_recons", "report_recon_grid", "report_summaries")
+	assert inputs.phase_sequence == ("axon_velocity_gtrs", "plot_recons", "report_recons", "report_recon_grid", "report_summaries")
 	assert inputs.output_rel_root == "recon_outputs"
 	assert inputs.report_sort_by == "template_density"
 	assert inputs.overwrite_report_outputs_on_unit_rerun is True
@@ -146,18 +146,18 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	assert inputs.phases.report_recons.report_md.relpath == "reports/reconstruction_report.md"
 	assert inputs.cleanup_failed_unit_outputs is True
 	assert inputs.failed_units_summary_relpath == "reports/failed_units.json"
-	assert inputs.phases.generate_gtrs.outputs.template_source == "merged"
-	assert inputs.phases.generate_gtrs.outputs.write_gtr_pkl is True
-	assert inputs.phases.generate_gtrs.outputs.write_detection_filter_json is True
-	assert inputs.phases.generate_gtrs.outputs.detection_filter_relpath == "filters/detect.json"
-	assert inputs.phases.generate_gtrs.outputs.write_gtr_json is True
-	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.write_png is True
-	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.invert_y_axis is False
-	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.relpath == "figures/channel_selection"
-	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.write_png is True
-	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.write_svg is True
-	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.invert_y_axis is False
-	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.relpath == "figures/axon_reconstruction"
+	assert inputs.phases.axon_velocity_gtrs.outputs.template_source == "merged"
+	assert inputs.phases.axon_velocity_gtrs.outputs.write_gtr_pkl is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.write_detection_filter_json is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.detection_filter_relpath == "filters/detect.json"
+	assert inputs.phases.axon_velocity_gtrs.outputs.write_gtr_json is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.channel_selection_figure.write_png is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.channel_selection_figure.invert_y_axis is False
+	assert inputs.phases.axon_velocity_gtrs.outputs.channel_selection_figure.relpath == "figures/channel_selection"
+	assert inputs.phases.axon_velocity_gtrs.outputs.axon_reconstruction_figure.write_png is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.axon_reconstruction_figure.write_svg is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.axon_reconstruction_figure.invert_y_axis is False
+	assert inputs.phases.axon_velocity_gtrs.outputs.axon_reconstruction_figure.relpath == "figures/axon_reconstruction"
 	assert inputs.per_unit_outputs.write_gtr_pkl is True
 	assert inputs.per_unit_outputs.write_detection_filter_json is True
 	assert inputs.per_unit_outputs.detection_filter_relpath == "filters/detect.json"
@@ -221,7 +221,7 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_local_run
 		"templates_extract_partial_templates",
 		"templates_build_templates",
 		"templates_report_templates",
-		"generate_gtrs",
+		"axon_velocity_gtrs",
 		"plot_recons",
 		"plot_branch_propagations",
 		"plot_branch_velocities",
@@ -677,7 +677,7 @@ def test_load_config_accepts_full_from_merged_template_source(tmp_path: Path) ->
 	)
 
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
-	assert inputs.phases.generate_gtrs.outputs.template_source == "full_from_merged"
+	assert inputs.phases.axon_velocity_gtrs.outputs.template_source == "full_from_merged"
 	assert inputs.per_unit_outputs.template_source == "full_from_merged"
 
 
@@ -749,7 +749,7 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_stage_defaults
 			        write_branches_json: false
 			        template_source: square
 			    phases:
-			      generate_gtrs:
+			      axon_velocity_gtrs:
 			        enable: false
 			        summary_json_relpath: context/gtrs_phase.json
 			        resources:
@@ -815,21 +815,21 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_stage_defaults
 	)
 
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
-	assert inputs.phases.generate_gtrs.enabled is False
+	assert inputs.phases.axon_velocity_gtrs.enabled is False
 	assert inputs.max_plotting_concurrency is None
-	assert inputs.phases.generate_gtrs.summary_json_relpath == "context/gtrs_phase.json"
-	assert inputs.phases.generate_gtrs.unit_procs == 3
-	assert inputs.phases.generate_gtrs.unit_batch_size == 11
-	assert inputs.phases.generate_gtrs.outputs.template_source == "merged"
-	assert inputs.phases.generate_gtrs.outputs.write_branches_json is True
-	assert inputs.phases.generate_gtrs.outputs.write_all_filters_json is True
-	assert inputs.phases.generate_gtrs.outputs.all_filters_relpath == "phase/all_filters.json"
-	assert inputs.phases.generate_gtrs.outputs.write_gtr_json is True
-	assert inputs.phases.generate_gtrs.outputs.gtr_json_relpath == "phase/gtr.json"
-	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.write_png is True
-	assert inputs.phases.generate_gtrs.outputs.channel_selection_figure.relpath == "phase/channel_selection"
-	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.write_svg is True
-	assert inputs.phases.generate_gtrs.outputs.axon_reconstruction_figure.relpath == "phase/axon_reconstruction"
+	assert inputs.phases.axon_velocity_gtrs.summary_json_relpath == "context/gtrs_phase.json"
+	assert inputs.phases.axon_velocity_gtrs.unit_procs == 3
+	assert inputs.phases.axon_velocity_gtrs.unit_batch_size == 11
+	assert inputs.phases.axon_velocity_gtrs.outputs.template_source == "merged"
+	assert inputs.phases.axon_velocity_gtrs.outputs.write_branches_json is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.write_all_filters_json is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.all_filters_relpath == "phase/all_filters.json"
+	assert inputs.phases.axon_velocity_gtrs.outputs.write_gtr_json is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.gtr_json_relpath == "phase/gtr.json"
+	assert inputs.phases.axon_velocity_gtrs.outputs.channel_selection_figure.write_png is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.channel_selection_figure.relpath == "phase/channel_selection"
+	assert inputs.phases.axon_velocity_gtrs.outputs.axon_reconstruction_figure.write_svg is True
+	assert inputs.phases.axon_velocity_gtrs.outputs.axon_reconstruction_figure.relpath == "phase/axon_reconstruction"
 	assert inputs.phases.plot_recons.enabled is True
 	assert inputs.phases.plot_recons.summary_json_relpath == "context/plot_phase.json"
 	assert inputs.phases.report_recons.enabled is True

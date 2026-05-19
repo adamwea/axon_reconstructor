@@ -103,7 +103,7 @@ def test_extract_partial_templates_runs_before_build_templates(monkeypatch, tmp_
 		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
 		"templates_plot_templates_v2": "run_reconstruct_templates_plot_templates_v2_phase",
 		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
-		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
+		"axon_velocity_gtrs": "run_reconstruct_axon_velocity_gtrs_phase",
 		"plot_recons": "run_reconstruct_plot_recons_phase",
 		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",
 		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
@@ -137,7 +137,7 @@ def test_extract_partial_templates_runs_before_build_templates(monkeypatch, tmp_
 		templates_inputs=templates_inputs,
 		phases=ReconstructionPhasesConfig(
 			clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(enabled=True),
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
+			axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
 			plot_recons=ReconstructionPlotReconsPhaseConfig(enabled=True),
 			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(enabled=True),
 			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),

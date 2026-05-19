@@ -26,7 +26,7 @@ from .core.diagnostic_plots import (
 	write_unit_axon_reconstruction_diagnostic_figure,
 	write_unit_channel_selection_diagnostic_figure,
 )
-from .core.generate_gtrs import run_generate_gtrs_phase as run_generate_gtrs_core_phase
+from .core.axon_velocity_gtrs import run_axon_velocity_gtrs_phase as run_axon_velocity_gtrs_core_phase
 from .core.plot_branch_propagations import (
 	run_plot_branch_propagations_phase as run_plot_branch_propagations_core_phase,
 )
@@ -121,7 +121,7 @@ DEFAULT_INTERNAL_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
 	"templates_compute_template_similarity",
 	"templates_plot_templates_v2",
 	"templates_report_templates",
-	"generate_gtrs",
+	"axon_velocity_gtrs",
 	"plot_recons",
 	"plot_branch_propagations",
 	"plot_branch_velocities",
@@ -749,7 +749,7 @@ def _chunk_unit_ids(unit_ids: list[Any], *, batch_size: int) -> list[list[Any]]:
 	return [list(unit_ids[idx : idx + resolved_batch_size]) for idx in range(0, len(unit_ids), resolved_batch_size)]
 
 
-def _resolve_generate_gtrs_execution_plan(
+def _resolve_axon_velocity_gtrs_execution_plan(
 	*,
 	inputs: ReconstructionInputs,
 	unit_ids: list[Any],
@@ -758,7 +758,7 @@ def _resolve_generate_gtrs_execution_plan(
 	if unit_count <= 0:
 		return 1, 1, 1, []
 	derived_unit_workers = max(1, int(inputs.n_jobs))
-	phase_cfg = inputs.phases.generate_gtrs
+	phase_cfg = inputs.phases.axon_velocity_gtrs
 	unit_procs = _as_positive_int_or_none(getattr(phase_cfg, "unit_procs", None))
 	if unit_procs is None:
 		unit_procs = min(derived_unit_workers, 6)
@@ -779,8 +779,8 @@ class _GenerateGtrsBatchInputs:
 	full_channels_templates_dir: Path
 
 
-def _run_generate_gtrs_batch(batch_inputs: _GenerateGtrsBatchInputs) -> list[UnitReconstructionResult]:
-	return run_generate_gtrs_core_phase(
+def _run_axon_velocity_gtrs_batch(batch_inputs: _GenerateGtrsBatchInputs) -> list[UnitReconstructionResult]:
+	return run_axon_velocity_gtrs_core_phase(
 		inputs=batch_inputs.inputs,
 		reconstruction_out_dir=batch_inputs.reconstruction_out_dir,
 		merged_units_dir=batch_inputs.merged_units_dir,
@@ -810,17 +810,17 @@ def _run_generate_gtrs_batch(batch_inputs: _GenerateGtrsBatchInputs) -> list[Uni
 	)
 
 
-def _run_reconstruct_generate_gtrs_batches(
+def _run_reconstruct_axon_velocity_gtrs_batches(
 	*,
 	inputs: ReconstructionInputs,
 	env: _ReconstructPhaseEnvironment,
 ) -> list[UnitReconstructionResult]:
-	derived_unit_workers, unit_procs, unit_batch_size, batches = _resolve_generate_gtrs_execution_plan(
+	derived_unit_workers, unit_procs, unit_batch_size, batches = _resolve_axon_velocity_gtrs_execution_plan(
 		inputs=inputs,
 		unit_ids=env.unit_ids,
 	)
 	LOGGER.info(
-		"reconstruct.generate_gtrs execution plan: requested_units=%d derived_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d",
+		"reconstruct.axon_velocity_gtrs execution plan: requested_units=%d derived_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d",
 		len(env.unit_ids),
 		int(derived_unit_workers),
 		int(unit_procs),
@@ -828,7 +828,7 @@ def _run_reconstruct_generate_gtrs_batches(
 		len(batches),
 	)
 	if len(batches) <= 1 or unit_procs <= 1:
-		return run_generate_gtrs_core_phase(
+		return run_axon_velocity_gtrs_core_phase(
 			inputs=inputs,
 			reconstruction_out_dir=env.reconstruction_out_dir,
 			merged_units_dir=env.merged_units_dir,
@@ -874,7 +874,7 @@ def _run_reconstruct_generate_gtrs_batches(
 			initializer=install_linux_parent_death_signal,
 		) as pool:
 			futures = {
-				pool.submit(_run_generate_gtrs_batch, batch_inputs): list(batch_inputs.inputs.unit_ids or [])
+				pool.submit(_run_axon_velocity_gtrs_batch, batch_inputs): list(batch_inputs.inputs.unit_ids or [])
 				for batch_inputs in batch_inputs_list
 			}
 			completed = 0
@@ -888,7 +888,7 @@ def _run_reconstruct_generate_gtrs_batches(
 				completed_units += completed_batch_units
 				advance_current_progress(completed_batch_units)
 				LOGGER.info(
-					"reconstruct.generate_gtrs unified progress: %d/%d units completed (%d/%d batches)",
+					"reconstruct.axon_velocity_gtrs unified progress: %d/%d units completed (%d/%d batches)",
 					completed_units,
 					len(env.unit_ids),
 					completed,
@@ -896,10 +896,10 @@ def _run_reconstruct_generate_gtrs_batches(
 				)
 	except Exception as exc:
 		LOGGER.warning(
-			"reconstruct.generate_gtrs process pool execution failed, falling back to in-process execution: %s",
+			"reconstruct.axon_velocity_gtrs process pool execution failed, falling back to in-process execution: %s",
 			exc,
 		)
-		return run_generate_gtrs_core_phase(
+		return run_axon_velocity_gtrs_core_phase(
 			inputs=inputs,
 			reconstruction_out_dir=env.reconstruction_out_dir,
 			merged_units_dir=env.merged_units_dir,
@@ -933,12 +933,12 @@ def _run_reconstruct_generate_gtrs_batches(
 	return batch_results
 
 
-def _run_reconstruct_generate_gtrs_phase_impl(
+def _run_reconstruct_axon_velocity_gtrs_phase_impl(
 	*,
 	inputs: ReconstructionInputs,
 	env: _ReconstructPhaseEnvironment,
 ) -> tuple[list[UnitReconstructionResult], Path | None]:
-	unit_results = _run_reconstruct_generate_gtrs_batches(inputs=inputs, env=env)
+	unit_results = _run_reconstruct_axon_velocity_gtrs_batches(inputs=inputs, env=env)
 	return _cleanup_failed_reconstruct_unit_outputs(
 		reconstruction_out_dir=env.reconstruction_out_dir,
 		inputs=inputs,
@@ -1261,12 +1261,12 @@ def run_reconstruct_clear_templates_cache_phase(inputs: ReconstructionInputs) ->
 	return run_reconstruct_clear_templates_cache_phase(inputs)
 
 
-def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.stages.reconstruct.phases.generate_gtrs import (
-		run_reconstruct_generate_gtrs_phase,
+def run_reconstruct_axon_velocity_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	from axon_recon.pipeline.stages.reconstruct.phases.axon_velocity_gtrs import (
+		run_reconstruct_axon_velocity_gtrs_phase,
 	)
 
-	return run_reconstruct_generate_gtrs_phase(inputs)
+	return run_reconstruct_axon_velocity_gtrs_phase(inputs)
 
 
 def run_reconstruct_plot_recons_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
@@ -1336,8 +1336,8 @@ def run_reconstruct_report_summaries_phase(inputs: ReconstructionInputs) -> dict
 def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 	token = str(raw or "").strip().replace("-", "_").replace(" ", "_")
 	aliases = {
-		"generate": "generate_gtrs",
-		"gtrs": "generate_gtrs",
+		"generate": "axon_velocity_gtrs",
+		"gtrs": "axon_velocity_gtrs",
 		"resolve_sources": "templates_resolve_sources",
 		"templates.resolve_sources": "templates_resolve_sources",
 		"analyzers": "templates_analyzers",
@@ -1382,8 +1382,8 @@ def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: s
 		return bool(False if phase_cfg is None else phase_cfg.enabled)
 	if phase == "templates_report_templates":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.report_templates.enabled)
-	if phase == "generate_gtrs":
-		return bool(inputs.phases.generate_gtrs.enabled)
+	if phase == "axon_velocity_gtrs":
+		return bool(inputs.phases.axon_velocity_gtrs.enabled)
 	if phase == "plot_recons":
 		return bool(inputs.phases.plot_recons.enabled)
 	if phase == "plot_branch_propagations":
@@ -1438,8 +1438,8 @@ def _reconstruct_stage_phase_resource_class(inputs: ReconstructionInputs, phase_
 		return _resource_class(phase_cfg)
 	if phase == "templates_report_templates":
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.report_templates)
-	if phase == "generate_gtrs":
-		return _resource_class(inputs.phases.generate_gtrs)
+	if phase == "axon_velocity_gtrs":
+		return _resource_class(inputs.phases.axon_velocity_gtrs)
 	if phase == "plot_recons":
 		return _resource_class(inputs.phases.plot_recons)
 	if phase == "plot_branch_propagations":
@@ -1514,8 +1514,8 @@ def _reconstruct_stage_phase_runner(phase_name: str):
 		return run_reconstruct_templates_plot_templates_v2_phase
 	if phase == "templates_report_templates":
 		return run_reconstruct_templates_report_templates_phase
-	if phase == "generate_gtrs":
-		return run_reconstruct_generate_gtrs_phase
+	if phase == "axon_velocity_gtrs":
+		return run_reconstruct_axon_velocity_gtrs_phase
 	if phase == "plot_recons":
 		return run_reconstruct_plot_recons_phase
 	if phase == "plot_branch_propagations":
@@ -1636,11 +1636,11 @@ def _run_reconstruct_stage_default_order(inputs: ReconstructionInputs) -> Recons
 		reconstruction_out_dir=env.reconstruction_out_dir,
 	)
 
-	if _reconstruct_phase_selected(inputs, "generate_gtrs") and bool(inputs.phases.generate_gtrs.enabled):
-		unit_results, failed_units_summary_json = _run_reconstruct_generate_gtrs_phase_impl(inputs=inputs, env=env)
+	if _reconstruct_phase_selected(inputs, "axon_velocity_gtrs") and bool(inputs.phases.axon_velocity_gtrs.enabled):
+		unit_results, failed_units_summary_json = _run_reconstruct_axon_velocity_gtrs_phase_impl(inputs=inputs, env=env)
 		_write_reconstruct_phase_summary(
-			phase_name="generate_gtrs",
-			summary_json=env.reconstruction_out_dir / Path(str(inputs.phases.generate_gtrs.summary_json_relpath)).expanduser(),
+			phase_name="axon_velocity_gtrs",
+			summary_json=env.reconstruction_out_dir / Path(str(inputs.phases.axon_velocity_gtrs.summary_json_relpath)).expanduser(),
 			inputs=inputs,
 			well_out_dir=env.well_out_dir,
 			reconstruction_out_dir=env.reconstruction_out_dir,

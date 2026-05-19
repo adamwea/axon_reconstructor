@@ -201,7 +201,7 @@ class ReconstructionGenerateGtrsOutputsConfig:
 @dataclass(frozen=True)
 class ReconstructionGenerateGtrsPhaseConfig:
 	enabled: bool = True
-	summary_json_relpath: str = "context/generate_gtrs_summary.json"
+	summary_json_relpath: str = "context/axon_velocity_gtrs_summary.json"
 	resource_class: str | None = None
 	unit_procs: int | None = None
 	unit_batch_size: int | None = None
@@ -444,7 +444,7 @@ class ReconstructionPhasesConfig:
 	clear_templates_cache: ReconstructionClearTemplatesCachePhaseConfig = field(
 		default_factory=ReconstructionClearTemplatesCachePhaseConfig
 	)
-	generate_gtrs: ReconstructionGenerateGtrsPhaseConfig = field(default_factory=ReconstructionGenerateGtrsPhaseConfig)
+	axon_velocity_gtrs: ReconstructionGenerateGtrsPhaseConfig = field(default_factory=ReconstructionGenerateGtrsPhaseConfig)
 	plot_recons: ReconstructionPlotReconsPhaseConfig = field(default_factory=ReconstructionPlotReconsPhaseConfig)
 	plot_branch_propagations: ReconstructionPlotBranchPropagationsPhaseConfig = field(
 		default_factory=ReconstructionPlotBranchPropagationsPhaseConfig

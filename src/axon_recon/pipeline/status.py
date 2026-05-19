@@ -143,7 +143,7 @@ STAGE_PHASES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 		("build_templates", ("recon_outputs", "context", "build_templates_summary.json")),
 		("plot_templates_v2", ("recon_outputs", "context", "plot_templates_v2_summary.json")),
 		("report_templates", ("recon_outputs", "context", "report_templates_summary.json")),
-		("generate_gtrs", ("recon_outputs", "context", "generate_gtrs_summary.json")),
+		("axon_velocity_gtrs", ("recon_outputs", "context", "axon_velocity_gtrs_summary.json")),
 		("plot_recons", ("recon_outputs", "context", "plot_recons_summary.json")),
 		("plot_branch_propagations", ("recon_outputs", "context", "plot_branch_propagations_summary.json")),
 		("plot_branch_velocities", ("recon_outputs", "context", "plot_branch_velocities_summary.json")),

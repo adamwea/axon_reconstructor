@@ -146,7 +146,7 @@ def test_parse_stage_list_tokens_rejects_legacy_templates_aliases(raw_token: str
 @pytest.mark.parametrize(
     ("raw_token", "expected"),
     [
-        ("reconstruct.generate_gtrs", "reconstruct.generate_gtrs"),
+        ("reconstruct.axon_velocity_gtrs", "reconstruct.axon_velocity_gtrs"),
         ("reconstruct.plot_recons", "reconstruct.plot_recons"),
         ("reconstruct.plot_branch_propagations", "reconstruct.plot_branch_propagations"),
         ("reconstruct.plot_branch_velocities", "reconstruct.plot_branch_velocities"),
@@ -159,7 +159,7 @@ def test_parse_stage_list_tokens_rejects_legacy_templates_aliases(raw_token: str
         ("reconstruct.compute_template_similarity", "reconstruct.compute_template_similarity"),
         ("reconstruct.plot_templates_v2", "reconstruct.plot_templates_v2"),
         ("reconstruct.report_templates", "reconstruct.report_templates"),
-        ("recon.generate_gtrs", "reconstruct.generate_gtrs"),
+        ("recon.axon_velocity_gtrs", "reconstruct.axon_velocity_gtrs"),
         ("recon.analyzers", "reconstruct.analyzers"),
         ("recon.templates_analyzers", "reconstruct.analyzers"),
         ("reconstruct.templates_build_templates", "reconstruct.build_templates"),
@@ -751,7 +751,7 @@ def test_main_runs_preprocess_phase_substages(
 @pytest.mark.parametrize(
     ("stage_token", "handler_key"),
     [
-        ("reconstruct.generate_gtrs", "reconstruct.generate_gtrs"),
+        ("reconstruct.axon_velocity_gtrs", "reconstruct.axon_velocity_gtrs"),
         ("reconstruct.plot_recons", "reconstruct.plot_recons"),
         ("reconstruct.plot_branch_propagations", "reconstruct.plot_branch_propagations"),
         ("reconstruct.plot_branch_velocities", "reconstruct.plot_branch_velocities"),

@@ -29,8 +29,8 @@ def _should_persist_gtr(inputs: ReconstructionInputs) -> bool:
 	return True
 
 
-def _resolve_generate_gtrs_outputs(inputs: ReconstructionInputs) -> ReconstructionGenerateGtrsOutputsConfig:
-	phase_outputs = inputs.phases.generate_gtrs.outputs
+def _resolve_axon_velocity_gtrs_outputs(inputs: ReconstructionInputs) -> ReconstructionGenerateGtrsOutputsConfig:
+	phase_outputs = inputs.phases.axon_velocity_gtrs.outputs
 	if phase_outputs != ReconstructionGenerateGtrsOutputsConfig():
 		return phase_outputs
 	legacy = inputs.per_unit_outputs
@@ -62,7 +62,7 @@ def _resolve_generate_gtrs_outputs(inputs: ReconstructionInputs) -> Reconstructi
 
 
 def _generate_outputs_ready(*, inputs: ReconstructionInputs, paths: dict[str, Path]) -> bool:
-	phase_outputs = _resolve_generate_gtrs_outputs(inputs)
+	phase_outputs = _resolve_axon_velocity_gtrs_outputs(inputs)
 	checks: list[bool] = []
 	if bool(phase_outputs.write_branches_raw_json):
 		checks.append(paths["branches_raw_json"].exists())
@@ -99,7 +99,7 @@ def _resolve_plotting_worker_count(*, inputs: ReconstructionInputs) -> int:
 	return int(max(1, int(inputs.n_jobs)))
 
 
-def run_generate_gtrs_phase(
+def run_axon_velocity_gtrs_phase(
 	*,
 	inputs: ReconstructionInputs,
 	reconstruction_out_dir: Path,
@@ -129,10 +129,10 @@ def run_generate_gtrs_phase(
 	logger: logging.Logger | None = None,
 	progress_total_already_added: bool = False,
 ) -> list[UnitReconstructionResult]:
-	active_logger = logger or logging.getLogger("axon_recon.reconstruct.generate_gtrs")
-	phase_cfg = inputs.phases.generate_gtrs
-	phase_outputs = _resolve_generate_gtrs_outputs(inputs)
-	_phase_budget = current_phase_budget("reconstruct", "generate_gtrs")
+	active_logger = logger or logging.getLogger("axon_recon.reconstruct.axon_velocity_gtrs")
+	phase_cfg = inputs.phases.axon_velocity_gtrs
+	phase_outputs = _resolve_axon_velocity_gtrs_outputs(inputs)
+	_phase_budget = current_phase_budget("reconstruct", "axon_velocity_gtrs")
 	worker_count = resolve_inner_worker_count(
 		nested_shape=str(getattr(_phase_budget, "nested_shape", "unit_workers") or "unit_workers"),
 		phase_cpus_per_task=getattr(_phase_budget, "cpus_per_task", None) if _phase_budget else None,
@@ -141,9 +141,9 @@ def run_generate_gtrs_phase(
 	)
 	plotting_worker_count = _resolve_plotting_worker_count(inputs=inputs)
 	if not bool(phase_cfg.axon_velocity.enabled):
-		raise RuntimeError("reconstruct.generate_gtrs currently requires phases.generate_gtrs.axon_velocity.enabled=true")
+		raise RuntimeError("reconstruct.axon_velocity_gtrs currently requires phases.axon_velocity_gtrs.axon_velocity.enabled=true")
 	active_logger.info(
-		"reconstruct.generate_gtrs start: reconstruction_out_dir=%s units=%d force_restart=%s n_jobs=%d plotting_workers=%d template_source=%s gtr_relpath=%s",
+		"reconstruct.axon_velocity_gtrs start: reconstruction_out_dir=%s units=%d force_restart=%s n_jobs=%d plotting_workers=%d template_source=%s gtr_relpath=%s",
 		str(reconstruction_out_dir),
 		len(unit_ids),
 		bool(inputs.force_restart),
@@ -154,7 +154,7 @@ def run_generate_gtrs_phase(
 	)
 	if not bool(phase_outputs.write_gtr_pkl):
 		active_logger.info(
-			"reconstruct.generate_gtrs forcing gtr.pkl persistence for phase contract even though configured write_gtr_pkl=false"
+			"reconstruct.axon_velocity_gtrs forcing gtr.pkl persistence for phase contract even though configured write_gtr_pkl=false"
 		)
 	if not bool(progress_total_already_added):
 		add_current_progress_total(len(unit_ids))
@@ -173,14 +173,14 @@ def run_generate_gtrs_phase(
 		status = str(cached.status).strip().lower()
 		if status != "ok":
 			active_logger.info(
-				"reconstruct.generate_gtrs unit %s reusing cached failed summary: %s",
+				"reconstruct.axon_velocity_gtrs unit %s reusing cached failed summary: %s",
 				unit_id,
 				str(unit_summary_json),
 			)
 			return cached
 		if _generate_outputs_ready(inputs=inputs, paths=paths):
 			active_logger.info(
-				"reconstruct.generate_gtrs unit %s using cached outputs: gtr_pkl=%s summary=%s",
+				"reconstruct.axon_velocity_gtrs unit %s using cached outputs: gtr_pkl=%s summary=%s",
 				unit_id,
 				str(paths["gtr_pkl"]),
 				str(unit_summary_json),
@@ -196,7 +196,7 @@ def run_generate_gtrs_phase(
 		)
 		paths["unit_dir"].mkdir(parents=True, exist_ok=True)
 		active_logger.info(
-			"reconstruct.generate_gtrs unit %s start: unit_dir=%s gtr_pkl=%s",
+			"reconstruct.axon_velocity_gtrs unit %s start: unit_dir=%s gtr_pkl=%s",
 			unit_id,
 			str(paths["unit_dir"]),
 			str(paths["gtr_pkl"]),
@@ -307,7 +307,7 @@ def run_generate_gtrs_phase(
 					pickle.dump(gtr, handle)
 				unit_summary["outputs"]["gtr_pkl"] = str(paths["gtr_pkl"])
 				active_logger.info(
-					"reconstruct.generate_gtrs unit %s wrote gtr_pkl=%s",
+					"reconstruct.axon_velocity_gtrs unit %s wrote gtr_pkl=%s",
 					unit_id,
 					str(paths["gtr_pkl"]),
 				)
@@ -354,7 +354,7 @@ def run_generate_gtrs_phase(
 							unit_summary["outputs"]["axon_reconstruction_figure_svg"] = str(paths["axon_reconstruction_figure_svg"])
 
 			active_logger.info(
-				"reconstruct.generate_gtrs unit %s complete: status=%s outputs=%s",
+				"reconstruct.axon_velocity_gtrs unit %s complete: status=%s outputs=%s",
 				unit_id,
 				str(unit_summary.get("status", "ok")),
 				sorted(str(key) for key in dict(unit_summary.get("outputs", {})).keys()),
@@ -369,7 +369,7 @@ def run_generate_gtrs_phase(
 
 		write_json_fn(paths["unit_summary_json"], unit_summary)
 		active_logger.info(
-			"reconstruct.generate_gtrs unit %s wrote summary=%s status=%s",
+			"reconstruct.axon_velocity_gtrs unit %s wrote summary=%s status=%s",
 			unit_id,
 			str(paths["unit_summary_json"]),
 			str(unit_summary.get("status", "ok")),
@@ -392,7 +392,7 @@ def run_generate_gtrs_phase(
 	units_ok = sum(1 for item in unit_results if str(item.status).strip().lower() == "ok")
 	units_error = sum(1 for item in unit_results if str(item.status).strip().lower() != "ok")
 	active_logger.info(
-		"reconstruct.generate_gtrs complete: units_total=%d units_ok=%d units_error=%d reconstruction_out_dir=%s",
+		"reconstruct.axon_velocity_gtrs complete: units_total=%d units_ok=%d units_error=%d reconstruction_out_dir=%s",
 		len(unit_results),
 		units_ok,
 		units_error,
@@ -401,4 +401,4 @@ def run_generate_gtrs_phase(
 	return unit_results
 
 
-__all__ = ["run_generate_gtrs_phase"]
+__all__ = ["run_axon_velocity_gtrs_phase"]

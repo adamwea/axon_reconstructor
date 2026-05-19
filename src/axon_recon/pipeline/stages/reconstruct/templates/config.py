@@ -105,7 +105,7 @@ _TEMPLATES_PHASE_ALIASES: dict[str, str] = {
 
 _RECONSTRUCT_ONLY_PHASES: frozenset[str] = frozenset(
 	{
-		"generate_gtrs",
+		"axon_velocity_gtrs",
 		"generate",
 		"gtrs",
 		"plot_recons",

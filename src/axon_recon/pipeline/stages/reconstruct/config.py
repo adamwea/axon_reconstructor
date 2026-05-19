@@ -59,7 +59,7 @@ LOGGER = logging.getLogger("axon_recon.reconstruct.config")
 
 
 DEFAULT_RECONSTRUCTION_PHASE_SEQUENCE: tuple[str, ...] = (
-	"generate_gtrs",
+	"axon_velocity_gtrs",
 	"plot_recons",
 	"plot_branch_propagations",
 	"plot_branch_velocities",
@@ -94,9 +94,9 @@ _RECONSTRUCTION_PHASE_ALIASES: dict[str, str] = {
 	"report_templates": "templates_report_templates",
 	"templates.report_templates": "templates_report_templates",
 	"templates_report_templates": "templates_report_templates",
-	"generate_gtrs": "generate_gtrs",
-	"generate": "generate_gtrs",
-	"gtrs": "generate_gtrs",
+	"axon_velocity_gtrs": "axon_velocity_gtrs",
+	"generate": "axon_velocity_gtrs",
+	"gtrs": "axon_velocity_gtrs",
 	"plot_recons": "plot_recons",
 	"plot_reconstructions": "plot_recons",
 	"plot_branch_propagations": "plot_branch_propagations",
@@ -713,7 +713,7 @@ def parse_reconstruction_stage_config(
 	debug_limit_datasets = _as_optional_positive_int(debug_mode_cfg.get("limit_datasets", None))
 	debug_limit_wells = _as_optional_positive_int(debug_mode_cfg.get("limit_wells", None))
 	debug_limit_wells_per_dataset = _as_optional_positive_int(debug_mode_cfg.get("limit_wells_per_dataset", None))
-	generate_gtrs_cfg = phases_cfg.get("generate_gtrs", {}) if isinstance(phases_cfg.get("generate_gtrs", {}), dict) else {}
+	axon_velocity_gtrs_cfg = phases_cfg.get("axon_velocity_gtrs", {}) if isinstance(phases_cfg.get("axon_velocity_gtrs", {}), dict) else {}
 	plot_recons_cfg = phases_cfg.get("plot_recons", {}) if isinstance(phases_cfg.get("plot_recons", {}), dict) else {}
 	plot_branch_propagations_cfg = (
 		phases_cfg.get("plot_branch_propagations", {})
@@ -751,15 +751,15 @@ def parse_reconstruction_stage_config(
 		if isinstance(phases_cfg.get("report_full_chip_layout", {}), dict)
 		else {}
 	)
-	generate_gtrs_resources_cfg = (
-		generate_gtrs_cfg.get("resources", {}) if isinstance(generate_gtrs_cfg.get("resources", {}), dict) else {}
+	axon_velocity_gtrs_resources_cfg = (
+		axon_velocity_gtrs_cfg.get("resources", {}) if isinstance(axon_velocity_gtrs_cfg.get("resources", {}), dict) else {}
 	)
-	phase_generate_outputs_cfg = (
-		generate_gtrs_cfg.get("outputs", {}) if isinstance(generate_gtrs_cfg.get("outputs", {}), dict) else {}
+	phase_axon_velocity_outputs_cfg = (
+		axon_velocity_gtrs_cfg.get("outputs", {}) if isinstance(axon_velocity_gtrs_cfg.get("outputs", {}), dict) else {}
 	)
 	phase_generate_diagnostic_figs_cfg = (
-		phase_generate_outputs_cfg.get("diagnostic_figs", {})
-		if isinstance(phase_generate_outputs_cfg.get("diagnostic_figs", {}), dict)
+		phase_axon_velocity_outputs_cfg.get("diagnostic_figs", {})
+		if isinstance(phase_axon_velocity_outputs_cfg.get("diagnostic_figs", {}), dict)
 		else {}
 	)
 	phase_plot_outputs_cfg = (
@@ -863,8 +863,8 @@ def parse_reconstruction_stage_config(
 	canonical_av_cfg = stage_cfg.get("axon_velocity", {})
 	av_cfg: dict[str, Any] = dict(canonical_av_cfg) if isinstance(canonical_av_cfg, dict) else {}
 	phase_axon_velocity_cfg = (
-		generate_gtrs_cfg.get("axon_velocity", {})
-		if isinstance(generate_gtrs_cfg.get("axon_velocity", {}), dict)
+		axon_velocity_gtrs_cfg.get("axon_velocity", {})
+		if isinstance(axon_velocity_gtrs_cfg.get("axon_velocity", {}), dict)
 		else {}
 	)
 	phase_axon_velocity_params = (
@@ -874,13 +874,13 @@ def parse_reconstruction_stage_config(
 	)
 	if phase_axon_velocity_params:
 		av_cfg.update(dict(phase_axon_velocity_params))
-	generate_gtrs_unit_procs = _parse_optional_positive_int(
-		generate_gtrs_resources_cfg.get("unit_procs", generate_gtrs_cfg.get("unit_procs", None))
+	axon_velocity_gtrs_unit_procs = _parse_optional_positive_int(
+		axon_velocity_gtrs_resources_cfg.get("unit_procs", axon_velocity_gtrs_cfg.get("unit_procs", None))
 	)
-	generate_gtrs_unit_batch_size = _parse_optional_positive_int(
-		generate_gtrs_resources_cfg.get("unit_batch_size", generate_gtrs_cfg.get("unit_batch_size", None))
+	axon_velocity_gtrs_unit_batch_size = _parse_optional_positive_int(
+		axon_velocity_gtrs_resources_cfg.get("unit_batch_size", axon_velocity_gtrs_cfg.get("unit_batch_size", None))
 	)
-	ignored_max_plotting_concurrency = generate_gtrs_resources_cfg.get("max_plotting_concurrency", None)
+	ignored_max_plotting_concurrency = axon_velocity_gtrs_resources_cfg.get("max_plotting_concurrency", None)
 	if ignored_max_plotting_concurrency is None:
 		ignored_max_plotting_concurrency = stage_resources_cfg.get("max_plotting_concurrency", None)
 	if ignored_max_plotting_concurrency is not None:
@@ -904,110 +904,110 @@ def parse_reconstruction_stage_config(
 		phase_axon_reconstruction_fig_cfg,
 		default_relpath="diagnostic_figs/axon_reconstruction",
 	)
-	generate_gtrs_outputs = ReconstructionGenerateGtrsOutputsConfig(
+	axon_velocity_gtrs_outputs = ReconstructionGenerateGtrsOutputsConfig(
 		write_branches_raw_json=_as_bool(
-			phase_generate_outputs_cfg.get("write_branches_raw_json", per_unit_cfg.get("write_branches_raw_json", True)),
+			phase_axon_velocity_outputs_cfg.get("write_branches_raw_json", per_unit_cfg.get("write_branches_raw_json", True)),
 			True,
 		),
 		branches_raw_relpath=str(
-			phase_generate_outputs_cfg.get("branches_raw_relpath", per_unit_cfg.get("branches_raw_relpath", "branches_raw.json"))
+			phase_axon_velocity_outputs_cfg.get("branches_raw_relpath", per_unit_cfg.get("branches_raw_relpath", "branches_raw.json"))
 		),
 		write_branches_json=_as_bool(
-			phase_generate_outputs_cfg.get("write_branches_json", per_unit_cfg.get("write_branches_json", True)),
+			phase_axon_velocity_outputs_cfg.get("write_branches_json", per_unit_cfg.get("write_branches_json", True)),
 			True,
 		),
 		branches_relpath=str(
-			phase_generate_outputs_cfg.get("branches_relpath", per_unit_cfg.get("branches_relpath", "branches.json"))
+			phase_axon_velocity_outputs_cfg.get("branches_relpath", per_unit_cfg.get("branches_relpath", "branches.json"))
 		),
 		write_detection_filter_json=_as_bool(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"write_detection_filter_json",
 				per_unit_cfg.get("write_detection_filter_json", False),
 			),
 			False,
 		),
 		detection_filter_relpath=str(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"detection_filter_relpath",
 				per_unit_cfg.get("detection_filter_relpath", "detection_filter.json"),
 			)
 		),
 		write_kurtosis_filter_json=_as_bool(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"write_kurtosis_filter_json",
 				per_unit_cfg.get("write_kurtosis_filter_json", False),
 			),
 			False,
 		),
 		kurtosis_filter_relpath=str(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"kurtosis_filter_relpath",
 				per_unit_cfg.get("kurtosis_filter_relpath", "kurtosis_filter.json"),
 			)
 		),
 		write_peak_std_filter_json=_as_bool(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"write_peak_std_filter_json",
 				per_unit_cfg.get("write_peak_std_filter_json", False),
 			),
 			False,
 		),
 		peak_std_filter_relpath=str(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"peak_std_filter_relpath",
 				per_unit_cfg.get("peak_std_filter_relpath", "peak_std_filter.json"),
 			)
 		),
 		write_delay_filter_json=_as_bool(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"write_delay_filter_json",
 				per_unit_cfg.get("write_delay_filter_json", False),
 			),
 			False,
 		),
 		delay_filter_relpath=str(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"delay_filter_relpath",
 				per_unit_cfg.get("delay_filter_relpath", "delay_filter.json"),
 			)
 		),
 		write_all_filters_json=_as_bool(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"write_all_filters_json",
 				per_unit_cfg.get("write_all_filters_json", False),
 			),
 			False,
 		),
 		all_filters_relpath=str(
-			phase_generate_outputs_cfg.get(
+			phase_axon_velocity_outputs_cfg.get(
 				"all_filters_relpath",
 				per_unit_cfg.get("all_filters_relpath", "all_filters.json"),
 			)
 		),
 		write_heuristics_json=_as_bool(
-			phase_generate_outputs_cfg.get("write_heuristics_json", per_unit_cfg.get("write_heuristics_json", True)),
+			phase_axon_velocity_outputs_cfg.get("write_heuristics_json", per_unit_cfg.get("write_heuristics_json", True)),
 			True,
 		),
 		heuristics_relpath=str(
-			phase_generate_outputs_cfg.get("heuristics_relpath", per_unit_cfg.get("heuristics_relpath", "heuristics.json"))
+			phase_axon_velocity_outputs_cfg.get("heuristics_relpath", per_unit_cfg.get("heuristics_relpath", "heuristics.json"))
 		),
 		write_gtr_pkl=_as_bool(
-			phase_generate_outputs_cfg.get("write_gtr_pkl", per_unit_cfg.get("write_gtr_pkl", True)),
+			phase_axon_velocity_outputs_cfg.get("write_gtr_pkl", per_unit_cfg.get("write_gtr_pkl", True)),
 			True,
 		),
 		gtr_pkl_relpath=str(
-			phase_generate_outputs_cfg.get("gtr_pkl_relpath", per_unit_cfg.get("gtr_pkl_relpath", "gtr.pkl"))
+			phase_axon_velocity_outputs_cfg.get("gtr_pkl_relpath", per_unit_cfg.get("gtr_pkl_relpath", "gtr.pkl"))
 		),
 		template_source=_normalize_reconstruct_template_source(
-			phase_generate_outputs_cfg.get("template_source", per_unit_cfg.get("template_source", "square")),
+			phase_axon_velocity_outputs_cfg.get("template_source", per_unit_cfg.get("template_source", "square")),
 			default="square",
 		),
 		write_gtr_json=_as_bool(
-			phase_generate_outputs_cfg.get("write_gtr_json", per_unit_cfg.get("write_gtr_json", False)),
+			phase_axon_velocity_outputs_cfg.get("write_gtr_json", per_unit_cfg.get("write_gtr_json", False)),
 			False,
 		),
 		gtr_json_relpath=str(
-			phase_generate_outputs_cfg.get("gtr_json_relpath", per_unit_cfg.get("gtr_json_relpath", "gtr.json"))
+			phase_axon_velocity_outputs_cfg.get("gtr_json_relpath", per_unit_cfg.get("gtr_json_relpath", "gtr.json"))
 		),
 		channel_selection_figure=channel_selection_figure_cfg,
 		axon_reconstruction_figure=axon_reconstruction_figure_cfg,
@@ -1312,15 +1312,15 @@ def parse_reconstruction_stage_config(
 				False,
 			),
 		),
-		generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(
-			enabled=_phase_enabled(generate_gtrs_cfg, True),
+		axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(
+			enabled=_phase_enabled(axon_velocity_gtrs_cfg, True),
 			summary_json_relpath=str(
-				generate_gtrs_cfg.get("summary_json_relpath", "context/generate_gtrs_summary.json")
+				axon_velocity_gtrs_cfg.get("summary_json_relpath", "context/axon_velocity_gtrs_summary.json")
 			),
-			resource_class=_phase_resource_class(generate_gtrs_cfg, "generate_gtrs"),
-			unit_procs=generate_gtrs_unit_procs,
-			unit_batch_size=generate_gtrs_unit_batch_size,
-			outputs=generate_gtrs_outputs,
+			resource_class=_phase_resource_class(axon_velocity_gtrs_cfg, "axon_velocity_gtrs"),
+			unit_procs=axon_velocity_gtrs_unit_procs,
+			unit_batch_size=axon_velocity_gtrs_unit_batch_size,
+			outputs=axon_velocity_gtrs_outputs,
 			axon_velocity=ReconstructionAxonVelocityPhaseConfig(
 				enabled=_phase_enabled(phase_axon_velocity_cfg, True),
 				params=dict(av_cfg),
@@ -1489,29 +1489,29 @@ def parse_reconstruction_stage_config(
 
 	per_unit = PerUnitOutputsConfig(
 		unit_reldir=unit_reldir,
-		write_branches_raw_json=bool(generate_gtrs_outputs.write_branches_raw_json),
-		branches_raw_relpath=str(generate_gtrs_outputs.branches_raw_relpath),
-		write_branches_json=bool(generate_gtrs_outputs.write_branches_json),
-		branches_relpath=str(generate_gtrs_outputs.branches_relpath),
-		write_detection_filter_json=bool(generate_gtrs_outputs.write_detection_filter_json),
-		detection_filter_relpath=str(generate_gtrs_outputs.detection_filter_relpath),
-		write_kurtosis_filter_json=bool(generate_gtrs_outputs.write_kurtosis_filter_json),
-		kurtosis_filter_relpath=str(generate_gtrs_outputs.kurtosis_filter_relpath),
-		write_peak_std_filter_json=bool(generate_gtrs_outputs.write_peak_std_filter_json),
-		peak_std_filter_relpath=str(generate_gtrs_outputs.peak_std_filter_relpath),
-		write_delay_filter_json=bool(generate_gtrs_outputs.write_delay_filter_json),
-		delay_filter_relpath=str(generate_gtrs_outputs.delay_filter_relpath),
-		write_all_filters_json=bool(generate_gtrs_outputs.write_all_filters_json),
-		all_filters_relpath=str(generate_gtrs_outputs.all_filters_relpath),
-		write_heuristics_json=bool(generate_gtrs_outputs.write_heuristics_json),
-		heuristics_relpath=str(generate_gtrs_outputs.heuristics_relpath),
-		write_gtr_pkl=bool(generate_gtrs_outputs.write_gtr_pkl),
-		gtr_pkl_relpath=str(generate_gtrs_outputs.gtr_pkl_relpath),
-		template_source=str(generate_gtrs_outputs.template_source),
-		write_gtr_json=bool(generate_gtrs_outputs.write_gtr_json),
-		gtr_json_relpath=str(generate_gtrs_outputs.gtr_json_relpath),
-		channel_selection_figure=generate_gtrs_outputs.channel_selection_figure,
-		axon_reconstruction_figure=generate_gtrs_outputs.axon_reconstruction_figure,
+		write_branches_raw_json=bool(axon_velocity_gtrs_outputs.write_branches_raw_json),
+		branches_raw_relpath=str(axon_velocity_gtrs_outputs.branches_raw_relpath),
+		write_branches_json=bool(axon_velocity_gtrs_outputs.write_branches_json),
+		branches_relpath=str(axon_velocity_gtrs_outputs.branches_relpath),
+		write_detection_filter_json=bool(axon_velocity_gtrs_outputs.write_detection_filter_json),
+		detection_filter_relpath=str(axon_velocity_gtrs_outputs.detection_filter_relpath),
+		write_kurtosis_filter_json=bool(axon_velocity_gtrs_outputs.write_kurtosis_filter_json),
+		kurtosis_filter_relpath=str(axon_velocity_gtrs_outputs.kurtosis_filter_relpath),
+		write_peak_std_filter_json=bool(axon_velocity_gtrs_outputs.write_peak_std_filter_json),
+		peak_std_filter_relpath=str(axon_velocity_gtrs_outputs.peak_std_filter_relpath),
+		write_delay_filter_json=bool(axon_velocity_gtrs_outputs.write_delay_filter_json),
+		delay_filter_relpath=str(axon_velocity_gtrs_outputs.delay_filter_relpath),
+		write_all_filters_json=bool(axon_velocity_gtrs_outputs.write_all_filters_json),
+		all_filters_relpath=str(axon_velocity_gtrs_outputs.all_filters_relpath),
+		write_heuristics_json=bool(axon_velocity_gtrs_outputs.write_heuristics_json),
+		heuristics_relpath=str(axon_velocity_gtrs_outputs.heuristics_relpath),
+		write_gtr_pkl=bool(axon_velocity_gtrs_outputs.write_gtr_pkl),
+		gtr_pkl_relpath=str(axon_velocity_gtrs_outputs.gtr_pkl_relpath),
+		template_source=str(axon_velocity_gtrs_outputs.template_source),
+		write_gtr_json=bool(axon_velocity_gtrs_outputs.write_gtr_json),
+		gtr_json_relpath=str(axon_velocity_gtrs_outputs.gtr_json_relpath),
+		channel_selection_figure=axon_velocity_gtrs_outputs.channel_selection_figure,
+		axon_reconstruction_figure=axon_velocity_gtrs_outputs.axon_reconstruction_figure,
 		amplitude_map_png_relpath=plot_recons_outputs.amplitude_map.png_relpath,
 		circle_recon=plot_recons_outputs.circle_recon,
 	)

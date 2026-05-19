@@ -2,7 +2,7 @@
 
 from .api import (
 	run_reconstruct,
-	run_reconstruct_generate_gtrs,
+	run_reconstruct_axon_velocity_gtrs,
 	run_reconstruct_plot_branch_propagations,
 	run_reconstruct_plot_branch_velocities,
 	run_reconstruct_plot_unit_summary,
@@ -14,7 +14,7 @@ from .api import (
 
 __all__ = [
 	"run_reconstruct",
-	"run_reconstruct_generate_gtrs",
+	"run_reconstruct_axon_velocity_gtrs",
 	"run_reconstruct_plot_branch_propagations",
 	"run_reconstruct_plot_branch_velocities",
 	"run_reconstruct_plot_unit_summary",

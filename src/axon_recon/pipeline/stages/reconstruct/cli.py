@@ -6,7 +6,7 @@ import logging
 from ...runner import (
 	run_reconstruct_clear_templates_cache_from_runtime,
 	run_reconstruct_from_runtime,
-	run_reconstruct_generate_gtrs_from_runtime,
+	run_reconstruct_axon_velocity_gtrs_from_runtime,
 	run_reconstruct_plot_branch_propagations_from_runtime,
 	run_reconstruct_plot_branch_velocities_from_runtime,
 	run_reconstruct_plot_unit_summary_from_runtime,
@@ -249,8 +249,8 @@ def _run_reconstruct_report_templates_from_args(args: argparse.Namespace) -> int
 	return _print_reconstruct_aggregate(run_reconstruct_templates_report_templates_from_runtime(**_reconstruct_runtime_kwargs(args)))
 
 
-def _run_generate_gtrs_from_args(args: argparse.Namespace) -> int:
-	return _print_reconstruct_aggregate(run_reconstruct_generate_gtrs_from_runtime(**_reconstruct_runtime_kwargs(args)))
+def _run_axon_velocity_gtrs_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(run_reconstruct_axon_velocity_gtrs_from_runtime(**_reconstruct_runtime_kwargs(args)))
 
 
 def _run_plot_recons_from_args(args: argparse.Namespace) -> int:

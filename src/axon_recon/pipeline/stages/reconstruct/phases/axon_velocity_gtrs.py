@@ -15,26 +15,26 @@ from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionI
 from axon_recon.pipeline.stages.reconstruct.models.results import UnitReconstructionResult
 
 
-def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+def run_reconstruct_axon_velocity_gtrs_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
     env = reconstruct_runner._prepare_reconstruct_phase_environment(
         inputs=inputs, clear_output_root=True
     )
     reconstruct_runner.LOGGER.info(
-        "reconstruct.generate_gtrs phase start: well_out_dir=%s reconstruction_out_dir=%s units=%d applied_debug_limits=%s",
+        "reconstruct.axon_velocity_gtrs phase start: well_out_dir=%s reconstruction_out_dir=%s units=%d applied_debug_limits=%s",
         str(env.well_out_dir),
         str(env.reconstruction_out_dir),
         len(env.unit_ids),
         reconstruct_runner._reconstruct_applied_debug_limits(inputs),
     )
-    unit_results, failed_units_summary_json = _run_reconstruct_generate_gtrs_phase_impl(
+    unit_results, failed_units_summary_json = _run_reconstruct_axon_velocity_gtrs_phase_impl(
         inputs=inputs, env=env
     )
     summary_json = (
         env.reconstruction_out_dir
-        / Path(str(inputs.phases.generate_gtrs.summary_json_relpath)).expanduser()
+        / Path(str(inputs.phases.axon_velocity_gtrs.summary_json_relpath)).expanduser()
     )
     summary = reconstruct_runner._write_reconstruct_phase_summary(
-        phase_name="generate_gtrs",
+        phase_name="axon_velocity_gtrs",
         summary_json=summary_json,
         inputs=inputs,
         well_out_dir=env.well_out_dir,
@@ -44,11 +44,11 @@ def run_reconstruct_generate_gtrs_phase(inputs: ReconstructionInputs) -> dict[st
         preserve_stage_reports=env.preserve_stage_reports,
     )
     reconstruct_runner.LOGGER.info(
-        "reconstruct.generate_gtrs wrote summary output: %s",
+        "reconstruct.axon_velocity_gtrs wrote summary output: %s",
         str(summary_json),
     )
     reconstruct_runner.LOGGER.info(
-        "reconstruct.generate_gtrs run stats: units_total=%d units_ok=%d units_error=%d",
+        "reconstruct.axon_velocity_gtrs run stats: units_total=%d units_ok=%d units_error=%d",
         int(summary.get("unit_count", 0)),
         int(summary.get("units_ok", 0)),
         int(summary.get("units_error", 0)),
@@ -74,7 +74,7 @@ def _chunk_unit_ids(unit_ids: list[Any], *, batch_size: int) -> list[list[Any]]:
     ]
 
 
-def _resolve_generate_gtrs_execution_plan(
+def _resolve_axon_velocity_gtrs_execution_plan(
     *,
     inputs: ReconstructionInputs,
     unit_ids: list[Any],
@@ -83,7 +83,7 @@ def _resolve_generate_gtrs_execution_plan(
     if unit_count <= 0:
         return 1, 1, 1, []
     derived_unit_workers = max(1, int(inputs.n_jobs))
-    phase_cfg = inputs.phases.generate_gtrs
+    phase_cfg = inputs.phases.axon_velocity_gtrs
     unit_procs = _as_positive_int_or_none(getattr(phase_cfg, "unit_procs", None))
     if unit_procs is None:
         unit_procs = min(derived_unit_workers, 6)
@@ -97,17 +97,17 @@ def _resolve_generate_gtrs_execution_plan(
 
 
 @dataclass(frozen=True)
-class _GenerateGtrsBatchInputs:
+class _AxonVelocityGtrsBatchInputs:
     inputs: ReconstructionInputs
     reconstruction_out_dir: Path
     merged_units_dir: Path
     full_channels_templates_dir: Path
 
 
-def _run_generate_gtrs_batch(
-    batch_inputs: _GenerateGtrsBatchInputs,
+def _run_axon_velocity_gtrs_batch(
+    batch_inputs: _AxonVelocityGtrsBatchInputs,
 ) -> list[UnitReconstructionResult]:
-    return reconstruct_runner.run_generate_gtrs_core_phase(
+    return reconstruct_runner.run_axon_velocity_gtrs_core_phase(
         inputs=batch_inputs.inputs,
         reconstruction_out_dir=batch_inputs.reconstruction_out_dir,
         merged_units_dir=batch_inputs.merged_units_dir,
@@ -137,19 +137,19 @@ def _run_generate_gtrs_batch(
     )
 
 
-def _run_reconstruct_generate_gtrs_batches(
+def _run_reconstruct_axon_velocity_gtrs_batches(
     *,
     inputs: ReconstructionInputs,
     env: Any,
 ) -> list[UnitReconstructionResult]:
     derived_unit_workers, unit_procs, unit_batch_size, batches = (
-        _resolve_generate_gtrs_execution_plan(
+        _resolve_axon_velocity_gtrs_execution_plan(
             inputs=inputs,
             unit_ids=env.unit_ids,
         )
     )
     reconstruct_runner.LOGGER.info(
-        "reconstruct.generate_gtrs execution plan: requested_units=%d derived_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d",
+        "reconstruct.axon_velocity_gtrs execution plan: requested_units=%d derived_unit_workers=%d unit_procs=%d unit_batch_size=%d unit_batches=%d",
         len(env.unit_ids),
         int(derived_unit_workers),
         int(unit_procs),
@@ -157,7 +157,7 @@ def _run_reconstruct_generate_gtrs_batches(
         len(batches),
     )
     if len(batches) <= 1 or unit_procs <= 1:
-        return reconstruct_runner.run_generate_gtrs_core_phase(
+        return reconstruct_runner.run_axon_velocity_gtrs_core_phase(
             inputs=inputs,
             reconstruction_out_dir=env.reconstruction_out_dir,
             merged_units_dir=env.merged_units_dir,
@@ -187,7 +187,7 @@ def _run_reconstruct_generate_gtrs_batches(
         )
 
     batch_inputs_list = [
-        _GenerateGtrsBatchInputs(
+        _AxonVelocityGtrsBatchInputs(
             inputs=replace(inputs, n_jobs=1, unit_ids=list(batch_unit_ids)),
             reconstruction_out_dir=env.reconstruction_out_dir,
             merged_units_dir=env.merged_units_dir,
@@ -203,7 +203,7 @@ def _run_reconstruct_generate_gtrs_batches(
             initializer=install_linux_parent_death_signal,
         ) as pool:
             futures = {
-                pool.submit(_run_generate_gtrs_batch, batch_inputs): list(
+                pool.submit(_run_axon_velocity_gtrs_batch, batch_inputs): list(
                     batch_inputs.inputs.unit_ids or []
                 )
                 for batch_inputs in batch_inputs_list
@@ -219,7 +219,7 @@ def _run_reconstruct_generate_gtrs_batches(
                 completed_units += completed_batch_units
                 advance_current_progress(completed_batch_units)
                 reconstruct_runner.LOGGER.info(
-                    "reconstruct.generate_gtrs unified progress: %d/%d units completed (%d/%d batches)",
+                    "reconstruct.axon_velocity_gtrs unified progress: %d/%d units completed (%d/%d batches)",
                     completed_units,
                     len(env.unit_ids),
                     completed,
@@ -227,10 +227,10 @@ def _run_reconstruct_generate_gtrs_batches(
                 )
     except Exception as exc:
         reconstruct_runner.LOGGER.warning(
-            "reconstruct.generate_gtrs process pool execution failed, falling back to in-process execution: %s",
+            "reconstruct.axon_velocity_gtrs process pool execution failed, falling back to in-process execution: %s",
             exc,
         )
-        return reconstruct_runner.run_generate_gtrs_core_phase(
+        return reconstruct_runner.run_axon_velocity_gtrs_core_phase(
             inputs=inputs,
             reconstruction_out_dir=env.reconstruction_out_dir,
             merged_units_dir=env.merged_units_dir,
@@ -264,12 +264,12 @@ def _run_reconstruct_generate_gtrs_batches(
     return batch_results
 
 
-def _run_reconstruct_generate_gtrs_phase_impl(
+def _run_reconstruct_axon_velocity_gtrs_phase_impl(
     *,
     inputs: ReconstructionInputs,
     env: Any,
 ) -> tuple[list[UnitReconstructionResult], Path | None]:
-    unit_results = _run_reconstruct_generate_gtrs_batches(inputs=inputs, env=env)
+    unit_results = _run_reconstruct_axon_velocity_gtrs_batches(inputs=inputs, env=env)
     return reconstruct_runner._cleanup_failed_reconstruct_unit_outputs(
         reconstruction_out_dir=env.reconstruction_out_dir,
         inputs=inputs,

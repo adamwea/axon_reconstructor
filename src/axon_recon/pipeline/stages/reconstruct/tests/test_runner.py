@@ -52,7 +52,7 @@ from axon_recon.pipeline.stages.reconstruct.runner import (
 	_reconstruct_stage_phase_runner,
 	_resolve_templates_dirs,
 	run_reconstruct_clear_templates_cache_phase,
-	run_reconstruct_generate_gtrs_phase,
+	run_reconstruct_axon_velocity_gtrs_phase,
 	run_reconstruct_plot_branch_propagations_phase,
 	run_reconstruct_plot_branch_velocities_phase,
 	run_reconstruct_plot_unit_summary_phase,
@@ -319,7 +319,7 @@ def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path
 		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
 		"templates_plot_templates_v2": "run_reconstruct_templates_plot_templates_v2_phase",
 		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
-		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
+		"axon_velocity_gtrs": "run_reconstruct_axon_velocity_gtrs_phase",
 		"plot_recons": "run_reconstruct_plot_recons_phase",
 		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",
 		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
@@ -364,7 +364,7 @@ def test_reconstruct_combined_phase_sequence_runs_in_order(monkeypatch, tmp_path
 		templates_inputs=templates_inputs,
 		phases=ReconstructionPhasesConfig(
 			clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(enabled=True),
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
+			axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
 			plot_recons=ReconstructionPlotReconsPhaseConfig(enabled=True),
 			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(enabled=True),
 			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
@@ -407,7 +407,7 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 		"templates_compute_template_similarity": "run_reconstruct_templates_compute_template_similarity_phase",
 		"templates_plot_templates_v2": "run_reconstruct_templates_plot_templates_v2_phase",
 		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
-		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
+		"axon_velocity_gtrs": "run_reconstruct_axon_velocity_gtrs_phase",
 		"plot_recons": "run_reconstruct_plot_recons_phase",
 		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",
 		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
@@ -452,7 +452,7 @@ def test_reconstruct_combined_phase_sequence_skips_clear_templates_cache_when_di
 		templates_inputs=templates_inputs,
 		phases=ReconstructionPhasesConfig(
 			clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(enabled=False),
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
+			axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
 			plot_recons=ReconstructionPlotReconsPhaseConfig(enabled=True),
 			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(enabled=True),
 			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
@@ -489,7 +489,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 		"templates_build_templates",
 		"templates_plot_templates_v2",
 		"templates_report_templates",
-		"generate_gtrs",
+		"axon_velocity_gtrs",
 		"plot_recons",
 		"plot_branch_propagations",
 		"plot_branch_velocities",
@@ -514,7 +514,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 		"templates_build_templates": "run_reconstruct_templates_build_templates_phase",
 		"templates_plot_templates_v2": "run_reconstruct_templates_plot_templates_v2_phase",
 		"templates_report_templates": "run_reconstruct_templates_report_templates_phase",
-		"generate_gtrs": "run_reconstruct_generate_gtrs_phase",
+		"axon_velocity_gtrs": "run_reconstruct_axon_velocity_gtrs_phase",
 		"plot_recons": "run_reconstruct_plot_recons_phase",
 		"plot_branch_propagations": "run_reconstruct_plot_branch_propagations_phase",
 		"plot_branch_velocities": "run_reconstruct_plot_branch_velocities_phase",
@@ -558,7 +558,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 			"build_templates",
 			"plot_templates_v2",
 			"report_templates",
-			"generate_gtrs",
+			"axon_velocity_gtrs",
 			"plot_recons",
 			"plot_branch_propagations",
 			"plot_branch_velocities",
@@ -571,7 +571,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 		templates_inputs=templates_inputs,
 		phases=ReconstructionPhasesConfig(
 			clear_templates_cache=ReconstructionClearTemplatesCachePhaseConfig(enabled=True),
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
+			axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(enabled=True),
 			plot_recons=ReconstructionPlotReconsPhaseConfig(enabled=True),
 			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(enabled=True),
 			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(enabled=True),
@@ -589,7 +589,7 @@ def test_reconstruct_configured_copied_template_phase_sequence_runs_requested_or
 	assert order_list == expected_order + ["collect"]
 
 
-def test_run_reconstruct_generate_gtrs_phase_writes_summary(monkeypatch, tmp_path: Path) -> None:
+def test_run_reconstruct_axon_velocity_gtrs_phase_writes_summary(monkeypatch, tmp_path: Path) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	well_out_dir = tmp_path / "well001"
@@ -642,20 +642,20 @@ def test_run_reconstruct_generate_gtrs_phase_writes_summary(monkeypatch, tmp_pat
 		),
 	)
 
-	summary = run_reconstruct_generate_gtrs_phase(inputs)
-	assert summary["phase"] == "generate_gtrs"
+	summary = run_reconstruct_axon_velocity_gtrs_phase(inputs)
+	assert summary["phase"] == "axon_velocity_gtrs"
 	assert summary["units_ok"] == 1
 	summary_path = Path(str(summary["summary_json"]))
 	assert summary_path.exists()
 	payload = json.loads(summary_path.read_text(encoding="utf-8"))
-	assert payload["phase"] == "generate_gtrs"
+	assert payload["phase"] == "axon_velocity_gtrs"
 	assert payload["units_ok"] == 1
 	unit_outputs = payload["units"][0]["outputs"]
 	assert "gtr_pkl" in unit_outputs
 	assert Path(unit_outputs["gtr_pkl"]).exists()
 
 
-def test_run_reconstruct_generate_gtrs_phase_logs_gtr_persistence_even_when_legacy_flag_is_false(
+def test_run_reconstruct_axon_velocity_gtrs_phase_logs_gtr_persistence_even_when_legacy_flag_is_false(
 	monkeypatch,
 	tmp_path: Path,
 	caplog,
@@ -713,17 +713,17 @@ def test_run_reconstruct_generate_gtrs_phase_logs_gtr_persistence_even_when_lega
 	)
 
 	with caplog.at_level(logging.INFO, logger="axon_recon.reconstruct"):
-		summary = run_reconstruct_generate_gtrs_phase(inputs)
+		summary = run_reconstruct_axon_velocity_gtrs_phase(inputs)
 
 	unit_outputs = summary["units"][0]["outputs"]
 	assert "gtr_pkl" in unit_outputs
 	assert Path(unit_outputs["gtr_pkl"]).exists()
 	assert "forcing gtr.pkl persistence for phase contract" in caplog.text
-	assert "reconstruct.generate_gtrs unit 7 wrote gtr_pkl=" in caplog.text
-	assert "reconstruct.generate_gtrs wrote summary output:" in caplog.text
+	assert "reconstruct.axon_velocity_gtrs unit 7 wrote gtr_pkl=" in caplog.text
+	assert "reconstruct.axon_velocity_gtrs wrote summary output:" in caplog.text
 
 
-def test_run_reconstruct_generate_gtrs_phase_writes_filter_selection_jsons(monkeypatch, tmp_path: Path) -> None:
+def test_run_reconstruct_axon_velocity_gtrs_phase_writes_filter_selection_jsons(monkeypatch, tmp_path: Path) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	well_out_dir = tmp_path / "well001"
@@ -806,7 +806,7 @@ def test_run_reconstruct_generate_gtrs_phase_writes_filter_selection_jsons(monke
 		),
 	)
 
-	summary = run_reconstruct_generate_gtrs_phase(inputs)
+	summary = run_reconstruct_axon_velocity_gtrs_phase(inputs)
 	unit_outputs = summary["units"][0]["outputs"]
 	assert Path(unit_outputs["detection_filter_json"]).exists()
 	assert Path(unit_outputs["kurtosis_filter_json"]).exists()
@@ -823,7 +823,7 @@ def test_run_reconstruct_generate_gtrs_phase_writes_filter_selection_jsons(monke
 	assert all_filters_payload["filters"]["delay"]["selected_channels"] == [1]
 
 
-def test_run_reconstruct_generate_gtrs_phase_writes_diagnostic_figures(monkeypatch, tmp_path: Path) -> None:
+def test_run_reconstruct_axon_velocity_gtrs_phase_writes_diagnostic_figures(monkeypatch, tmp_path: Path) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	well_out_dir = tmp_path / "well001"
@@ -919,7 +919,7 @@ def test_run_reconstruct_generate_gtrs_phase_writes_diagnostic_figures(monkeypat
 		),
 	)
 
-	summary = run_reconstruct_generate_gtrs_phase(inputs)
+	summary = run_reconstruct_axon_velocity_gtrs_phase(inputs)
 	unit_outputs = summary["units"][0]["outputs"]
 	assert Path(unit_outputs["channel_selection_figure_png"]).exists()
 	assert Path(unit_outputs["channel_selection_figure_svg"]).exists()
@@ -927,7 +927,7 @@ def test_run_reconstruct_generate_gtrs_phase_writes_diagnostic_figures(monkeypat
 	assert "axon_reconstruction_figure_svg" not in unit_outputs
 
 
-def test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency(monkeypatch, tmp_path: Path) -> None:
+def test_run_reconstruct_axon_velocity_gtrs_phase_ignores_max_plotting_concurrency(monkeypatch, tmp_path: Path) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	well_out_dir = tmp_path / "well001"
@@ -1005,7 +1005,7 @@ def test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency(mo
 		output_rel_root="recon_outputs",
 		unit_ids=[1, 2, 3, 4],
 		phases=ReconstructionPhasesConfig(
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(unit_procs=1)
+			axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(unit_procs=1)
 		),
 		n_jobs=4,
 		max_plotting_concurrency=1,
@@ -1030,12 +1030,12 @@ def test_run_reconstruct_generate_gtrs_phase_ignores_max_plotting_concurrency(mo
 		),
 	)
 
-	summary = run_reconstruct_generate_gtrs_phase(inputs)
+	summary = run_reconstruct_axon_velocity_gtrs_phase(inputs)
 	assert summary["units_ok"] == 4
 	assert max_active_plots == 4
 
 
-def test_resolve_generate_gtrs_execution_plan_prefers_fewer_processes() -> None:
+def test_resolve_axon_velocity_gtrs_execution_plan_prefers_fewer_processes() -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	inputs = ReconstructionInputs(
@@ -1045,7 +1045,7 @@ def test_resolve_generate_gtrs_execution_plan_prefers_fewer_processes() -> None:
 		n_jobs=24,
 	)
 
-	derived_unit_workers, unit_procs, unit_batch_size, batches = reconstruct_runner._resolve_generate_gtrs_execution_plan(
+	derived_unit_workers, unit_procs, unit_batch_size, batches = reconstruct_runner._resolve_axon_velocity_gtrs_execution_plan(
 		inputs=inputs,
 		unit_ids=list(range(12)),
 	)
@@ -1063,7 +1063,7 @@ def test_resolve_generate_gtrs_execution_plan_prefers_fewer_processes() -> None:
 	]
 
 
-def test_resolve_generate_gtrs_execution_plan_honors_unit_procs_override() -> None:
+def test_resolve_axon_velocity_gtrs_execution_plan_honors_unit_procs_override() -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	inputs = ReconstructionInputs(
@@ -1071,12 +1071,12 @@ def test_resolve_generate_gtrs_execution_plan_honors_unit_procs_override() -> No
 		stream_id="well000",
 		mea_output_root=Path("/tmp/out"),
 		phases=ReconstructionPhasesConfig(
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(unit_procs=4)
+			axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(unit_procs=4)
 		),
 		n_jobs=24,
 	)
 
-	derived_unit_workers, unit_procs, unit_batch_size, batches = reconstruct_runner._resolve_generate_gtrs_execution_plan(
+	derived_unit_workers, unit_procs, unit_batch_size, batches = reconstruct_runner._resolve_axon_velocity_gtrs_execution_plan(
 		inputs=inputs,
 		unit_ids=list(range(12)),
 	)
@@ -1122,7 +1122,7 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstr
 		stream_id="well000",
 		mea_output_root=Path("/tmp/out"),
 		phases=ReconstructionPhasesConfig(
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(resource_class="axon_reconstruction"),
+			axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(resource_class="axon_reconstruction"),
 			plot_recons=ReconstructionPlotReconsPhaseConfig(resource_class="plot_unit"),
 			plot_branch_propagations=ReconstructionPlotBranchPropagationsPhaseConfig(resource_class="plot_unit"),
 			plot_branch_velocities=ReconstructionPlotBranchVelocitiesPhaseConfig(resource_class="plot_unit"),
@@ -1151,7 +1151,7 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstr
 		)
 		gtr_inputs, gtr_workers, gtr_source, gtr_resource_class = _reconstruct_inputs_for_phase_workers(
 			inputs,
-			"generate_gtrs",
+			"axon_velocity_gtrs",
 		)
 		plot_inputs, plot_workers, plot_source, plot_resource_class = _reconstruct_inputs_for_phase_workers(
 			inputs,
@@ -1182,7 +1182,7 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstr
 	assert report_inputs.n_jobs == 4
 
 
-def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: Path, monkeypatch, caplog) -> None:
+def test_run_reconstruct_axon_velocity_gtrs_batches_logs_unified_progress(tmp_path: Path, monkeypatch, caplog) -> None:
 	from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 
 	class _FakeFuture:
@@ -1208,7 +1208,7 @@ def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: P
 	def _fake_as_completed(futures):
 		return list(futures.keys())
 
-	def _fake_run_generate_gtrs_batch(batch_inputs):
+	def _fake_run_axon_velocity_gtrs_batch(batch_inputs):
 		assert batch_inputs.inputs.n_jobs == 1
 		return [
 			reconstruct_runner.UnitReconstructionResult(
@@ -1232,8 +1232,8 @@ def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: P
 	)
 	monkeypatch.setattr(
 		reconstruct_runner,
-		"_run_generate_gtrs_batch",
-		_fake_run_generate_gtrs_batch,
+		"_run_axon_velocity_gtrs_batch",
+		_fake_run_axon_velocity_gtrs_batch,
 	)
 
 	inputs = ReconstructionInputs(
@@ -1241,7 +1241,7 @@ def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: P
 		stream_id="well000",
 		mea_output_root=tmp_path / "outputs",
 		phases=ReconstructionPhasesConfig(
-			generate_gtrs=ReconstructionGenerateGtrsPhaseConfig(unit_procs=2, unit_batch_size=3)
+			axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(unit_procs=2, unit_batch_size=3)
 		),
 		n_jobs=24,
 	)
@@ -1256,20 +1256,20 @@ def test_run_reconstruct_generate_gtrs_batches_logs_unified_progress(tmp_path: P
 	)
 
 	with caplog.at_level(logging.INFO, logger="axon_recon.reconstruct"):
-		result = reconstruct_runner._run_reconstruct_generate_gtrs_batches(inputs=inputs, env=env)
+		result = reconstruct_runner._run_reconstruct_axon_velocity_gtrs_batches(inputs=inputs, env=env)
 
 	messages = [record.getMessage() for record in caplog.records]
 	assert any(
-		"reconstruct.generate_gtrs execution plan: requested_units=6 derived_unit_workers=24 unit_procs=2 unit_batch_size=3 unit_batches=2"
+		"reconstruct.axon_velocity_gtrs execution plan: requested_units=6 derived_unit_workers=24 unit_procs=2 unit_batch_size=3 unit_batches=2"
 		in message
 		for message in messages
 	)
 	assert any(
-		"reconstruct.generate_gtrs unified progress: 3/6 units completed (1/2 batches)" in message
+		"reconstruct.axon_velocity_gtrs unified progress: 3/6 units completed (1/2 batches)" in message
 		for message in messages
 	)
 	assert any(
-		"reconstruct.generate_gtrs unified progress: 6/6 units completed (2/2 batches)" in message
+		"reconstruct.axon_velocity_gtrs unified progress: 6/6 units completed (2/2 batches)" in message
 		for message in messages
 	)
 	assert [item.unit_id for item in result] == [10, 11, 12, 13, 14, 15]

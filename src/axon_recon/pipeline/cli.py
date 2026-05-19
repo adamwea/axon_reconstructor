@@ -62,7 +62,7 @@ from .stages.reconstruct.cli import (
 )
 from .stages.reconstruct.cli import _run_from_args as _run_reconstruct_from_args
 from .stages.reconstruct.cli import (
-	_run_generate_gtrs_from_args as _run_reconstruct_generate_gtrs_from_args,
+	_run_axon_velocity_gtrs_from_args as _run_reconstruct_axon_velocity_gtrs_from_args,
 )
 from .stages.reconstruct.cli import (
 	_run_plot_branch_propagations_from_args as _run_reconstruct_plot_branch_propagations_from_args,
@@ -222,7 +222,7 @@ _STAGE_ALIASES: dict[str, str] = {
 	"recon.templates_compute_template_similarity": "reconstruct.compute_template_similarity",
 	"recon.templates_plot_templates_v2": "reconstruct.plot_templates_v2",
 	"recon.templates_report_templates": "reconstruct.report_templates",
-	"recon.generate_gtrs": "reconstruct.generate_gtrs",
+	"recon.axon_velocity_gtrs": "reconstruct.axon_velocity_gtrs",
 	"recon.plot_recons": "reconstruct.plot_recons",
 	"recon.plot_branch_propagations": "reconstruct.plot_branch_propagations",
 	"recon.plot_branch_velocities": "reconstruct.plot_branch_velocities",
@@ -253,7 +253,7 @@ _STAGE_ALIASES: dict[str, str] = {
 	"reconstruct.templates_compute_template_similarity": "reconstruct.compute_template_similarity",
 	"reconstruct.templates_plot_templates_v2": "reconstruct.plot_templates_v2",
 	"reconstruct.templates_report_templates": "reconstruct.report_templates",
-	"reconstruction.generate_gtrs": "reconstruct.generate_gtrs",
+	"reconstruction.axon_velocity_gtrs": "reconstruct.axon_velocity_gtrs",
 	"reconstruction.plot_recons": "reconstruct.plot_recons",
 	"reconstruction.plot_branch_propagations": "reconstruct.plot_branch_propagations",
 	"reconstruction.plot_branch_velocities": "reconstruct.plot_branch_velocities",
@@ -302,7 +302,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct.compute_template_similarity": _run_reconstruct_compute_template_similarity_from_args,
 	"reconstruct.plot_templates_v2": _run_reconstruct_plot_templates_v2_from_args,
 	"reconstruct.report_templates": _run_reconstruct_report_templates_from_args,
-	"reconstruct.generate_gtrs": _run_reconstruct_generate_gtrs_from_args,
+	"reconstruct.axon_velocity_gtrs": _run_reconstruct_axon_velocity_gtrs_from_args,
 	"reconstruct.plot_recons": _run_reconstruct_plot_recons_from_args,
 	"reconstruct.plot_branch_propagations": _run_reconstruct_plot_branch_propagations_from_args,
 	"reconstruct.plot_branch_velocities": _run_reconstruct_plot_branch_velocities_from_args,

@@ -423,7 +423,7 @@ def run_plot_unit_summary_phase(
 			payload = {
 				"unit_id": unit_id,
 				"status": "error",
-				"error": "Missing generate_gtrs unit summary; run reconstruct.generate_gtrs first",
+				"error": "Missing axon_velocity_gtrs unit summary; run reconstruct.axon_velocity_gtrs first",
 				"outputs": {},
 			}
 			write_json_fn(unit_summary_json, payload)
@@ -445,7 +445,7 @@ def run_plot_unit_summary_phase(
 		gtr_path = paths["gtr_pkl"]
 		if not gtr_path.exists():
 			unit_summary["status"] = "error"
-			unit_summary["error"] = "Missing generate_gtrs artifact gtr.pkl; run reconstruct.generate_gtrs first"
+			unit_summary["error"] = "Missing axon_velocity_gtrs artifact gtr.pkl; run reconstruct.axon_velocity_gtrs first"
 			write_json_fn(unit_summary_json, unit_summary)
 			return _unit_result_from_summary(unit_id=unit_id, payload=unit_summary)
 

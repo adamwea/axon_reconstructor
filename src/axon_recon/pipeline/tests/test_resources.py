@@ -294,7 +294,7 @@ def test_reconstruct_and_templates_parsers_preserve_phase_resource_class():
 	payload["stages"] = {
 		"reconstruct": {
 			"phases": {
-				"generate_gtrs": {"resource_class": "axon_reconstruction"},
+				"axon_velocity_gtrs": {"resource_class": "axon_reconstruction"},
 				"report_recons": {"resource_class": "plot_report_grid"},
 				"resolve_sources": {"resource_class": "h5_metadata"},
 				"build_templates": {"resource_class": "template_build"},
@@ -305,7 +305,7 @@ def test_reconstruct_and_templates_parsers_preserve_phase_resource_class():
 	reconstruct_cfg = parse_reconstruction_stage_config(runtime_config=RuntimeConfig(payload))
 	templates_cfg = parse_reconstruct_templates_config(runtime_config=RuntimeConfig(payload))
 
-	assert reconstruct_cfg.phases.generate_gtrs.resource_class == "axon_reconstruction"
+	assert reconstruct_cfg.phases.axon_velocity_gtrs.resource_class == "axon_reconstruction"
 	assert reconstruct_cfg.phases.report_recons.resource_class == "plot_report_grid"
 	assert templates_cfg.resolve_sources_phase.resource_class == "h5_metadata"
 	assert templates_cfg.phases.build_templates.resource_class == "template_build"

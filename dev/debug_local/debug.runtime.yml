@@ -888,7 +888,7 @@ stages:
       #- compute_template_similarity
       - plot_templates_v2
       - report_templates
-      - generate_gtrs
+      - axon_velocity_gtrs
       - plot_recons
       - plot_branch_propagations
       - plot_branch_velocities
@@ -916,7 +916,7 @@ stages:
     #   # - number of templates built in build_templates phase.
     #   # - number of templates plotted in plot_templates_v2 phase.
     #   # - number of templates included in report_templates phase.
-    #   # - number of gtrs generated in generate_gtrs phase.
+    #   # - number of gtrs generated in axon_velocity_gtrs phase.
     #   # - number of units included in plot_recons phase.
     #   # - number of units included in plot_branch_propagations phase.
     #   # - number of units included in plot_branch_velocities phase.
@@ -1273,12 +1273,12 @@ stages:
         # write pdf slide deck of all circle style template plots for all units.
         relpath: template_report.pdf
         write_pdf: true
-      generate_gtrs:
+      axon_velocity_gtrs:
         enable: true
         resource_class: axon_reconstruction
         #reconstruct_with_axon_velocity: true
         outputs:
-          # JSON artifacts emitted by the generate_gtrs phase.
+          # JSON artifacts emitted by the axon_velocity_gtrs phase.
           write_branches_raw_json: true
           branches_raw_relpath: branches_raw.json
           write_branches_json: true
