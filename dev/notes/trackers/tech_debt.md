@@ -94,7 +94,7 @@ broken behavior) and `roadmap.md` (which is new ambitions).
   Earns its own plan when scoped.
 
 ### Soften container preflight when `publish_outputs: false`
-- **Status**: open (cross-listed in issues.md as workaround)
+- **Status**: SHIPPED 2026-05-19 (commit ~latest, see commit_log)
 - **Tags**: infra, container, ergonomics
 - **Where**: `src/axon_recon/pipeline/container_cli.py:_resolve_config_mounts`.
 - **Why it's debt**: the preflight tries to `mkdir -p` the data config's

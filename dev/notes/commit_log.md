@@ -3950,3 +3950,5 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 (unit_plots) | recon [opus] | propagate display_cfg.invert_y_axis to v2_cfg in write_unit_circle_recon_plot; 1 pre-existing failure resolved
 (container_cli) | infra [opus] | soften container_cli config-load on --dry-run; 5 pre-existing container_cli failures resolved
 (slice 5) | parallelism slice 5 [opus] | relabel current_phase_worker_allocation fallback source from "inputs.n_jobs" to "fallback_workers"
+(preflight) | tech_debt [opus] | soften container preflight output_root check when publish_outputs is false; tracker entry marked SHIPPED
+(kssynth-1) | kssynth slice 1 [opus] | scaffold sibling package at ~/dev/pkgs/kssynth/ (`git init`, no remote); 2 tests; commit 7e236f3 in kssynth repo
