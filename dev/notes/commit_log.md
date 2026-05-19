@@ -3970,3 +3970,4 @@ a18cb4b | unitmatch_phase slice 2 [opus] | core/unitmatch_groups.py — discover
 575e08b | unitmatch_phase slice 3 [opus] | orchestrator invokes unitlink.match once per (chip, well) group; group_dir lives at project-level output_root (NOT per-well stage dir); idempotent skip on subsequent group targets; 9 tests green
 7c8aeff | resolutions [opus] | 4 overnight blockers resolved: UMPy+mat73 installed (real submodules verified); slice 14c picks approach A + tracker for B; max_spikes=None test-wins semantic; GH remotes hold
 e9d3e4e | guardrail [opus] | add env_parity.md — conda env <-> shifter capabilities parity (Kilosort+CUDA & NERSC/HPC/SLURM carve-outs); flags UMPy+mat73 gap under USER INJECTIONS
+196d9df | guardrail [opus] | env_parity covers three-artifact contract: environment.yml + bootstrap_editable_deps.sh + Dockerfile; book tracker for missing bootstrap script; tighten UMPy+mat73 gap injection
