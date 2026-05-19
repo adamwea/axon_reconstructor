@@ -3958,3 +3958,6 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 (kssynth-4) | kssynth slice 4 [opus] | core/rasterize.py — rasterize_to_grid (sparse template → dense global grid); 7 tests; commit 77f6783
 (kssynth-5) | kssynth slice 5 [opus] | core/partial_templates.py — extract_partial_templates_for_analyzer; 6 tests; commit bacc9db
 (kssynth-6) | kssynth slice 6 [opus] | core/merge_templates.py — merge_partial_templates (mean/weighted/median/time_aligned); 12 tests; commit 6680b2e
+(kssynth-7) | kssynth slice 7 [opus] | io/ks_folder_writer.py + api.synthesize orchestration + CLI; v1-feature-complete; 8 tests; commit d97036b
+(unitlink-2) | unitlink slice 2 [opus] | core/sorter_output_reader.py — lazy KS-folder loader; 11 tests; commit fe18c77
+(unitlink-3) | unitlink slice 3 [opus] | core/union_grid.py — cross-session channel grid (parallel to kssynth's); 9 tests; commit 9e99bf2
