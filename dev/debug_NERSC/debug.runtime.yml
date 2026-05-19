@@ -364,6 +364,11 @@ logging:
 
 stages:
 
+  init:
+    enabled: false
+    phase_sequence: []
+    phases: {}
+
   preprocess:
     execution:
       force_restart: false

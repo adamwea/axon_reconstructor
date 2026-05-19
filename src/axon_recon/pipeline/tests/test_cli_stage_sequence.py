@@ -7,7 +7,7 @@ import pytest
 
 import axon_recon.pipeline.cli as pipeline_cli
 
-ACTIVE_STAGE_ORDER = ["preprocess", "spikesort", "reconstruct", "analysis"]
+ACTIVE_STAGE_ORDER = ["init", "preprocess", "spikesort", "reconstruct", "analysis"]
 
 
 def _write_runtime_cfg(path: Path) -> None:

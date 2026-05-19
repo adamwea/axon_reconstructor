@@ -58,7 +58,7 @@ ACCEPTABLE_SKIP_REASONS: frozenset[str] = frozenset(
 _HEALTHY_PHASE_STATUSES: frozenset[str] = frozenset({"ok", "success", "completed"})
 
 
-STAGE_ORDER: tuple[str, ...] = ("preprocess", "spikesort", "reconstruct", "analysis")
+STAGE_ORDER: tuple[str, ...] = ("init", "preprocess", "spikesort", "reconstruct", "analysis")
 
 
 # KS-raw labels: pull from the snapshot dir rather than the canonical
@@ -115,6 +115,7 @@ STAGE_WELL_MARKER: dict[str, tuple[str, ...]] = {
 # Per-phase markers, relative to the per-well output dir. Ordered to mirror
 # the canonical phase sequence.
 STAGE_PHASES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
+	"init": (),
 	"preprocess": (
 		("copy_src_to_scratch", ("preprocess_outputs", "context", "copy_src_to_scratch_summary.json")),
 		("save_rec_metadata", ("preprocess_outputs", "context", "recording_metadata_summary.json")),
@@ -546,10 +547,20 @@ def scan_status(
 	if target_wells is not None:
 		target_wells_set = {str(w) for w in target_wells if str(w).strip()}
 
-	stage_list = list(stages) if stages is not None else list(STAGE_ORDER)
-	for stage_name in stage_list:
-		if stage_name not in STAGE_WELL_MARKER:
-			raise ValueError(f"Unknown stage for status: {stage_name!r}")
+	if stages is not None:
+		stage_list = list(stages)
+		# Explicit user-passed stages stay strict: surface unknown/unmarkered
+		# stage tokens loudly rather than silently dropping them.
+		for stage_name in stage_list:
+			if stage_name not in STAGE_WELL_MARKER:
+				raise ValueError(f"Unknown stage for status: {stage_name!r}")
+	else:
+		# Default scan walks all canonical stages that have a registered
+		# completion marker. New scaffolded stages (init, eventually cleanup)
+		# enter STAGE_ORDER before their marker is wired up; those get
+		# silently skipped here so the default `axon-recon status` keeps
+		# producing a coherent report.
+		stage_list = [name for name in STAGE_ORDER if name in STAGE_WELL_MARKER]
 
 	stages_out: list[StageStatus] = []
 	for stage_name in stage_list:

@@ -130,10 +130,12 @@ from .stages.analysis.cli import (
 	_run_compute_metrics_from_args as _run_analysis_compute_metrics_from_args,
 )
 from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
+from .stages.init.cli import _run_from_args as _run_init_from_args
 
 StageHandler = Callable[[argparse.Namespace], int]
 
 _CANONICAL_STAGE_ORDER: list[str] = [
+	"init",
 	"preprocess",
 	"spikesort",
 	"reconstruct",
@@ -270,6 +272,7 @@ _STAGE_ALIASES: dict[str, str] = {
 }
 
 _STAGE_HANDLERS: dict[str, StageHandler] = {
+	"init": _run_init_from_args,
 	"preprocess": _run_preprocess_from_args,
 	"preprocess.copy_src_to_scratch": _run_preprocess_copy_src_to_scratch_from_args,
 	"preprocess.save_rec_metadata": _run_preprocess_save_rec_metadata_from_args,

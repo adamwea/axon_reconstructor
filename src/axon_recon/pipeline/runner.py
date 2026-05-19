@@ -131,6 +131,11 @@ from .stages.analysis.config import (
 	parse_analysis_stage_config,
 )
 from .stages.analysis.models.results import AnalysisResult
+from .stages.init.config import (
+	InitStageConfig,
+	parse_init_stage_config,
+)
+from .stages.init.runner import run_init_stage
 
 LOGGER = logging.getLogger("axon_recon.pipeline.runner")
 _WARNED_IGNORED_PHASE_DEBUG_LIMITS: set[tuple[str, str]] = set()
@@ -3883,6 +3888,47 @@ def run_analysis_from_runtime(
 		failed_targets=failed,
 		target_results=results,
 	)
+
+
+def run_init_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	"""Run the init stage from a runtime config path.
+
+	Slice 4 scaffolds this entry point. Until slice 5 moves
+	`copy_src_to_scratch` into the stage, the runner is a clean no-op when
+	the stage is disabled or its phase_sequence is empty (the YAML defaults).
+	If a user enables the stage with phases configured before slice 5 lands,
+	`run_init_stage` raises `NotImplementedError` — surfacing the half-wired
+	state instead of silently passing.
+
+	Signature mirrors `run_analysis_from_runtime` so the CLI plumbing and
+	override flags stay uniform across stages, even though the scope-/limit
+	overrides aren't consumed yet by an empty phase sequence.
+	"""
+
+	del limit_segments_override
+	del limit_datasets_override
+	del target_datasets_override
+	del limit_wells_per_dataset_override
+	del task_allocation_override
+
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = parse_init_stage_config(
+		runtime_config=bundle.runtime_config,
+		data_config=bundle.data_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	return run_init_stage(stage_config)
 
 
 def _run_spikesort_sort_from_runtime(
