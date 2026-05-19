@@ -18,7 +18,6 @@ from axon_recon.pipeline.runner import (
     run_preprocess_plot_segment_traces_from_runtime,
     run_preprocess_preprocess_segments_from_runtime,
     run_preprocess_save_rec_metadata_from_runtime,
-    run_preprocess_wipe_src_scratch_from_runtime,
 )
 from axon_recon.pipeline.stages.preprocess.models.inputs import PreprocessInputs
 from axon_recon.pipeline.stages.preprocess.models.results import PreprocessResult
@@ -515,15 +514,6 @@ def test_preprocess_debug_limits_select_first_wells_per_dataset(tmp_path: Path) 
             True,
         ),
         (
-            run_preprocess_wipe_src_scratch_from_runtime,
-            "run_preprocess_wipe_src_scratch_from_runtime",
-            "run_preprocess_wipe_src_scratch",
-            "preprocess.wipe_src_scratch",
-            "wipe_src_scratch",
-            1,
-            True,
-        ),
-        (
             run_preprocess_preprocess_segments_from_runtime,
             "run_preprocess_preprocess_segments_from_runtime",
             "run_preprocess_preprocess_segments",
@@ -744,7 +734,6 @@ def test_preprocess_phase_from_args_forwards_debug_limits(monkeypatch, tmp_path:
     ("module_name", "runner_symbol", "phase_name"),
     [
         ("save_rec_metadata", "run_preprocess_save_rec_metadata_from_runtime", "save_rec_metadata"),
-        ("wipe_src_scratch", "run_preprocess_wipe_src_scratch_from_runtime", "wipe_src_scratch"),
         ("preprocess_segments", "run_preprocess_preprocess_segments_from_runtime", "preprocess_segments"),
         ("plot_segment_traces", "run_preprocess_plot_segment_traces_from_runtime", "plot_segment_traces"),
         (

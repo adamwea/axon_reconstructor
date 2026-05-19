@@ -30,7 +30,6 @@ from .models.inputs import (
 	PreprocessPlotSegmentTracesPhaseConfig,
 	PreprocessSaveRecMetadataPhaseConfig,
 	PreprocessSegmentsPhaseConfig,
-	PreprocessWipeSrcScratchPhaseConfig,
 )
 
 
@@ -62,9 +61,6 @@ _PREPROCESS_PHASE_ALIASES: dict[str, str] = {
 	"plot_concatenated_channel_layout": "plot_concat_channel_layout",
 	"plot_raster_threshold": "plot_raster_threshold",
 	"raster_threshold": "plot_raster_threshold",
-	"wipe_src_scratch": "wipe_src_scratch",
-	"wipe_source_scratch": "wipe_src_scratch",
-	"cleanup_scratch_copy": "wipe_src_scratch",
 }
 
 
@@ -734,7 +730,6 @@ def parse_preprocess_stage_config(
 	)
 
 	save_rec_metadata_phase_cfg = phases_cfg.get("save_rec_metadata", {}) if isinstance(phases_cfg.get("save_rec_metadata", {}), dict) else {}
-	wipe_src_scratch_phase_cfg = phases_cfg.get("wipe_src_scratch", {}) if isinstance(phases_cfg.get("wipe_src_scratch", {}), dict) else {}
 	preprocess_segments_phase_cfg = phases_cfg.get("preprocess_segments", {}) if isinstance(phases_cfg.get("preprocess_segments", {}), dict) else {}
 	plot_segment_traces_phase_cfg = phases_cfg.get("plot_segment_traces", {}) if isinstance(phases_cfg.get("plot_segment_traces", {}), dict) else {}
 	plot_segment_channel_layouts_phase_cfg = phases_cfg.get("plot_segment_channel_layouts", {}) if isinstance(phases_cfg.get("plot_segment_channel_layouts", {}), dict) else {}
@@ -1078,19 +1073,6 @@ def parse_preprocess_stage_config(
 		raw_cfg=save_rec_metadata_phase_cfg,
 		resource_class=_phase_resource_class(save_rec_metadata_phase_cfg, "save_rec_metadata"),
 	)
-	wipe_src_scratch_phase = PreprocessWipeSrcScratchPhaseConfig(
-		enabled=_as_bool(wipe_src_scratch_phase_cfg.get("enabled", wipe_src_scratch_phase_cfg.get("enable", False)), False),
-		dry_run=_as_bool(wipe_src_scratch_phase_cfg.get("dry_run", False), False),
-		requires_use_scratch_root=_as_bool(
-			wipe_src_scratch_phase_cfg.get("requires_use_scratch_root", False),
-			False,
-		),
-		summary_json_relpath=str(
-			wipe_src_scratch_phase_cfg.get("summary_json_relpath", "context/wipe_src_scratch_summary.json")
-			or "context/wipe_src_scratch_summary.json"
-		),
-		resource_class=_phase_resource_class(wipe_src_scratch_phase_cfg, "wipe_src_scratch"),
-	)
 
 	return PreprocessStageConfig(
 		output_rel_root=_normalize_output_rel_root(outputs_cfg.get("output_rel_root", _DEFAULT_OUTPUT_REL_ROOT)),
@@ -1150,7 +1132,6 @@ def parse_preprocess_stage_config(
 		print_n_jobs_used=print_n_jobs_used,
 		phases=PreprocessPhasesConfig(
 			save_rec_metadata=save_rec_metadata_phase,
-			wipe_src_scratch=wipe_src_scratch_phase,
 			preprocess_segments=preprocess_segments_phase,
 			plot_segment_traces=plot_segment_traces_phase,
 			plot_segment_channel_layouts=plot_segment_channel_layouts_phase,

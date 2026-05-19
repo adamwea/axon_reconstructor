@@ -7,7 +7,7 @@ import pytest
 
 import axon_recon.pipeline.cli as pipeline_cli
 
-ACTIVE_STAGE_ORDER = ["init", "preprocess", "spikesort", "reconstruct", "analysis"]
+ACTIVE_STAGE_ORDER = ["init", "preprocess", "spikesort", "reconstruct", "analysis", "cleanup"]
 
 
 def _write_runtime_cfg(path: Path) -> None:
@@ -98,7 +98,13 @@ def test_parse_stage_list_tokens_rejects_removed_extract_template_segments(raw_t
         ("copy_src_to_scratch", "init.copy_src_to_scratch"),
         ("init.copy_src_to_scratch", "init.copy_src_to_scratch"),
         ("preprocess.save_rec_metadata", "preprocess.save_rec_metadata"),
-        ("preprocess.wipe_src_scratch", "preprocess.wipe_src_scratch"),
+        # `wipe_src_scratch` moved from preprocess to the cleanup stage in slice 6;
+        # the legacy preprocess.wipe_src_scratch token now resolves to
+        # cleanup.wipe_src_scratch via _STAGE_ALIASES.
+        ("preprocess.wipe_src_scratch", "cleanup.wipe_src_scratch"),
+        ("pre.wipe_src_scratch", "cleanup.wipe_src_scratch"),
+        ("wipe_src_scratch", "cleanup.wipe_src_scratch"),
+        ("cleanup.wipe_src_scratch", "cleanup.wipe_src_scratch"),
         ("preprocess.preprocess_segments", "preprocess.preprocess_segments"),
         ("preprocess.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preprocess.plot_segment_channel_layouts", "preprocess.plot_segment_channel_layouts"),
@@ -107,7 +113,7 @@ def test_parse_stage_list_tokens_rejects_removed_extract_template_segments(raw_t
         ("preprocess.plot_concat_channel_layout", "preprocess.plot_concat_channel_layout"),
         ("preprocess.plot_raster_threshold", "preprocess.plot_raster_threshold"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
-        ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
+        ("preproc.wipe_src_scratch", "cleanup.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preproc.plot_segment_channel_layouts", "preprocess.plot_segment_channel_layouts"),
         ("preproc.concat_segments", "preprocess.concat_segments"),
@@ -721,14 +727,17 @@ def test_main_stops_after_first_failure(monkeypatch, tmp_path: Path) -> None:
         ("preprocess.copy_src_to_scratch", "init.copy_src_to_scratch"),
         ("init.copy_src_to_scratch", "init.copy_src_to_scratch"),
         ("preprocess.save_rec_metadata", "preprocess.save_rec_metadata"),
-        ("preprocess.wipe_src_scratch", "preprocess.wipe_src_scratch"),
+        # `wipe_src_scratch` moved to cleanup in slice 6; legacy preprocess.* token resolves
+        # to cleanup.wipe_src_scratch via _STAGE_ALIASES and dispatches through the cleanup handler.
+        ("preprocess.wipe_src_scratch", "cleanup.wipe_src_scratch"),
+        ("cleanup.wipe_src_scratch", "cleanup.wipe_src_scratch"),
         ("preprocess.preprocess_segments", "preprocess.preprocess_segments"),
         ("preprocess.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preprocess.concat_segments", "preprocess.concat_segments"),
         ("preprocess.plot_concat_traces", "preprocess.plot_concat_traces"),
         ("preprocess.plot_raster_threshold", "preprocess.plot_raster_threshold"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
-        ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
+        ("preproc.wipe_src_scratch", "cleanup.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preproc.concat_segments", "preprocess.concat_segments"),
         ("preproc.plot_concat_traces", "preprocess.plot_concat_traces"),

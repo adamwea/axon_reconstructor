@@ -58,7 +58,6 @@ from .stages.preprocess.api import (
 	run_preprocess_plot_segment_traces,
 	run_preprocess_preprocess_segments,
 	run_preprocess_save_rec_metadata,
-	run_preprocess_wipe_src_scratch,
 )
 from .stages.preprocess.config import (
 	build_preprocess_inputs_for_target,
@@ -137,6 +136,12 @@ from .stages.init.config import (
 	parse_init_stage_config,
 )
 from .stages.init.runner import build_init_inputs_for_target, run_init_stage
+from .stages.cleanup.api import run_cleanup_wipe_src_scratch
+from .stages.cleanup.config import (
+	CleanupStageConfig,
+	parse_cleanup_stage_config,
+)
+from .stages.cleanup.runner import build_cleanup_inputs_for_target, run_cleanup_stage
 
 LOGGER = logging.getLogger("axon_recon.pipeline.runner")
 _WARNED_IGNORED_PHASE_DEBUG_LIMITS: set[tuple[str, str]] = set()
@@ -2623,31 +2628,6 @@ def run_preprocess_plot_segment_channel_layouts_from_runtime(
 	)
 
 
-def run_preprocess_wipe_src_scratch_from_runtime(
-	*,
-	config_path: str,
-	limit_segments_override: int | None = None,
-	limit_datasets_override: int | None = None,
-	target_datasets_override: list[int] | None = None,
-	limit_wells_per_dataset_override: int | None = None,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-	task_allocation_override: dict[str, Any] | None = None,
-) -> MultiTargetStageResult:
-	return _run_preprocess_substage_from_runtime(
-		config_path=config_path,
-		stage_name="preprocess.wipe_src_scratch",
-		runner_fn=run_preprocess_wipe_src_scratch,
-		limit_segments_override=limit_segments_override,
-		limit_datasets_override=limit_datasets_override,
-		target_datasets_override=target_datasets_override,
-		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-		task_allocation_override=task_allocation_override,
-	)
-
-
 def run_preprocess_preprocess_segments_from_runtime(
 	*,
 	config_path: str,
@@ -4030,6 +4010,173 @@ def run_init_from_runtime(
 			)
 		else:
 			raise ValueError(f"Unknown init phase: {phase_label}")
+		results.extend(phase_result.target_results)
+		total_targets += phase_result.total_targets
+		succeeded += phase_result.succeeded_targets
+		failed += phase_result.failed_targets
+	return MultiTargetStageResult(
+		stage=final_stage,
+		total_targets=total_targets,
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=results,
+	)
+
+
+def _cleanup_wipe_phase_enabled(stage_config: CleanupStageConfig) -> bool:
+	"""True iff `wipe_src_scratch` is enabled AND listed in `phase_sequence`."""
+
+	if not bool(stage_config.enabled):
+		return False
+	if "wipe_src_scratch" not in tuple(stage_config.phase_sequence):
+		return False
+	return bool(getattr(stage_config.phases.wipe_src_scratch, "enabled", False))
+
+
+def _select_cleanup_execution_targets(
+	*,
+	bundle: PipelineRuntimeBundle,
+	stage_config: CleanupStageConfig,
+	target_datasets: list[int] | None = None,
+	limit_datasets: int | None = None,
+	limit_wells_per_dataset: int | None = None,
+) -> list[ExecutionTarget]:
+	"""Build execution targets for the cleanup stage.
+
+	`materialize_scratch_inputs=False`: cleanup operates on whatever h5 paths
+	the data config (+ init stage's prior copy) already exposes. It never
+	triggers a fresh copy — it only deletes what's already in scratch.
+	"""
+
+	kwargs: dict[str, Any] = {
+		"bundle": bundle,
+		"materialize_scratch_inputs": False,
+	}
+	if target_datasets is not None:
+		kwargs["target_datasets"] = list(target_datasets)
+	if limit_datasets is not None:
+		kwargs["limit_datasets"] = int(limit_datasets)
+	if limit_wells_per_dataset is not None:
+		kwargs["limit_wells_per_dataset"] = int(limit_wells_per_dataset)
+	del stage_config  # currently unused; kept for signature parity with init's variant
+	return select_execution_targets(**kwargs)
+
+
+def run_cleanup_wipe_src_scratch_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	"""Run just the cleanup `wipe_src_scratch` phase end-to-end.
+
+	Mirrors `run_init_copy_src_to_scratch_from_runtime` (slice 5): load the
+	runtime bundle, parse the cleanup stage config, force the wipe phase
+	enabled (the user typed `cleanup.wipe_src_scratch` explicitly so honor it
+	even when the stage-level `enabled` flag is false), then iterate per
+	target and call the orchestrator. `limit_segments_override` and
+	`task_allocation_override` are unused (cleanup has no segments and is
+	single-CPU per target).
+	"""
+
+	del limit_segments_override
+	del task_allocation_override
+
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = parse_cleanup_stage_config(
+		runtime_config=bundle.runtime_config,
+		data_config=bundle.data_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	from dataclasses import replace as _replace
+	from .stages.cleanup.models.inputs import CleanupPhasesConfig, CleanupWipeSrcScratchPhaseConfig
+
+	current_wipe_phase = stage_config.phases.wipe_src_scratch
+	stage_config = _replace(
+		stage_config,
+		enabled=True,
+		phase_sequence=("wipe_src_scratch",),
+		phases=CleanupPhasesConfig(
+			wipe_src_scratch=CleanupWipeSrcScratchPhaseConfig(
+				enabled=True,
+				dry_run=bool(current_wipe_phase.dry_run),
+				requires_use_scratch_root=bool(current_wipe_phase.requires_use_scratch_root),
+				summary_json_relpath=str(current_wipe_phase.summary_json_relpath),
+				resource_class=current_wipe_phase.resource_class,
+			),
+		),
+	)
+	targets = _select_cleanup_execution_targets(
+		bundle=bundle,
+		stage_config=stage_config,
+		target_datasets=target_datasets_override,
+		limit_datasets=limit_datasets_override,
+		limit_wells_per_dataset=limit_wells_per_dataset_override,
+	)
+	return run_cleanup_stage(stage_config, targets=list(targets))
+
+
+def run_cleanup_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	"""Run the cleanup stage's full phase_sequence end-to-end.
+
+	Walks `stage_config.phase_sequence` and dispatches each phase to the
+	corresponding `run_cleanup_<phase>_from_runtime` helper. Mirrors
+	`run_init_from_runtime`'s shape so the CLI plumbing stays uniform.
+
+	Slice 6 ships a single phase (`wipe_src_scratch`); the loop scales to the
+	additional end-of-run cleanup phases planned in `tech_debt.md`
+	§"Finalize the phase roster" without restructuring.
+	"""
+
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = parse_cleanup_stage_config(
+		runtime_config=bundle.runtime_config,
+		data_config=bundle.data_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+
+	if not stage_config.enabled or not stage_config.phase_sequence:
+		# No-op early so we don't pointlessly load+select targets when the
+		# stage is disabled or has nothing to do.
+		return run_cleanup_stage(stage_config)
+
+	results: list[TargetStageResult] = []
+	final_stage = "cleanup"
+	total_targets = 0
+	succeeded = 0
+	failed = 0
+	for phase_label in stage_config.phase_sequence:
+		stage_name = f"cleanup.{phase_label}"
+		if phase_label == "wipe_src_scratch":
+			phase_result = run_cleanup_wipe_src_scratch_from_runtime(
+				config_path=config_path,
+				limit_segments_override=limit_segments_override,
+				limit_datasets_override=limit_datasets_override,
+				target_datasets_override=target_datasets_override,
+				limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+				force_restart_override=force_restart_override,
+				force_replot_override=force_replot_override,
+				task_allocation_override=task_allocation_override,
+			)
+		else:
+			raise ValueError(f"Unknown cleanup phase: {phase_label}")
 		results.extend(phase_result.target_results)
 		total_targets += phase_result.total_targets
 		succeeded += phase_result.succeeded_targets

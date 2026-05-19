@@ -58,7 +58,7 @@ ACCEPTABLE_SKIP_REASONS: frozenset[str] = frozenset(
 _HEALTHY_PHASE_STATUSES: frozenset[str] = frozenset({"ok", "success", "completed"})
 
 
-STAGE_ORDER: tuple[str, ...] = ("init", "preprocess", "spikesort", "reconstruct", "analysis")
+STAGE_ORDER: tuple[str, ...] = ("init", "preprocess", "spikesort", "reconstruct", "analysis", "cleanup")
 
 
 # KS-raw labels: pull from the snapshot dir rather than the canonical
@@ -110,6 +110,7 @@ STAGE_WELL_MARKER: dict[str, tuple[str, ...]] = {
 	"spikesort": ("spikesort_outputs", "merge_SLAy", "merge_stage_summary.json"),
 	"reconstruct": ("recon_outputs", "context", "report_summaries_summary.json"),
 	"analysis": ("analysis_outputs", "manifest.json"),
+	"cleanup": ("cleanup_outputs", "context", "wipe_src_scratch_summary.json"),
 }
 
 
@@ -128,7 +129,6 @@ STAGE_PHASES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 		("plot_concat_traces", ("preprocess_outputs", "context", "plot_concat_traces_summary.json")),
 		("plot_concat_channel_layout", ("preprocess_outputs", "context", "plot_concat_channel_layout_summary.json")),
 		("plot_raster_threshold", ("preprocess_outputs", "context", "plot_raster_threshold_summary.json")),
-		("wipe_src_scratch", ("preprocess_outputs", "context", "wipe_src_scratch_summary.json")),
 	),
 	"spikesort": (
 		("bootstrap_concat_binary", ("spikesort_outputs", "cache", "bootstrap_concat_binary", "bootstrap_concat_binary_summary.json")),
@@ -158,6 +158,9 @@ STAGE_PHASES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 	),
 	"analysis": (
 		("compute_metrics", ("analysis_outputs", "manifest.json")),
+	),
+	"cleanup": (
+		("wipe_src_scratch", ("cleanup_outputs", "context", "wipe_src_scratch_summary.json")),
 	),
 }
 

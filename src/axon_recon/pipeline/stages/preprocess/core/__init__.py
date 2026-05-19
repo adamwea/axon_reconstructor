@@ -18,12 +18,10 @@ from .preprocess_segments import run_preprocess_segments_core
 from .save_concatenated_recording import run_save_concatenated_recording_core
 from .save_rec_metadata import run_save_rec_metadata_core
 from .save_segment_recordings import run_save_segment_recordings_core
-from .wipe_src_scratch import candidate_wipe_src_scratch_paths, run_wipe_src_scratch_core
 
 __all__ = [
 	"build_concat_time_vector",
 	"build_segment_time_vector",
-	"candidate_wipe_src_scratch_paths",
 	"load_common_electrodes",
 	"load_concat_manifest",
 	"load_recording_metadata",
@@ -39,6 +37,5 @@ __all__ = [
 	"run_save_concatenated_recording_core",
 	"run_save_rec_metadata_core",
 	"run_save_segment_recordings_core",
-	"run_wipe_src_scratch_core",
 	"write_json",
 ]

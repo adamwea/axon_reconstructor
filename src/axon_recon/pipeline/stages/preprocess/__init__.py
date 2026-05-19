@@ -10,7 +10,6 @@ from .api import (
 	run_preprocess_plot_segment_traces,
 	run_preprocess_preprocess_segments,
 	run_preprocess_save_rec_metadata,
-	run_preprocess_wipe_src_scratch,
 )
 
 __all__ = [
@@ -23,5 +22,4 @@ __all__ = [
 	"run_preprocess_plot_segment_traces",
 	"run_preprocess_preprocess_segments",
 	"run_preprocess_save_rec_metadata",
-	"run_preprocess_wipe_src_scratch",
 ]

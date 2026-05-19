@@ -21,7 +21,6 @@ from axon_recon.pipeline.stages.preprocess.models.inputs import (
     PreprocessPlotSegmentTracesPhaseConfig,
     PreprocessSaveRecMetadataPhaseConfig,
     PreprocessSegmentsPhaseConfig,
-    PreprocessWipeSrcScratchPhaseConfig,
 )
 from axon_recon.pipeline.stages.preprocess.runner import (
     _run_preprocess_selected_phase,
@@ -30,7 +29,6 @@ from axon_recon.pipeline.stages.preprocess.runner import (
     run_preprocess_plot_segment_channel_layouts_phase,
     run_preprocess_save_rec_metadata_phase,
     run_preprocess_stage,
-    run_preprocess_wipe_src_scratch_phase,
 )
 
 
@@ -2052,7 +2050,6 @@ def test_run_preprocess_plot_raster_threshold_phase_writes_targeted_summary(tmp_
                 report_step_timers=True,
                 rel_output_root="raster_threshold_outputs",
             ),
-            wipe_src_scratch=PreprocessWipeSrcScratchPhaseConfig(enabled=False),
         ),
     )
 
@@ -2065,75 +2062,7 @@ def test_run_preprocess_plot_raster_threshold_phase_writes_targeted_summary(tmp_
     assert captured_phase_kwargs["plot_raster_threshold"]["report_step_timers"] is True
 
 
-def test_run_preprocess_wipe_src_scratch_phase_removes_scratch_input_files(tmp_path: Path, monkeypatch) -> None:
-    _install_success_fakes(monkeypatch, tmp_path)
+# `wipe_src_scratch` moved to the cleanup stage in phase_roster_cleanup_plan slice 6.
+# The cleanup-stage equivalents of the two tests below live in
+# `src/axon_recon/pipeline/stages/cleanup/tests/test_wipe_src_scratch.py`.
 
-    source_h5_path = tmp_path / "raw_data" / "input.raw.h5"
-    source_h5_path.parent.mkdir(parents=True, exist_ok=True)
-    source_h5_path.write_bytes(b"source")
-
-    scratch_h5_path = tmp_path / "scratch_inputs" / "input.raw.h5"
-    scratch_h5_path.parent.mkdir(parents=True, exist_ok=True)
-    scratch_h5_path.write_bytes(b"scratch")
-    scratch_cfg_path = scratch_h5_path.parent / "input.cfg"
-    scratch_cfg_path.write_text("foo=1\n", encoding="utf-8")
-
-    inputs = PreprocessInputs(
-        h5_path=scratch_h5_path,
-        stream_id="well001",
-        mea_output_root=tmp_path,
-        source_h5_path=source_h5_path,
-        copied_to_scratch=True,
-    )
-
-    payload = run_preprocess_wipe_src_scratch_phase(inputs)
-
-    assert payload["phase"] == "wipe_src_scratch"
-    assert payload["dry_run"] is False
-    assert payload["status"] == "ok"
-    assert Path(str(payload["summary_json"])).exists()
-    assert str(scratch_h5_path) in list(payload["removed_paths"])
-    assert list(payload["would_remove_paths"]) == []
-    assert str(scratch_cfg_path) in list(payload["removed_paths"])
-    assert not scratch_h5_path.exists()
-    assert not scratch_cfg_path.exists()
-
-
-def test_run_preprocess_wipe_src_scratch_phase_dry_run_reports_paths_without_deleting(tmp_path: Path, monkeypatch) -> None:
-    _install_success_fakes(monkeypatch, tmp_path)
-
-    source_h5_path = tmp_path / "raw_data" / "input.raw.h5"
-    source_h5_path.parent.mkdir(parents=True, exist_ok=True)
-    source_h5_path.write_bytes(b"source")
-
-    scratch_h5_path = tmp_path / "scratch_inputs" / "input.raw.h5"
-    scratch_h5_path.parent.mkdir(parents=True, exist_ok=True)
-    scratch_h5_path.write_bytes(b"scratch")
-    scratch_cfg_path = scratch_h5_path.parent / "input.cfg"
-    scratch_cfg_path.write_text("foo=1\n", encoding="utf-8")
-
-    inputs = PreprocessInputs(
-        h5_path=scratch_h5_path,
-        stream_id="well001",
-        mea_output_root=tmp_path,
-        source_h5_path=source_h5_path,
-        copied_to_scratch=True,
-        phases=PreprocessPhasesConfig(
-            wipe_src_scratch=PreprocessWipeSrcScratchPhaseConfig(
-                enabled=False,
-                dry_run=True,
-            )
-        ),
-    )
-
-    payload = run_preprocess_wipe_src_scratch_phase(inputs)
-
-    assert payload["phase"] == "wipe_src_scratch"
-    assert payload["dry_run"] is True
-    assert payload["status"] == "dry_run"
-    assert Path(str(payload["summary_json"])).exists()
-    assert list(payload["removed_paths"]) == []
-    assert str(scratch_h5_path) in list(payload["would_remove_paths"])
-    assert str(scratch_cfg_path) in list(payload["would_remove_paths"])
-    assert scratch_h5_path.exists()
-    assert scratch_cfg_path.exists()

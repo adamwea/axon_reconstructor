@@ -13,7 +13,6 @@ from .orchestrators import (
 	_run_plot_segment_traces_from_args,
 	_run_preprocess_segments_from_args,
 	_run_save_rec_metadata_from_args,
-	_run_wipe_src_scratch_from_args,
 )
 from .orchestrators._shared import (
 	_target_datasets_override_from_args,

@@ -7,8 +7,9 @@ from ..constants import PREPROCESS_OUTPUTS_DIRNAME
 
 
 # `copy_src_to_scratch` was moved to the init stage in
-# `phase_roster_cleanup_plan.md` slice 5; it is no longer part of the
-# preprocess phase roster.
+# `phase_roster_cleanup_plan.md` slice 5; `wipe_src_scratch` was moved to the
+# cleanup stage in slice 6. Neither is part of the preprocess phase roster
+# anymore.
 DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
 	"save_rec_metadata",
 	"preprocess_segments",
@@ -18,7 +19,6 @@ DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
 	"concat_segments",
 	"plot_concat_traces",
 	"plot_concat_channel_layout",
-	"wipe_src_scratch",
 )
 
 
@@ -45,15 +45,6 @@ class PreprocessSaveRecMetadataPhaseConfig:
 	sampling_metadata_relpath: str = "sampling_rate_metadata.json"
 	common_electrodes_relpath: str = "common_electrodes.npy"
 	common_electrodes_summary_json_relpath: str = "context/save_common_electrodes_summary.json"
-	resource_class: str | None = None
-
-
-@dataclass(frozen=True)
-class PreprocessWipeSrcScratchPhaseConfig:
-	enabled: bool = False
-	dry_run: bool = False
-	requires_use_scratch_root: bool = False
-	summary_json_relpath: str = "context/wipe_src_scratch_summary.json"
 	resource_class: str | None = None
 
 
@@ -198,9 +189,6 @@ class PreprocessPhasesConfig:
 			common_electrodes_relpath="common_electrodes.npy",
 			common_electrodes_summary_json_relpath="context/save_common_electrodes_summary.json",
 		)
-	)
-	wipe_src_scratch: PreprocessWipeSrcScratchPhaseConfig = field(
-		default_factory=PreprocessWipeSrcScratchPhaseConfig
 	)
 	preprocess_segments: PreprocessSegmentsPhaseConfig = field(
 		default_factory=PreprocessSegmentsPhaseConfig

@@ -8,7 +8,6 @@ from .inputs import (
 	PreprocessPlotConfig,
 	PreprocessSaveRecMetadataPhaseConfig,
 	PreprocessSegmentsPhaseConfig,
-	PreprocessWipeSrcScratchPhaseConfig,
 )
 from .results import PreprocessResult
 
@@ -22,6 +21,5 @@ __all__ = [
 	"PreprocessPlotConfig",
 	"PreprocessSaveRecMetadataPhaseConfig",
 	"PreprocessSegmentsPhaseConfig",
-	"PreprocessWipeSrcScratchPhaseConfig",
 	"PreprocessResult",
 ]

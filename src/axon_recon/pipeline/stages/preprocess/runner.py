@@ -12,7 +12,6 @@ import platform
 import shutil
 import socket
 import sys
-import threading
 import time
 import traceback
 from dataclasses import asdict, dataclass
@@ -58,7 +57,6 @@ from .core import (
 	run_save_concatenated_recording_core,
 	run_save_rec_metadata_core,
 	run_save_segment_recordings_core,
-	run_wipe_src_scratch_core,
 )
 
 from .models.inputs import (
@@ -82,10 +80,6 @@ def _resource_gate_payload(value: Any) -> dict[str, Any]:
 
 
 LOGGER = logging.getLogger("axon_recon.preprocess")
-
-
-_SCRATCH_INPUT_USAGE_LOCK = threading.Lock()
-_SCRATCH_INPUT_ACTIVE_COUNTS: dict[str, int] = {}
 
 
 @dataclass(frozen=True)
@@ -1062,154 +1056,6 @@ def _recording_metadata_phase_requested(inputs: PreprocessInputs, *, selected_ph
 	return bool(inputs.phases.save_rec_metadata.enabled) and _phase_in_configured_sequence(inputs, "save_rec_metadata")
 
 
-def _wipe_src_scratch_phase_requested(inputs: PreprocessInputs, *, selected_phase: str | None) -> bool:
-	if selected_phase == "wipe_src_scratch":
-		return True
-	if selected_phase is not None:
-		return False
-	return bool(inputs.phases.wipe_src_scratch.enabled) and _phase_in_configured_sequence(inputs, "wipe_src_scratch")
-
-
-def _validate_wipe_phase_requirements(inputs: PreprocessInputs, *, selected_phase: str | None) -> None:
-	if not _wipe_src_scratch_phase_requested(inputs, selected_phase=selected_phase):
-		return
-	if bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root) and not bool(inputs.copied_to_scratch):
-		raise RuntimeError(
-			"preprocess wipe_src_scratch phase requires scratch input materialization, but the selected target is using the source h5 path"
-		)
-
-
-def _scratch_input_usage_key(inputs: PreprocessInputs) -> str | None:
-	if not bool(inputs.copied_to_scratch):
-		return None
-	try:
-		return str(Path(os.path.abspath(str(Path(inputs.h5_path).expanduser()))))
-	except Exception:
-		return str(inputs.h5_path)
-
-
-def _acquire_scratch_input_usage(inputs: PreprocessInputs, *, selected_phase: str | None) -> str | None:
-	if not _wipe_src_scratch_phase_requested(inputs, selected_phase=selected_phase):
-		return None
-	usage_key = _scratch_input_usage_key(inputs)
-	if usage_key is None:
-		return None
-	with _SCRATCH_INPUT_USAGE_LOCK:
-		_SCRATCH_INPUT_ACTIVE_COUNTS[usage_key] = int(_SCRATCH_INPUT_ACTIVE_COUNTS.get(usage_key, 0)) + 1
-	return usage_key
-
-
-def _release_scratch_input_usage(usage_key: str | None) -> int:
-	if usage_key is None:
-		return 0
-	with _SCRATCH_INPUT_USAGE_LOCK:
-		current = int(_SCRATCH_INPUT_ACTIVE_COUNTS.get(usage_key, 0))
-		if current <= 1:
-			_SCRATCH_INPUT_ACTIVE_COUNTS.pop(usage_key, None)
-			return 0
-		current -= 1
-		_SCRATCH_INPUT_ACTIVE_COUNTS[usage_key] = int(current)
-		return int(current)
-
-
-def _candidate_wipe_src_scratch_paths(inputs: PreprocessInputs) -> list[Path]:
-	if not bool(inputs.copied_to_scratch):
-		return []
-	resolved_h5_path = Path(inputs.h5_path).expanduser()
-	out: list[Path] = [resolved_h5_path]
-	try:
-		out.extend(sorted(resolved_h5_path.parent.glob("*.cfg")))
-	except Exception:
-		pass
-	unique: list[Path] = []
-	seen: set[str] = set()
-	for path in out:
-		key = str(path)
-		if key in seen:
-			continue
-		seen.add(key)
-		unique.append(path)
-	return unique
-
-
-def _execute_wipe_src_scratch_phase(inputs: PreprocessInputs, *, usage_key: str | None) -> dict[str, Any]:
-	payload: dict[str, Any] = {
-		"phase": "wipe_src_scratch",
-		"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
-		"resolved_h5_path": str(inputs.h5_path),
-		"copied_to_scratch": bool(inputs.copied_to_scratch),
-		"dry_run": bool(inputs.phases.wipe_src_scratch.dry_run),
-		"requires_use_scratch_root": bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
-	}
-	if not bool(inputs.copied_to_scratch):
-		payload.update(
-			{
-				"status": "skipped",
-				"reason": "selected_target_did_not_use_scratch_input_root",
-				"removed_paths": [],
-				"would_remove_paths": [],
-				"missing_paths": [],
-			}
-		)
-		return payload
-
-	active_shared_users_remaining = _release_scratch_input_usage(usage_key)
-	payload["active_shared_users_remaining"] = int(active_shared_users_remaining)
-	if int(active_shared_users_remaining) > 0:
-		payload.update(
-			{
-				"status": "deferred",
-				"reason": "shared_scratch_input_still_in_use",
-				"removed_paths": [],
-				"would_remove_paths": [],
-				"missing_paths": [],
-			}
-		)
-		return payload
-
-	removed_paths: list[str] = []
-	would_remove_paths: list[str] = []
-	missing_paths: list[str] = []
-	errors: list[str] = []
-	for path in _candidate_wipe_src_scratch_paths(inputs):
-		try:
-			if not path.exists() and not path.is_symlink():
-				missing_paths.append(str(path))
-				continue
-			if bool(inputs.phases.wipe_src_scratch.dry_run):
-				would_remove_paths.append(str(path))
-				continue
-			path.unlink()
-			removed_paths.append(str(path))
-		except FileNotFoundError:
-			missing_paths.append(str(path))
-		except Exception as exc:
-			errors.append(f"{path}: {type(exc).__name__}: {exc}")
-
-	payload["removed_paths"] = list(removed_paths)
-	payload["would_remove_paths"] = list(would_remove_paths)
-	payload["missing_paths"] = list(missing_paths)
-	if errors:
-		raise RuntimeError("wipe_src_scratch failed: " + "; ".join(errors))
-	if bool(inputs.phases.wipe_src_scratch.dry_run):
-		if would_remove_paths:
-			LOGGER.info(
-				"wipe_src_scratch dry run for %s would remove %d path(s): %s",
-				inputs.stream_id,
-				len(would_remove_paths),
-				", ".join(would_remove_paths),
-			)
-			payload["status"] = "dry_run"
-		else:
-			payload["status"] = "already_missing"
-		return payload
-	if removed_paths:
-		payload["status"] = "ok"
-	else:
-		payload["status"] = "already_missing"
-	return payload
-
-
 def _parse_recording_context_from_path(path: Path) -> dict[str, str]:
 	parts = list(path.parts)
 	out: dict[str, str] = {}
@@ -1939,8 +1785,6 @@ def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
 		return bool(inputs.phases.plot_concat_channel_layout.enabled)
 	if phase_name == "plot_raster_threshold":
 		return bool(inputs.phases.plot_raster_threshold.enabled)
-	if phase_name == "wipe_src_scratch":
-		return bool(inputs.phases.wipe_src_scratch.enabled)
 	return False
 
 
@@ -1969,8 +1813,6 @@ def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str
 		return str(inputs.phases.plot_concat_channel_layout.summary_json_relpath)
 	if phase_name == "plot_raster_threshold":
 		return str(inputs.phases.plot_raster_threshold.summary_json_relpath)
-	if phase_name == "wipe_src_scratch":
-		return str(inputs.phases.wipe_src_scratch.summary_json_relpath)
 	return "context/preprocess_phase_summary.json"
 
 
@@ -1991,8 +1833,6 @@ def _resource_class_for_phase(inputs: PreprocessInputs, phase_name: str) -> str 
 		return inputs.phases.plot_concat_channel_layout.resource_class
 	if phase_name == "plot_raster_threshold":
 		return inputs.phases.plot_raster_threshold.resource_class
-	if phase_name == "wipe_src_scratch":
-		return inputs.phases.wipe_src_scratch.resource_class
 	return None
 
 
@@ -2045,11 +1885,6 @@ def _summary_outputs_for_phase(
 	if phase_name == "plot_raster_threshold":
 		return {
 			"raster_output_dir": str(paths.raster_threshold_output_dir),
-		}
-	if phase_name == "wipe_src_scratch":
-		return {
-			"source_h5_path": str(payload.get("source_h5_path", "")),
-			"resolved_h5_path": str(payload.get("resolved_h5_path", "")),
 		}
 	return {}
 
@@ -2494,44 +2329,6 @@ def _resume_plot_raster_threshold_payload_if_complete(
 	)
 
 
-def _resume_wipe_src_scratch_payload_if_complete(
-	*,
-	inputs: PreprocessInputs,
-	paths: _PreprocessPathSet,
-) -> dict[str, Any] | None:
-	if bool(inputs.phases.wipe_src_scratch.dry_run):
-		existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="wipe_src_scratch")
-		if existing_payload is None:
-			return None
-		return _build_resumed_phase_payload(
-			phase_name="wipe_src_scratch",
-			existing_payload=existing_payload,
-			payload_updates={
-				"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
-				"resolved_h5_path": str(inputs.h5_path),
-				"dry_run": True,
-			},
-		)
-	if any(_safe_path_exists(path) for path in _candidate_wipe_src_scratch_paths(inputs)):
-		return None
-	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="wipe_src_scratch")
-	if existing_payload is None:
-		return None
-	return _build_resumed_phase_payload(
-		phase_name="wipe_src_scratch",
-		existing_payload=existing_payload,
-		payload_updates={
-			"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
-			"resolved_h5_path": str(inputs.h5_path),
-			"dry_run": False,
-			"removed_paths": [],
-			"would_remove_paths": [],
-			"missing_paths": [str(path) for path in _candidate_wipe_src_scratch_paths(inputs)],
-			"status": "already_missing",
-		},
-	)
-
-
 def _resume_phase_payload_if_complete(
 	*,
 	phase_name: str,
@@ -2582,8 +2379,6 @@ def _resume_phase_payload_if_complete(
 			paths=paths,
 			recording_metadata_paths=recording_metadata_paths,
 		)
-	if phase_name == "wipe_src_scratch":
-		return _resume_wipe_src_scratch_payload_if_complete(inputs=inputs, paths=paths)
 	return None
 
 
@@ -2594,8 +2389,7 @@ def _run_preprocess_phase_sequence(
 	recording_metadata_paths: _RecordingMetadataPathSet,
 	selected_phase: str | None,
 	event_records: list[dict[str, Any]] | None = None,
-	scratch_usage_key: str | None = None,
-) -> tuple[dict[str, str], dict[str, dict[str, Any]], list[int], bool]:
+) -> tuple[dict[str, str], dict[str, dict[str, Any]], list[int]]:
 	canonical_selected_phase = _normalize_requested_preprocess_phase(selected_phase)
 	outputs: dict[str, str] = {
 		"legacy.preprocess_out_dir": str(paths.legacy_out_dir),
@@ -2623,7 +2417,6 @@ def _run_preprocess_phase_sequence(
 	blank_line_after_phase = bool(
 		pipeline_logging_config is not None and bool(pipeline_logging_config.console.blank_line_after_phase)
 	)
-	scratch_usage_released = False
 	phases_to_visit = [canonical_selected_phase] if canonical_selected_phase is not None else list(_configured_preprocess_phase_sequence(inputs))
 	active_phase_count = (
 		len(phases_to_visit)
@@ -2795,8 +2588,6 @@ def _run_preprocess_phase_sequence(
 						),
 						extra={"event": "phase_started"},
 					)
-				if phase_name == "wipe_src_scratch":
-					_validate_wipe_phase_requirements(inputs, selected_phase=canonical_selected_phase)
 
 				payload = _resume_phase_payload_if_complete(
 					phase_name=phase_name,
@@ -2983,17 +2774,6 @@ def _run_preprocess_phase_sequence(
 						report_step_timers=bool(inputs.phases.plot_raster_threshold.report_step_timers),
 						logger=phase_logger,
 					)
-				elif payload is None and phase_name == "wipe_src_scratch":
-					active_shared_users_remaining = _release_scratch_input_usage(scratch_usage_key)
-					scratch_usage_released = True
-					payload = run_wipe_src_scratch_core(
-						h5_path=inputs.h5_path,
-						source_h5_path=(inputs.source_h5_path or inputs.h5_path),
-						copied_to_scratch=bool(inputs.copied_to_scratch),
-						dry_run=bool(inputs.phases.wipe_src_scratch.dry_run),
-						requires_use_scratch_root=bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
-						active_shared_users_remaining=int(active_shared_users_remaining),
-					)
 				elif payload is not None:
 					pass
 				else:
@@ -3143,7 +2923,7 @@ def _run_preprocess_phase_sequence(
 		finally:
 			_phase_log_context.__exit__(None, None, None)
 	common_electrodes = _load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path)
-	return outputs, phase_summaries, common_electrodes, scratch_usage_released
+	return outputs, phase_summaries, common_electrodes
 
 def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 	build_plot_cfg = _resolve_effective_plot_config(inputs, selected_phase=None)
@@ -3187,21 +2967,18 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 
 	stage_log_source = paths.stage_log_source
 	_clear_self_referential_symlink(stage_log_source)
-	scratch_usage_key = _acquire_scratch_input_usage(inputs, selected_phase=None)
-	scratch_usage_released = False
 	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, preprocess_out_dir=paths.preprocess_out_dir)
 	outputs: dict[str, str] = {"legacy.preprocess_out_dir": str(legacy_out_dir)}
 	phase_summaries: dict[str, dict[str, Any]] = {}
 	common_electrodes: list[int] = []
 
 	try:
-		outputs, phase_summaries, common_electrodes, scratch_usage_released = _run_preprocess_phase_sequence(
+		outputs, phase_summaries, common_electrodes = _run_preprocess_phase_sequence(
 			inputs=inputs,
 			paths=paths,
 			recording_metadata_paths=recording_metadata_paths,
 			selected_phase=None,
 			event_records=event_records,
-			scratch_usage_key=scratch_usage_key,
 		)
 		event_records.append(
 			{
@@ -3265,9 +3042,6 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 			except Exception:
 				LOGGER.warning("Failed writing preprocess failure observability artifacts", exc_info=True)
 		raise
-	finally:
-		if scratch_usage_key is not None and not bool(scratch_usage_released):
-			_release_scratch_input_usage(scratch_usage_key)
 
 	stage_elapsed_s = float(max(0.0, time.perf_counter() - stage_t0))
 	phase_timing_s = {
@@ -3409,20 +3183,13 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 	paths = _resolve_preprocess_paths(inputs, plot_cfg=build_plot_cfg)
 	paths.preprocess_out_dir.mkdir(parents=True, exist_ok=True)
 	_clear_self_referential_symlink(paths.stage_log_source)
-	scratch_usage_key = _acquire_scratch_input_usage(inputs, selected_phase=canonical_selected_phase)
-	scratch_usage_released = False
 	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, preprocess_out_dir=paths.preprocess_out_dir)
-	try:
-		outputs, phase_summaries, _common_electrodes, scratch_usage_released = _run_preprocess_phase_sequence(
-			inputs=inputs,
-			paths=paths,
-			recording_metadata_paths=recording_metadata_paths,
-			selected_phase=canonical_selected_phase,
-			scratch_usage_key=scratch_usage_key,
-		)
-	finally:
-		if scratch_usage_key is not None and not bool(scratch_usage_released):
-			_release_scratch_input_usage(scratch_usage_key)
+	outputs, phase_summaries, _common_electrodes = _run_preprocess_phase_sequence(
+		inputs=inputs,
+		paths=paths,
+		recording_metadata_paths=recording_metadata_paths,
+		selected_phase=canonical_selected_phase,
+	)
 	payload = dict(phase_summaries.get(canonical_selected_phase, {}))
 	if not payload:
 		raise RuntimeError(f"No preprocess phase summary was written for phase '{canonical_selected_phase}'")
@@ -3435,12 +3202,6 @@ def run_preprocess_save_rec_metadata_phase(inputs: PreprocessInputs) -> dict[str
 	from .orchestrators.save_rec_metadata import run_preprocess_save_rec_metadata
 
 	return run_preprocess_save_rec_metadata(inputs)
-
-
-def run_preprocess_wipe_src_scratch_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	from .orchestrators.wipe_src_scratch import run_preprocess_wipe_src_scratch
-
-	return run_preprocess_wipe_src_scratch(inputs)
 
 
 def run_preprocess_preprocess_segments_phase(inputs: PreprocessInputs) -> dict[str, Any]:

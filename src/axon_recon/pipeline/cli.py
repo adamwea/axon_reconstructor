@@ -51,9 +51,6 @@ from .stages.preprocess.cli import (
 from .stages.preprocess.cli import (
 	_run_save_rec_metadata_from_args as _run_preprocess_save_rec_metadata_from_args,
 )
-from .stages.preprocess.cli import (
-	_run_wipe_src_scratch_from_args as _run_preprocess_wipe_src_scratch_from_args,
-)
 from .stages.reconstruct.cli import (
 	_run_clear_templates_cache_from_args as _run_reconstruct_clear_templates_cache_from_args,
 )
@@ -131,6 +128,10 @@ from .stages.init.cli import _run_from_args as _run_init_from_args
 from .stages.init.cli import (
 	_run_copy_src_to_scratch_from_args as _run_init_copy_src_to_scratch_from_args,
 )
+from .stages.cleanup.cli import _run_from_args as _run_cleanup_from_args
+from .stages.cleanup.cli import (
+	_run_wipe_src_scratch_from_args as _run_cleanup_wipe_src_scratch_from_args,
+)
 
 StageHandler = Callable[[argparse.Namespace], int]
 
@@ -140,6 +141,7 @@ _CANONICAL_STAGE_ORDER: list[str] = [
 	"spikesort",
 	"reconstruct",
 	"analysis",
+	"cleanup",
 ]
 
 _STAGE_ALIASES: dict[str, str] = {
@@ -154,8 +156,15 @@ _STAGE_ALIASES: dict[str, str] = {
 	"preprocess.copy_src_to_scratch": "init.copy_src_to_scratch",
 	"pre.copy_src_to_scratch": "init.copy_src_to_scratch",
 	"preproc.copy_src_to_scratch": "init.copy_src_to_scratch",
+	# `wipe_src_scratch` moved from preprocess to the cleanup stage in
+	# `phase_roster_cleanup_plan` slice 6. Legacy `preprocess.wipe_src_scratch`
+	# / `pre.wipe_src_scratch` / `wipe_src_scratch` tokens still resolve,
+	# but they redirect to the new canonical `cleanup.wipe_src_scratch` route.
+	"wipe_src_scratch": "cleanup.wipe_src_scratch",
+	"preprocess.wipe_src_scratch": "cleanup.wipe_src_scratch",
+	"pre.wipe_src_scratch": "cleanup.wipe_src_scratch",
+	"preproc.wipe_src_scratch": "cleanup.wipe_src_scratch",
 	"pre.save_rec_metadata": "preprocess.save_rec_metadata",
-	"pre.wipe_src_scratch": "preprocess.wipe_src_scratch",
 	"pre.preprocess_segments": "preprocess.preprocess_segments",
 	"pre.plot_segment_traces": "preprocess.plot_segment_traces",
 	"pre.plot_segment_channel_layouts": "preprocess.plot_segment_channel_layouts",
@@ -164,7 +173,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"pre.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
 	"pre.plot_raster_threshold": "preprocess.plot_raster_threshold",
 	"preproc.save_rec_metadata": "preprocess.save_rec_metadata",
-	"preproc.wipe_src_scratch": "preprocess.wipe_src_scratch",
 	"preproc.preprocess_segments": "preprocess.preprocess_segments",
 	"preproc.plot_segment_traces": "preprocess.plot_segment_traces",
 	"preproc.plot_segment_channel_layouts": "preprocess.plot_segment_channel_layouts",
@@ -282,7 +290,6 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"init.copy_src_to_scratch": _run_init_copy_src_to_scratch_from_args,
 	"preprocess": _run_preprocess_from_args,
 	"preprocess.save_rec_metadata": _run_preprocess_save_rec_metadata_from_args,
-	"preprocess.wipe_src_scratch": _run_preprocess_wipe_src_scratch_from_args,
 	"preprocess.preprocess_segments": _run_preprocess_preprocess_segments_from_args,
 	"preprocess.plot_segment_traces": _run_preprocess_plot_segment_traces_from_args,
 	"preprocess.plot_segment_channel_layouts": _run_preprocess_plot_segment_channel_layouts_from_args,
@@ -323,6 +330,8 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct.clear_templates_cache": _run_reconstruct_clear_templates_cache_from_args,
 	"analysis": _run_analysis_from_args,
 	"analysis.compute_metrics": _run_analysis_compute_metrics_from_args,
+	"cleanup": _run_cleanup_from_args,
+	"cleanup.wipe_src_scratch": _run_cleanup_wipe_src_scratch_from_args,
 }
 
 

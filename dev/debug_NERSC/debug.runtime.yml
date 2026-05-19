@@ -420,6 +420,7 @@ stages:
     #phase_sequence: [save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
     phase_sequence:
     # copy_src_to_scratch moved to the init stage (see stages.init).
+    # wipe_src_scratch moved to the cleanup stage (see stages.cleanup).
     - save_rec_metadata
     - preprocess_segments
     #- plot_segment_traces
@@ -428,7 +429,6 @@ stages:
     #- plot_concat_traces
     #- plot_concat_channel_layout
     #- plot_raster_threshold
-    #- wipe_src_scratch
     phases:
 
       save_rec_metadata:
@@ -547,14 +547,6 @@ stages:
         resource_class: plot_unit
         summary_json_relpath: context/plot_raster_threshold_summary.json
         rel_output_root: raster_threshold
-
-      # Claude TODO: Similar to above, move this to a seperate final stage. Cleanup. We will eventually optionally run all clean up phases from this stage i think. Preprocess stage just no longer needs a stage-wise cleanup since it's so light now.
-      wipe_src_scratch:
-        enabled: false
-        resource_class: disk_cleanup
-        dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.
-        requires_use_scratch_root: true
-        summary_json_relpath: context/wipe_src_scratch_summary.json
 
   spikesort:
     resources:
@@ -1861,3 +1853,25 @@ stages:
         # The phase only reads small JSON artifacts and writes a manifest, so it
         # piggybacks on the disk_cleanup budget (serial, 4 GB RAM).
         resource_class: disk_cleanup
+
+  cleanup:
+    # `wipe_src_scratch` moved here from preprocess in phase_roster_cleanup
+    # slice 6. NERSC keeps `enabled: false` because the smoke cohort already
+    # lives on pscratch (use_scratch_root: false in the data config), so wipe
+    # is a no-op for normal iterations. Flip to true (and confirm the init
+    # stage's copy_src_to_scratch ran first) when working with raw_data trees
+    # that were staged into scratch_root/axon_recon_scratch/inputs/.
+    # Long-term: this stage will host the other per-stage cleanup_* phases
+    # (spikesort.cleanup_concat_binary, spikesort.cleanup_analyzers,
+    # reconstruct.clear_templates_cache) once they migrate. Until then, a
+    # single phase. See `tech_debt.md` §"Finalize the phase roster".
+    enabled: false
+    phase_sequence:
+    - wipe_src_scratch
+    phases:
+      wipe_src_scratch:
+        enabled: false
+        resource_class: disk_cleanup
+        dry_run: true # when true, logs the paths that would be deleted without actually deleting them; keep true by default for safety during debugging iterations, but can be set to false to enable actual deletion of scratch outputs when publish_outputs is false and you want to clean up scratch space during debug runs.
+        requires_use_scratch_root: true
+        summary_json_relpath: context/wipe_src_scratch_summary.json

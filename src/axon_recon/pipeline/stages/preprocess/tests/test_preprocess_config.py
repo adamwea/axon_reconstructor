@@ -74,10 +74,6 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.save_rec_metadata.segment_epochs_relpath == "segment_epochs.json"
     assert parsed.phases.save_rec_metadata.contiguous_epochs_relpath == "continuous_epochs.json"
     assert parsed.phases.save_rec_metadata.sampling_metadata_relpath == "sampling_rate_metadata.json"
-    assert parsed.phases.wipe_src_scratch.enabled is False
-    assert parsed.phases.wipe_src_scratch.dry_run is False
-    assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is False
-    assert parsed.phases.wipe_src_scratch.summary_json_relpath == "context/wipe_src_scratch_summary.json"
     assert parsed.phases.preprocess_segments.enabled is True
     assert parsed.phases.preprocess_segments.output_mode == "lazy"
     assert parsed.phases.preprocess_segments.lazy_source == "scratch"
@@ -417,12 +413,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                             "sampling_metadata_relpath": "meta/sampling.json",
                             "common_electrodes_summary_json_relpath": "context/custom_common_summary.json",
                         },
-                        "wipe_src_scratch": {
-                            "enabled": True,
-                            "dry_run": True,
-                            "requires_use_scratch_root": True,
-                            "summary_json_relpath": "context/custom_wipe_src_scratch_summary.json",
-                        },
                         "preprocess_segments": {
                             "enabled": False,
                             "output_mode": "binary",
@@ -516,10 +506,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.save_rec_metadata.segment_epochs_relpath == "meta/segments.json"
     assert parsed.phases.save_rec_metadata.contiguous_epochs_relpath == "meta/contiguous.json"
     assert parsed.phases.save_rec_metadata.sampling_metadata_relpath == "meta/sampling.json"
-    assert parsed.phases.wipe_src_scratch.enabled is True
-    assert parsed.phases.wipe_src_scratch.dry_run is True
-    assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is True
-    assert parsed.phases.wipe_src_scratch.summary_json_relpath == "context/custom_wipe_src_scratch_summary.json"
     assert parsed.phases.preprocess_segments.enabled is False
     assert parsed.phases.preprocess_segments.output_mode == "binary"
     assert parsed.phases.preprocess_segments.lazy_source == "src"
@@ -733,11 +719,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "        contiguous_epochs_relpath: continuous_epochs.json\n"
                         "        sampling_metadata_relpath: sampling_rate_metadata.json\n"
                         "        common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json\n"
-                        "      wipe_src_scratch:\n"
-                        "        enabled: true\n"
-                        "        dry_run: true\n"
-                        "        requires_use_scratch_root: true\n"
-                        "        summary_json_relpath: context/wipe_src_scratch_summary.json\n"
                         "      preprocess_segments:\n"
                         "        enabled: false\n"
                         "        output_mode: lazy\n"
@@ -809,10 +790,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.save_rec_metadata.segment_epochs_relpath == "segment_epochs.json"
     assert inputs.phases.save_rec_metadata.contiguous_epochs_relpath == "continuous_epochs.json"
     assert inputs.phases.save_rec_metadata.sampling_metadata_relpath == "sampling_rate_metadata.json"
-    assert inputs.phases.wipe_src_scratch.enabled is True
-    assert inputs.phases.wipe_src_scratch.dry_run is True
-    assert inputs.phases.wipe_src_scratch.requires_use_scratch_root is True
-    assert inputs.phases.wipe_src_scratch.summary_json_relpath == "context/wipe_src_scratch_summary.json"
     assert inputs.phases.preprocess_segments.enabled is False
     assert inputs.phases.preprocess_segments.output_mode == "lazy"
     assert inputs.phases.preprocess_segments.lazy_source == "src"
