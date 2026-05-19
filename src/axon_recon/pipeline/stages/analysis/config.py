@@ -242,6 +242,7 @@ def build_well_metadata_lookup(data_config: RuntimeConfig) -> dict[tuple[int, st
 				"DIV": div,
 				"dataset_id": dataset_id,
 				"well_attributes": attributes,
+				"raw_data_h5_path": str(raw_h5) if raw_h5 is not None else None,
 			}
 			entry.update(identity)
 			out[(dataset_index, str(well_id))] = entry

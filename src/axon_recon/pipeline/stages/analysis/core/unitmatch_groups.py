@@ -199,7 +199,8 @@ def resolve_group_session_inputs(
 	*,
 	group_dataset_indices: Iterable[int],
 	well_id: str,
-	data_cfg: RuntimeConfig | dict[str, Any],
+	data_cfg: RuntimeConfig | dict[str, Any] | None = None,
+	well_metadata: dict[tuple[int, str], dict[str, Any]] | None = None,
 	output_root: str | Path,
 	recon_output_rel_root: str = "recon_outputs",
 	require_exists: bool = True,
@@ -207,37 +208,49 @@ def resolve_group_session_inputs(
 	"""Resolve session inputs for every dataset in a chip-well group.
 
 	Convenience composition of ``resolve_session_inputs`` over a group's
-	dataset indices. Reads each dataset's ``raw_data_h5_path`` from the
-	data config to feed into ``compute_mea_analysis_output_dir``.
+	dataset indices. Reads each dataset's ``raw_data_h5_path`` from
+	either the supplied ``data_cfg`` or from the ``well_metadata``
+	lookup (whichever is provided; metadata-lookup wins when both are).
 
 	Raises ``UnitmatchSessionInputMissing`` listing EVERY missing input
-	across the group (not just the first one) when ``require_exists=True``,
-	so the operator gets the full picture in one error.
+	across the group when ``require_exists=True``, so the operator gets
+	the full picture in one error.
 	"""
 
-	runtime_obj = data_cfg if isinstance(data_cfg, RuntimeConfig) else RuntimeConfig(dict(data_cfg))
-	datasets_raw = runtime_obj.get("datasets", []) or []
-	if not isinstance(datasets_raw, list):
+	if well_metadata is None and data_cfg is None:
 		raise ValueError(
-			"resolve_group_session_inputs: data_cfg.datasets must be a list"
+			"resolve_group_session_inputs: supply data_cfg or well_metadata"
 		)
+
+	def _h5_for_dataset(dataset_index: int) -> tuple[str | None, str | None]:
+		"""Return (h5_path, error_message_if_unresolvable) for dataset_index."""
+
+		if well_metadata is not None:
+			entry = well_metadata.get((int(dataset_index), str(well_id)))
+			if entry is not None and entry.get("raw_data_h5_path"):
+				return str(entry["raw_data_h5_path"]), None
+		if data_cfg is not None:
+			runtime_obj = data_cfg if isinstance(data_cfg, RuntimeConfig) else RuntimeConfig(dict(data_cfg))
+			datasets_raw = runtime_obj.get("datasets", []) or []
+			if isinstance(datasets_raw, list):
+				if dataset_index < 0 or dataset_index >= len(datasets_raw):
+					return None, (
+						f"dataset_index={dataset_index} out of range for "
+						f"data_cfg.datasets (len={len(datasets_raw)})"
+					)
+				entry = datasets_raw[dataset_index]
+				if isinstance(entry, dict):
+					h5_path = entry.get("raw_data_h5_path")
+					if h5_path:
+						return str(h5_path), None
+		return None, f"dataset_index={dataset_index}: missing raw_data_h5_path"
 
 	session_inputs: list[SessionInputs] = []
 	errors: list[str] = []
 	for dataset_index in sorted(set(int(idx) for idx in group_dataset_indices)):
-		if dataset_index < 0 or dataset_index >= len(datasets_raw):
-			errors.append(
-				f"dataset_index={dataset_index} out of range for data_cfg.datasets "
-				f"(len={len(datasets_raw)})"
-			)
-			continue
-		entry = datasets_raw[dataset_index]
-		if not isinstance(entry, dict):
-			errors.append(f"dataset_index={dataset_index}: entry is not a dict")
-			continue
-		h5_path = entry.get("raw_data_h5_path")
-		if not h5_path:
-			errors.append(f"dataset_index={dataset_index}: missing raw_data_h5_path")
+		h5_path, err = _h5_for_dataset(dataset_index)
+		if err is not None:
+			errors.append(err)
 			continue
 		try:
 			session_inputs.append(
