@@ -2832,7 +2832,7 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 			"preprocess_segments_lazy_source": str(inputs.phases.preprocess_segments.lazy_source),
 			"copied_to_scratch": bool(inputs.copied_to_scratch),
 			"force_restart": bool(inputs.force_restart),
-			"force_replot": bool(inputs.force_replot),
+			"replot": bool(inputs.replot),
 			"debug_limit_segments_per_well": (
 				int(inputs.debug_limit_segments_per_well)
 				if inputs.debug_limit_segments_per_well is not None

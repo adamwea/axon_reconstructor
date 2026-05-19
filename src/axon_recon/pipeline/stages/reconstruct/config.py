@@ -654,7 +654,7 @@ class ReconstructionStageConfig:
 	use_full_channels_templates: bool
 	require_full_channels_templates: bool
 	force_restart: bool
-	force_replot: bool
+	replot: bool
 	max_plotting_concurrency: int | None
 	axon_velocity_params: dict[str, Any]
 
@@ -667,7 +667,7 @@ def parse_reconstruction_stage_config(
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> ReconstructionStageConfig:
 	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
@@ -1014,11 +1014,11 @@ def parse_reconstruction_stage_config(
 	)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
-	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
+	replot = _as_bool(execution_cfg.get("replot", False), False)
 	if force_restart_override is not None:
 		force_restart = bool(force_restart_override)
-	if force_replot_override is not None:
-		force_replot = bool(force_replot_override)
+	if replot_override is not None:
+		replot = bool(replot_override)
 
 	unit_limit_raw = (
 		debug_mode_cfg.get("unit_limit", None)
@@ -1538,7 +1538,7 @@ def parse_reconstruction_stage_config(
 		use_full_channels_templates=True,
 		require_full_channels_templates=True,
 		force_restart=force_restart,
-		force_replot=force_replot,
+		replot=replot,
 		max_plotting_concurrency=max_plotting_concurrency,
 		axon_velocity_params=dict(av_cfg),
 	)
@@ -1577,7 +1577,7 @@ def build_reconstruction_inputs_for_target(
 		use_full_channels_templates=stage_config.use_full_channels_templates,
 		require_full_channels_templates=stage_config.require_full_channels_templates,
 		force_restart=stage_config.force_restart,
-		force_replot=stage_config.force_replot,
+		replot=stage_config.replot,
 		n_jobs=max(1, int(unit_workers)),
 		max_plotting_concurrency=stage_config.max_plotting_concurrency,
 		axon_velocity_params=dict(stage_config.axon_velocity_params),
@@ -1593,7 +1593,7 @@ def load_reconstruction_inputs_from_runtime(
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> ReconstructionInputs:
 	runtime_config_path = Path(config_path).expanduser().resolve()
 	runtime_cfg = RuntimeConfig.load(runtime_config_path)
@@ -1629,7 +1629,7 @@ def load_reconstruction_inputs_from_runtime(
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 	)
 	probe_geometry = parse_probe_geometry_from_data_config(data_config=data_cfg)
 
@@ -1659,7 +1659,7 @@ def load_reconstruction_inputs_from_runtime(
 		use_full_channels_templates=stage_cfg.use_full_channels_templates,
 		require_full_channels_templates=stage_cfg.require_full_channels_templates,
 		force_restart=stage_cfg.force_restart,
-		force_replot=stage_cfg.force_replot,
+		replot=stage_cfg.replot,
 		n_jobs=1,
 		max_plotting_concurrency=stage_cfg.max_plotting_concurrency,
 		axon_velocity_params=stage_cfg.axon_velocity_params,
@@ -1674,7 +1674,7 @@ def load_reconstruction_inputs_from_runtime(
 		unit_limit_override=stage_cfg.unit_limit,
 		limit_segments_override=stage_cfg.limit_segments,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 	)
 	target = ExecutionTarget(
 		dataset_index=0,

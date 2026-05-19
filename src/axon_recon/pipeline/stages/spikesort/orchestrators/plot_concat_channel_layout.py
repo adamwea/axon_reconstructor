@@ -37,7 +37,7 @@ def run_spikesort_plot_concat_channel_layout_from_runtime(
 	target_datasets_override: list[int] | None = None,
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
 	from ....runner import run_spikesort_plot_concat_channel_layout_from_runtime as run_runtime
 
@@ -48,7 +48,7 @@ def run_spikesort_plot_concat_channel_layout_from_runtime(
 		target_datasets_override=target_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 	)
 
 
@@ -62,6 +62,6 @@ def _run_plot_concat_channel_layout_from_args(args: argparse.Namespace) -> int:
 			target_datasets_override=target_datasets_override,
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+			replot_override=(True if bool(getattr(args, "replot", False)) else None),
 		)
 	)

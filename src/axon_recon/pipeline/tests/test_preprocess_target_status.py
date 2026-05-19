@@ -689,7 +689,7 @@ def test_preprocess_phase_from_args_forwards_debug_limits(monkeypatch, tmp_path:
             target_datasets=["1,", "3"],
             limit_wells_per_dataset=1,
             force_restart=True,
-            force_replot=False,
+            replot=False,
         ),
         runtime_runner=_fake_runtime_runner,
     )

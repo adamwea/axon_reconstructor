@@ -3954,7 +3954,7 @@ def test_run_reconstruct_templates_pipeline_passes_effective_sampling_rate_to_ti
 	assert received_hz["propagation"] == 100_000.0
 
 
-def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tmp_path: Path, monkeypatch) -> None:
+def test_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -4045,7 +4045,7 @@ def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tm
 		unit_ids=[94],
 		unit_label_filter_required=False,
 		force_restart=False,
-		force_replot=True,
+		replot=True,
 		n_jobs=1,
 	)
 
@@ -4055,7 +4055,7 @@ def test_force_replot_reuses_persisted_sampling_metadata_for_timing_renderers(tm
 	assert received["prop"] == 100_000.0
 
 
-def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(tmp_path: Path, monkeypatch) -> None:
+def test_replot_infers_sampling_rate_from_execution_when_metadata_missing(tmp_path: Path, monkeypatch) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -4126,7 +4126,7 @@ def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(
 		unit_ids=[94],
 		unit_label_filter_required=False,
 		force_restart=False,
-		force_replot=True,
+		replot=True,
 		n_jobs=1,
 	)
 
@@ -4136,7 +4136,7 @@ def test_force_replot_infers_sampling_rate_from_execution_when_metadata_missing(
 	assert received["prop"] == 100_000.0
 
 
-def test_run_reconstruct_templates_pipeline_force_replot_rerenders_visual_outputs(tmp_path: Path) -> None:
+def test_run_reconstruct_templates_pipeline_replot_rerenders_visual_outputs(tmp_path: Path) -> None:
 	output_root = tmp_path / "outputs"
 	h5_path = tmp_path / "dataset.h5"
 	h5_path.write_text("", encoding="utf-8")
@@ -4194,7 +4194,7 @@ def test_run_reconstruct_templates_pipeline_force_replot_rerenders_visual_output
 		unit_ids=[94],
 		unit_label_filter_required=False,
 		force_restart=False,
-		force_replot=True,
+		replot=True,
 		n_jobs=1,
 	)
 	second_result = run_reconstruct_templates_pipeline(second_inputs)

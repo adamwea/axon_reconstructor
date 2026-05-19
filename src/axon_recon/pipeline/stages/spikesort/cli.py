@@ -26,11 +26,11 @@ def register_spikesort_subparser(subparsers: argparse._SubParsersAction[argparse
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
 	parser.add_argument("--force-restart", action="store_true", help="Recompute spikesort outputs for each target")
 	parser.add_argument(
-		"--force-replot",
+		"--replot",
 		action="store_true",
 		help=(
-			"Replot existing computed outputs without recomputing. For merge_SLAy this "
-			"reuses on-disk merge outputs and regenerates only the plots."
+			"Run plot/report phases in the stage's phase_sequence only; skip non-plot "
+			"phases entirely. Mutually exclusive with --force-restart."
 		),
 	)
 	parser.add_argument(
@@ -59,6 +59,10 @@ def _run_from_args(args: argparse.Namespace) -> int:
 	from ...runner import run_spikesort_from_runtime
 	from .orchestrators.sort import _debug_outputs_enabled_for_config, _emit_spikesort_aggregate
 
+	if bool(getattr(args, "force_restart", False)) and bool(getattr(args, "replot", False)):
+		raise SystemExit(
+			"--force-restart and --replot are mutually exclusive (see guardrails/force_restart.md)"
+		)
 	config_path = str(args.config)
 	target_datasets_override = _target_datasets_override_from_args(args)
 
@@ -70,7 +74,7 @@ def _run_from_args(args: argparse.Namespace) -> int:
 			target_datasets_override=target_datasets_override,
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+			replot_override=(True if bool(getattr(args, "replot", False)) else None),
 			task_allocation_override=getattr(args, "task_allocation_override", None),
 		),
 		debug_outputs=_debug_outputs_enabled_for_config(config_path),

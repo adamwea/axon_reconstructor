@@ -42,7 +42,7 @@ def _with_standalone_merge_phase_stage_config(
 			getattr(stage_config, f"{phase_prefix}_delete_outputs_on_force_restart")
 		),
 		"merge_force_restart": bool(getattr(stage_config, f"{phase_prefix}_force_restart")),
-		"merge_force_replot": bool(getattr(stage_config, f"{phase_prefix}_force_replot")),
+		"merge_replot": bool(getattr(stage_config, f"{phase_prefix}_replot")),
 	}
 	phase_runtime_overrides = getattr(stage_config, "merge_phase_runtime_overrides", None)
 	if isinstance(phase_runtime_overrides, dict):
@@ -62,7 +62,7 @@ def run_spikesort_merge_units(
 	output_rel_root: str,
 	stage_config: Any,
 	force_restart: bool,
-	force_replot: bool = False,
+	replot: bool = False,
 ) -> SpikesortMergeResult:
 	return run_spikesort_merge_stage(
 		h5_path=h5_path,
@@ -71,7 +71,7 @@ def run_spikesort_merge_units(
 		output_rel_root=output_rel_root,
 		stage_config=stage_config,
 		force_restart=force_restart,
-		force_replot=force_replot,
+		replot=replot,
 	)
 
 
@@ -83,7 +83,7 @@ def run_spikesort_merge_units_from_runtime(
 	target_datasets_override: list[int] | None = None,
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 	merge_sequence_override: tuple[str, ...] | list[str] | None = None,
 	stage_name: str = "spikesort.merge",
 ) -> MultiTargetStageResult:
@@ -96,7 +96,7 @@ def run_spikesort_merge_units_from_runtime(
 		target_datasets_override=target_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 		merge_sequence_override=merge_sequence_override,
 		stage_name=stage_name,
 	)
@@ -135,7 +135,7 @@ def _run_merge_units_from_args(args: argparse.Namespace) -> int:
 			target_datasets_override=target_datasets_override,
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+			replot_override=(True if bool(getattr(args, "replot", False)) else None),
 		)
 	)
 
@@ -150,7 +150,7 @@ def _run_merge_slay_from_args(args: argparse.Namespace) -> int:
 			target_datasets_override=target_datasets_override,
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+			replot_override=(True if bool(getattr(args, "replot", False)) else None),
 			merge_sequence_override=("SLAy",),
 			stage_name="spikesort.merge.slay",
 		)

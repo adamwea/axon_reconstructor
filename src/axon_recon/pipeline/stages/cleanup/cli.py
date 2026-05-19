@@ -83,7 +83,7 @@ def _run_wipe_src_scratch_from_args(args: argparse.Namespace) -> int:
 		target_datasets_override=target_datasets_override,
 		limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		replot_override=(True if bool(getattr(args, "replot", False)) else None),
 		task_allocation_override=getattr(args, "task_allocation_override", None),
 	)
 	return _emit_cleanup_aggregate(agg)
@@ -111,7 +111,7 @@ def _run_from_args(args: argparse.Namespace) -> int:
 		target_datasets_override=target_datasets_override,
 		limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 		force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-		force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+		replot_override=(True if bool(getattr(args, "replot", False)) else None),
 		task_allocation_override=getattr(args, "task_allocation_override", None),
 	)
 	return _emit_cleanup_aggregate(agg)

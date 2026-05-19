@@ -60,7 +60,14 @@ def register_preprocess_subparser(subparsers: argparse._SubParsersAction[argpars
 	parser = subparsers.add_parser("preprocess", help="Run preprocess stage")
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
 	parser.add_argument("--force-restart", action="store_true", help="Recompute preprocess outputs for each target")
-	parser.add_argument("--force-replot", action="store_true", help="Alias for force-restart compatibility")
+	parser.add_argument(
+		"--replot",
+		action="store_true",
+		help=(
+			"Run plot/report phases in the stage's phase_sequence only; skip non-plot "
+			"phases entirely. Mutually exclusive with --force-restart."
+		),
+	)
 	parser.add_argument(
 		"--target-dataset",
 		"--target-datasets",
@@ -76,6 +83,10 @@ def register_preprocess_subparser(subparsers: argparse._SubParsersAction[argpars
 
 
 def _run_from_args(args: argparse.Namespace) -> int:
+	if bool(getattr(args, "force_restart", False)) and bool(getattr(args, "replot", False)):
+		raise SystemExit(
+			"--force-restart and --replot are mutually exclusive (see guardrails/force_restart.md)"
+		)
 	target_datasets_override = _target_datasets_override_from_args(args)
 	return _emit_preprocess_aggregate(
 		run_preprocess_from_runtime(
@@ -85,7 +96,7 @@ def _run_from_args(args: argparse.Namespace) -> int:
 			target_datasets_override=target_datasets_override,
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+			replot_override=(True if bool(getattr(args, "replot", False)) else None),
 			task_allocation_override=getattr(args, "task_allocation_override", None),
 		)
 	)

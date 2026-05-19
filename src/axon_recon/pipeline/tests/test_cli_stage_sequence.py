@@ -328,7 +328,7 @@ def test_run_stage_sequence_alloc_prints_preview_without_running_handlers(monkey
         limit_datasets=None,
         limit_wells_per_dataset=1,
         force_restart=False,
-        force_replot=False,
+        replot=False,
         phase_tune=False,
         confirm_full_scope=False,
     )
@@ -368,7 +368,7 @@ def test_run_stage_sequence_alloc_skips_non_root_rank_for_mpi_override(monkeypat
         limit_datasets=None,
         limit_wells_per_dataset=1,
         force_restart=False,
-        force_replot=False,
+        replot=False,
         phase_tune=False,
         confirm_full_scope=False,
         task_allocation_backend="mpi",
@@ -506,7 +506,7 @@ def test_reconstruct_cli_runtime_kwargs_include_dataset_and_well_limits() -> Non
         target_datasets=["0,", "2,", "8"],
         limit_wells_per_dataset=1,
         force_restart=False,
-        force_replot=False,
+        replot=False,
     )
 
     kwargs = reconstruct_cli._reconstruct_runtime_kwargs(args)

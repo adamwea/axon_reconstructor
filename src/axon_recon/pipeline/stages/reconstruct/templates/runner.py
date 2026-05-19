@@ -828,7 +828,7 @@ def _reports_replot_requested(inputs: TemplatesInputs) -> bool:
 def _should_preserve_templates_reports(inputs: TemplatesInputs) -> bool:
 	if not _is_unit_scoped_templates_run(inputs):
 		return False
-	if not (bool(inputs.force_restart) or bool(inputs.force_replot) or bool(inputs.force_replot_per_unit)):
+	if not (bool(inputs.force_restart) or bool(inputs.replot) or bool(inputs.replot_per_unit)):
 		return False
 	if _reports_replot_requested(inputs):
 		return False
@@ -2014,11 +2014,11 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 	reports_replot_requested = _reports_replot_requested(inputs)
 	report_only_rerun = bool(inputs.force_rereport)
 	LOGGER.info(
-		"Templates stage start: stream=%s force_restart=%s force_replot=%s force_replot_per_unit=%s force_rereport=%s reports_replot_requested=%s reports_replot_from_disk=%s n_jobs=%d",
+		"Templates stage start: stream=%s force_restart=%s replot=%s replot_per_unit=%s force_rereport=%s reports_replot_requested=%s reports_replot_from_disk=%s n_jobs=%d",
 		str(inputs.stream_id),
 		bool(inputs.force_restart),
-		bool(inputs.force_replot),
-		bool(inputs.force_replot_per_unit),
+		bool(inputs.replot),
+		bool(inputs.replot_per_unit),
 		report_only_rerun,
 		reports_replot_requested,
 		bool(inputs.reports.replot_from_disk),
@@ -2047,8 +2047,8 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 		)
 	full_restart = (
 		bool(inputs.force_restart)
-		and (not bool(inputs.force_replot))
-		and (not bool(inputs.force_replot_per_unit))
+		and (not bool(inputs.replot))
+		and (not bool(inputs.replot_per_unit))
 		and (not reports_replot_requested)
 	)
 	templates_out_dir = well_out_dir / str(inputs.output_rel_root)
@@ -2233,8 +2233,8 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 	if (
 		reports_replot_requested
 		and (not bool(inputs.force_restart))
-		and (not bool(inputs.force_replot))
-		and (not bool(inputs.force_replot_per_unit))
+		and (not bool(inputs.replot))
+		and (not bool(inputs.replot_per_unit))
 	):
 		LOGGER.info("Templates stage selecting units from existing unit summaries (reports_replot_from_disk=true)")
 		if inputs.unit_ids is not None:
@@ -2294,8 +2294,8 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 
 		if (
 			(not bool(inputs.force_restart))
-			and (not bool(inputs.force_replot))
-			and (not bool(inputs.force_replot_per_unit))
+			and (not bool(inputs.replot))
+			and (not bool(inputs.replot_per_unit))
 		):
 			existing_result = _load_unit_result_from_summary(
 				unit_id=unit_id,
@@ -2314,7 +2314,7 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 		decision_for_unit = upsampling_decisions_by_unit.get(unit_id, None)
 		if decision_for_unit is None:
 			decision_for_unit = _load_persisted_upsampling_decision(unit_summary_json=paths["unit_summary_json"])
-		if decision_for_unit is None and (bool(inputs.force_replot) or bool(inputs.force_replot_per_unit)):
+		if decision_for_unit is None and (bool(inputs.replot) or bool(inputs.replot_per_unit)):
 			decision_for_unit = _infer_replot_upsampling_decision(inputs=inputs)
 		if isinstance(decision_for_unit, dict):
 			unit_summary["upsampling"] = dict(decision_for_unit)
@@ -2833,8 +2833,8 @@ def _run_reconstruct_templates_pipeline_monolithic(inputs: TemplatesInputs) -> T
 	if (
 		reports_replot_requested
 		and (not bool(inputs.force_restart))
-		and (not bool(inputs.force_replot))
-		and (not bool(inputs.force_replot_per_unit))
+		and (not bool(inputs.replot))
+		and (not bool(inputs.replot_per_unit))
 	):
 		units_to_process = []
 		missing_unit_summaries: list[Any] = []

@@ -26,7 +26,7 @@ def test_parse_init_stage_config_defaults() -> None:
 	assert parsed.phase_sequence == ()
 	assert parsed.output_rel_root == "init_outputs"
 	assert parsed.force_restart is False
-	assert parsed.force_replot is False
+	assert parsed.replot is False
 	assert parsed.phases.copy_src_to_scratch.enabled is False
 	assert parsed.phases.copy_src_to_scratch.summary_json_relpath == "context/copy_src_to_scratch_summary.json"
 
@@ -56,10 +56,10 @@ def test_parse_init_stage_config_honors_force_overrides() -> None:
 	parsed = parse_init_stage_config(
 		runtime_config=RuntimeConfig({}),
 		force_restart_override=True,
-		force_replot_override=True,
+		replot_override=True,
 	)
 	assert parsed.force_restart is True
-	assert parsed.force_replot is True
+	assert parsed.replot is True
 
 
 def test_parse_init_stage_config_reads_copy_phase_overrides() -> None:

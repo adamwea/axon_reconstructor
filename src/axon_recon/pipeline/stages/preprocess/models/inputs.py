@@ -168,7 +168,7 @@ class PreprocessInputs:
 
 	output_rel_root: str = PREPROCESS_OUTPUTS_DIRNAME
 	force_restart: bool = False
-	force_replot: bool = False
+	replot: bool = False
 	debug_limit_datasets: int | None = None
 	debug_limit_wells: int | None = None
 	debug_limit_wells_per_dataset: int | None = None

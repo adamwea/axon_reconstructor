@@ -42,7 +42,7 @@ def build_cleanup_inputs_for_target(
 		copied_to_scratch=bool(copied_to_scratch),
 		output_rel_root=stage_config.output_rel_root,
 		force_restart=stage_config.force_restart,
-		force_replot=stage_config.force_replot,
+		replot=stage_config.replot,
 		phase_sequence=stage_config.phase_sequence,
 		phases=stage_config.phases,
 	)

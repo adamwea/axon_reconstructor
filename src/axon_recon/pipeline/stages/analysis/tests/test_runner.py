@@ -35,7 +35,7 @@ def _make_stage_config(
 		pipeline_version="test-version",
 		well_metadata_lookup=well_metadata_lookup,
 		force_restart=False,
-		force_replot=False,
+		replot=False,
 	)
 
 

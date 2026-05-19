@@ -56,6 +56,6 @@ class CleanupInputs:
 	copied_to_scratch: bool = False
 	output_rel_root: str = "cleanup_outputs"
 	force_restart: bool = False
-	force_replot: bool = False
+	replot: bool = False
 	phase_sequence: tuple[str, ...] = DEFAULT_CLEANUP_PHASE_SEQUENCE
 	phases: CleanupPhasesConfig = field(default_factory=CleanupPhasesConfig)

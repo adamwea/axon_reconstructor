@@ -166,7 +166,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.merge_rel_output_root is None
     assert parsed.merge_delete_outputs_on_force_restart is False
     assert parsed.merge_force_restart is False
-    assert parsed.merge_force_replot is False
+    assert parsed.merge_replot is False
     assert parsed.merge_cleanup_generated_analyzers_on_success is False
     assert parsed.merge_analyzer_compute_sparsity is True
     assert parsed.merge_template_random_spikes_method == "default"
@@ -347,7 +347,7 @@ def test_parse_spikesort_stage_config_summarize_sort_phase() -> None:
     assert parsed.post_merge_metadata_include_unit_locations is True
     assert parsed.post_merge_metadata_log_summary_details is False
     assert parsed.force_restart is False
-    assert parsed.force_replot is False
+    assert parsed.replot is False
 
 
 def test_parse_spikesort_stage_config_ignores_force_single_well_sort_resource() -> None:
@@ -1585,7 +1585,7 @@ def test_parse_spikesort_stage_config_reads_merge_slay_phase_knobs() -> None:
                             "rel_output_root": "merge_outputs/slay_only",
                             "delete_outputs_on_force_restart": True,
                             "force_restart": True,
-                            "force_replot": False,
+                            "replot": False,
                             "debug_mode": {
                                 "enabled": True,
                                 "limit_datasets": 1,
@@ -1604,7 +1604,7 @@ def test_parse_spikesort_stage_config_reads_merge_slay_phase_knobs() -> None:
     assert parsed.merge_slay_rel_output_root == "merge_outputs/slay_only"
     assert parsed.merge_slay_delete_outputs_on_force_restart is True
     assert parsed.merge_slay_force_restart is True
-    assert parsed.merge_slay_force_replot is False
+    assert parsed.merge_slay_replot is False
     assert parsed.merge_slay_debug_mode_enabled is True
     assert parsed.merge_slay_debug_limit_datasets == 1
     assert parsed.merge_slay_debug_limit_wells == 1
@@ -1663,7 +1663,7 @@ def test_parse_spikesort_stage_config_reads_merge_phase_master_enable() -> None:
     assert parsed.merge_rel_output_root == "merge_outputs"
     assert parsed.merge_delete_outputs_on_force_restart is True
     assert parsed.merge_force_restart is False
-    assert parsed.merge_force_replot is False
+    assert parsed.merge_replot is False
 
 
 def test_parse_spikesort_stage_config_merge_force_knobs_inherit_global_toggles() -> None:
@@ -1673,12 +1673,12 @@ def test_parse_spikesort_stage_config_merge_force_knobs_inherit_global_toggles()
                 "spikesort": {
                     "execution": {
                         "force_restart": True,
-                        "force_replot": True,
+                        "replot": True,
                     },
                     "phases": {
                         "merge_units": {
                             "force_restart": False,
-                            "force_replot": False,
+                            "replot": False,
                         }
                     },
                 }
@@ -1689,9 +1689,9 @@ def test_parse_spikesort_stage_config_merge_force_knobs_inherit_global_toggles()
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
     assert parsed.force_restart is True
-    assert parsed.force_replot is True
+    assert parsed.replot is True
     assert parsed.merge_force_restart is True
-    assert parsed.merge_force_replot is True
+    assert parsed.merge_replot is True
 
 
 def test_parse_spikesort_stage_config_reads_merge_reports_2panel_knobs() -> None:
@@ -2009,7 +2009,7 @@ def test_parse_spikesort_stage_config_force_overrides_take_precedence() -> None:
                 "spikesort": {
                     "execution": {
                         "force_restart": False,
-                        "force_replot": True,
+                        "replot": True,
                         "sorter": "kilosort2_5",
                         "n_jobs": 8,
                     },
@@ -2024,11 +2024,11 @@ def test_parse_spikesort_stage_config_force_overrides_take_precedence() -> None:
     parsed = parse_spikesort_stage_config(
         runtime_config=cfg,
         force_restart_override=True,
-        force_replot_override=False,
+        replot_override=False,
     )
 
     assert parsed.force_restart is True
-    assert parsed.force_replot is False
+    assert parsed.replot is False
     assert parsed.sorter == "kilosort2_5"
     assert parsed.n_jobs == 8
     assert parsed.output_rel_root == "spikesort_v2"
@@ -2251,7 +2251,7 @@ def test_load_spikesort_inputs_from_runtime_defaults_and_overrides(tmp_path: Pat
 
     inputs = load_spikesort_inputs_from_runtime(
         config_path=str(runtime_path),
-        force_replot_override=True,
+        replot_override=True,
     )
 
     assert inputs.stream_id == "well006"
@@ -2268,7 +2268,7 @@ def test_load_spikesort_inputs_from_runtime_defaults_and_overrides(tmp_path: Pat
     assert inputs.raster_sort == "unit_id"
     assert inputs.fixed_y is True
     assert inputs.force_restart is False
-    assert inputs.force_replot is True
+    assert inputs.replot is True
     assert inputs.merge_analyzer_compute_sparsity is True
     assert inputs.merge_template_random_spikes_method == "default"
     assert inputs.merge_template_random_spikes_max_spikes_per_unit == 500

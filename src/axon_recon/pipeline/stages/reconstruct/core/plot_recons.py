@@ -38,7 +38,7 @@ def run_plot_recons_phase(
 	logger: logging.Logger | None = None,
 ) -> list[UnitReconstructionResult]:
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.plot_recons")
-	force_replot = bool(inputs.force_restart) or bool(inputs.force_replot)
+	replot = bool(inputs.force_restart) or bool(inputs.replot)
 	phase_outputs = inputs.phases.plot_recons.outputs
 
 	def _process_unit(unit_id: Any) -> UnitReconstructionResult:
@@ -91,7 +91,7 @@ def run_plot_recons_phase(
 
 			if bool(phase_outputs.amplitude_map.write_png):
 				amplitude_map_path = paths["amplitude_map_png"]
-				if force_replot or (not amplitude_map_path.exists()):
+				if replot or (not amplitude_map_path.exists()):
 					write_unit_amplitude_map_png_fn(
 						output_png=amplitude_map_path,
 						template_ch_by_t=plot_template_ch_by_t,
@@ -106,7 +106,7 @@ def run_plot_recons_phase(
 			if write_circle_recon:
 				circle_png_path = paths["circle_recon_png"]
 				circle_svg_path = paths["circle_recon_svg"]
-				needs_plot = bool(force_replot)
+				needs_plot = bool(replot)
 				if not needs_plot:
 					if bool(circle_output_cfg.write_png) and (not circle_png_path.exists()):
 						needs_plot = True

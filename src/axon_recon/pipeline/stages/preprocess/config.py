@@ -258,7 +258,7 @@ class PreprocessStageConfig:
 	output_rel_root: str
 	phase_sequence: tuple[str, ...]
 	force_restart: bool
-	force_replot: bool
+	replot: bool
 	debug_limit_datasets: int | None
 	debug_limit_wells: int | None
 	debug_limit_wells_per_dataset: int | None
@@ -526,7 +526,7 @@ def parse_preprocess_stage_config(
 	*,
 	runtime_config: RuntimeConfig,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> PreprocessStageConfig:
 	stage_cfg = runtime_config.get("stages.preprocess", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
@@ -566,11 +566,11 @@ def parse_preprocess_stage_config(
 		)
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
-	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
+	replot = _as_bool(execution_cfg.get("replot", False), False)
 	if force_restart_override is not None:
 		force_restart = bool(force_restart_override)
-	if force_replot_override is not None:
-		force_replot = bool(force_replot_override)
+	if replot_override is not None:
+		replot = bool(replot_override)
 
 	legacy_debug_default = _as_bool(execution_cfg.get("debug", True), True)
 	logging_enabled = _as_bool(logging_cfg.get("enabled", True), True)
@@ -887,7 +887,7 @@ def parse_preprocess_stage_config(
 			)
 		),
 		force_restart=force_restart,
-		force_replot=force_replot,
+		replot=replot,
 		debug_limit_datasets=_as_optional_int(debug_cfg.get("limit_datasets", None)),
 		debug_limit_wells=_as_optional_int(debug_cfg.get("limit_wells", None)),
 		debug_limit_wells_per_dataset=_as_optional_int(debug_cfg.get("limit_wells_per_dataset", None)),
@@ -966,7 +966,7 @@ def build_preprocess_inputs_for_target(
 		phase_sequence=stage_config.phase_sequence,
 		output_rel_root=stage_config.output_rel_root,
 		force_restart=stage_config.force_restart,
-		force_replot=stage_config.force_replot,
+		replot=stage_config.replot,
 		debug_limit_datasets=stage_config.debug_limit_datasets,
 		debug_limit_wells=stage_config.debug_limit_wells,
 		debug_limit_wells_per_dataset=stage_config.debug_limit_wells_per_dataset,
@@ -1020,7 +1020,7 @@ def load_preprocess_inputs_from_runtime(
 	*,
 	config_path: str,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> PreprocessInputs:
 	runtime_config_path = Path(config_path).expanduser().resolve()
 	runtime_cfg = RuntimeConfig.load(runtime_config_path)
@@ -1052,7 +1052,7 @@ def load_preprocess_inputs_from_runtime(
 	stage_cfg = parse_preprocess_stage_config(
 		runtime_config=runtime_cfg,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 	)
 
 	n_jobs = stage_cfg.n_jobs if stage_cfg.n_jobs is not None else 1
@@ -1067,7 +1067,7 @@ def load_preprocess_inputs_from_runtime(
 		phase_sequence=stage_cfg.phase_sequence,
 		output_rel_root=stage_cfg.output_rel_root,
 		force_restart=stage_cfg.force_restart,
-		force_replot=stage_cfg.force_replot,
+		replot=stage_cfg.replot,
 		debug_limit_datasets=stage_cfg.debug_limit_datasets,
 		debug_limit_wells=stage_cfg.debug_limit_wells,
 		debug_limit_wells_per_dataset=stage_cfg.debug_limit_wells_per_dataset,

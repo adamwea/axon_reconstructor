@@ -624,7 +624,7 @@ class SpikesortStageConfig:
 	merge_slay_rel_output_root: str
 	merge_slay_delete_outputs_on_force_restart: bool
 	merge_slay_force_restart: bool
-	merge_slay_force_replot: bool
+	merge_slay_replot: bool
 	merge_slay_dry_run: bool
 	merge_slay_debug_mode_enabled: bool
 	merge_slay_debug_limit_datasets: int | None
@@ -635,7 +635,7 @@ class SpikesortStageConfig:
 	merge_rel_output_root: str | None
 	merge_delete_outputs_on_force_restart: bool
 	merge_force_restart: bool
-	merge_force_replot: bool
+	merge_replot: bool
 	merge_cleanup_generated_analyzers_on_success: bool
 	merge_analyzer_compute_sparsity: bool
 	# Deprecated compatibility alias; no longer used as the canonical control surface.
@@ -740,7 +740,7 @@ class SpikesortStageConfig:
 	post_merge_metadata_include_unit_locations: bool
 	post_merge_metadata_log_summary_details: bool
 	force_restart: bool
-	force_replot: bool
+	replot: bool
 	resume_from: str | None
 
 
@@ -748,7 +748,7 @@ _MERGE_PHASE_RUNTIME_OVERRIDE_EXPLICIT_FIELDS = (
 	"merge_rel_output_root",
 	"merge_delete_outputs_on_force_restart",
 	"merge_force_restart",
-	"merge_force_replot",
+	"merge_replot",
 	"merge_cleanup_generated_analyzers_on_success",
 )
 _MERGE_PHASE_RUNTIME_OVERRIDE_PREFIXES = (
@@ -777,7 +777,7 @@ def parse_spikesort_stage_config(
 	*,
 	runtime_config: RuntimeConfig,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 	_include_merge_phase_runtime_overrides: bool = True,
 ) -> SpikesortStageConfig:
 	stage_cfg = runtime_config.get("stages.spikesort", {})
@@ -1012,11 +1012,11 @@ def parse_spikesort_stage_config(
 	slay_model_cache_cfg = _as_section(slay_cfg.get("model_cache", {}))
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
-	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
+	replot = _as_bool(execution_cfg.get("replot", False), False)
 	if force_restart_override is not None:
 		force_restart = bool(force_restart_override)
-	if force_replot_override is not None:
-		force_replot = bool(force_replot_override)
+	if replot_override is not None:
+		replot = bool(replot_override)
 
 	sort_engine = _normalize_sort_engine(
 		_coalesce(
@@ -1868,19 +1868,19 @@ def parse_spikesort_stage_config(
 		),
 		False,
 	)
-	merge_force_replot = _as_bool(
+	merge_replot = _as_bool(
 		_coalesce(
-			merge_units_phase_cfg.get("force_replot", None),
-			merge_units_phase_cfg.get("merge_force_replot", None),
-			execution_cfg.get("merge_force_replot", None),
-			stage_cfg.get("merge_force_replot", None),
+			merge_units_phase_cfg.get("replot", None),
+			merge_units_phase_cfg.get("merge_replot", None),
+			execution_cfg.get("merge_replot", None),
+			stage_cfg.get("merge_replot", None),
 			False,
 		),
 		False,
 	)
 	# Merge-phase force flags inherit global spikesort execution toggles.
 	merge_force_restart = bool(force_restart or merge_force_restart)
-	merge_force_replot = bool(force_replot or merge_force_replot)
+	merge_replot = bool(replot or merge_replot)
 	merge_cleanup_generated_analyzers_on_success = _as_bool(
 		_coalesce(
 			merge_units_phase_cfg.get("cleanup_generated_analyzers_on_success", None),
@@ -1898,7 +1898,7 @@ def parse_spikesort_stage_config(
 		default_rel_output_root: str,
 		default_delete_outputs_on_force_restart: bool,
 		default_force_restart: bool,
-		default_force_replot: bool,
+		default_replot: bool,
 	) -> dict[str, Any]:
 		phase_debug_cfg = _as_section(phase_cfg.get("debug_mode", {}))
 		return {
@@ -1933,12 +1933,12 @@ def parse_spikesort_stage_config(
 				),
 				default_force_restart,
 			),
-			"force_replot": _as_bool(
+			"replot": _as_bool(
 				_coalesce(
-					phase_cfg.get("force_replot", None),
-					default_force_replot,
+					phase_cfg.get("replot", None),
+					default_replot,
 				),
-				default_force_replot,
+				default_replot,
 			),
 			"debug_mode_enabled": _as_bool(phase_debug_cfg.get("enabled", False), False),
 			"debug_limit_datasets": _as_optional_positive_int(
@@ -1956,7 +1956,7 @@ def parse_spikesort_stage_config(
 		default_rel_output_root="merge_SLAy",
 		default_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
 		default_force_restart=bool(merge_force_restart),
-		default_force_replot=bool(merge_force_replot),
+		default_replot=bool(merge_replot),
 	)
 	merge_slay_dry_run = _as_bool(
 		_coalesce(
@@ -2596,7 +2596,7 @@ def parse_spikesort_stage_config(
 			synthetic_parsed = parse_spikesort_stage_config(
 				runtime_config=synthetic_runtime_config,
 				force_restart_override=force_restart_override,
-				force_replot_override=force_replot_override,
+				replot_override=replot_override,
 				_include_merge_phase_runtime_overrides=False,
 			)
 			return _collect_merge_phase_runtime_overrides(synthetic_parsed)
@@ -3794,7 +3794,7 @@ def parse_spikesort_stage_config(
 			merge_slay_phase_settings["delete_outputs_on_force_restart"]
 		),
 		merge_slay_force_restart=bool(merge_slay_phase_settings["force_restart"]),
-		merge_slay_force_replot=bool(merge_slay_phase_settings["force_replot"]),
+		merge_slay_replot=bool(merge_slay_phase_settings["replot"]),
 		merge_slay_dry_run=bool(merge_slay_dry_run),
 		merge_slay_debug_mode_enabled=bool(merge_slay_phase_settings["debug_mode_enabled"]),
 		merge_slay_debug_limit_datasets=merge_slay_phase_settings["debug_limit_datasets"],
@@ -3814,7 +3814,7 @@ def parse_spikesort_stage_config(
 		merge_rel_output_root=(str(merge_rel_output_root) if merge_rel_output_root is not None else None),
 		merge_delete_outputs_on_force_restart=bool(merge_delete_outputs_on_force_restart),
 		merge_force_restart=bool(merge_force_restart),
-		merge_force_replot=bool(merge_force_replot),
+		merge_replot=bool(merge_replot),
 		merge_cleanup_generated_analyzers_on_success=bool(
 			merge_cleanup_generated_analyzers_on_success
 		),
@@ -4024,7 +4024,7 @@ def parse_spikesort_stage_config(
 		post_merge_metadata_include_unit_locations=bool(post_merge_metadata_include_unit_locations),
 		post_merge_metadata_log_summary_details=bool(post_merge_metadata_log_summary_details),
 		force_restart=force_restart,
-		force_replot=force_replot,
+		replot=replot,
 		resume_from=_as_optional_str(
 			_coalesce(
 				sort_phase_mea_analysis_cfg.get("resume_from", None),
@@ -4110,7 +4110,7 @@ def build_spikesort_inputs_for_target(
 		am_kwargs=stage_config.am_kwargs,
 		option_kwargs=stage_config.option_kwargs,
 		force_restart=stage_config.force_restart,
-		force_replot=stage_config.force_replot,
+		replot=stage_config.replot,
 		resume_from=stage_config.resume_from,
 		merge_analyzer_compute_sparsity=stage_config.merge_analyzer_compute_sparsity,
 		merge_analyzer_density_mode=stage_config.merge_analyzer_density_mode,
@@ -4140,7 +4140,7 @@ def load_spikesort_inputs_from_runtime(
 	*,
 	config_path: str,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> SpikesortInputs:
 	runtime_config_path = Path(config_path).expanduser().resolve()
 	runtime_cfg = RuntimeConfig.load(runtime_config_path)
@@ -4172,7 +4172,7 @@ def load_spikesort_inputs_from_runtime(
 	stage_cfg = parse_spikesort_stage_config(
 		runtime_config=runtime_cfg,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 	)
 
 	n_jobs = stage_cfg.n_jobs if stage_cfg.n_jobs is not None else 1
@@ -4243,7 +4243,7 @@ def load_spikesort_inputs_from_runtime(
 		am_kwargs=stage_cfg.am_kwargs,
 		option_kwargs=stage_cfg.option_kwargs,
 		force_restart=stage_cfg.force_restart,
-		force_replot=stage_cfg.force_replot,
+		replot=stage_cfg.replot,
 		resume_from=stage_cfg.resume_from,
 		merge_analyzer_compute_sparsity=stage_cfg.merge_analyzer_compute_sparsity,
 		merge_analyzer_density_mode=stage_cfg.merge_analyzer_density_mode,

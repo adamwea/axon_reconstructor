@@ -408,7 +408,7 @@ def run_plot_unit_summary_phase(
 	logger: logging.Logger | None = None,
 ) -> list[UnitReconstructionResult]:
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.plot_unit_summary")
-	force_replot = bool(inputs.force_restart) or bool(inputs.force_replot)
+	replot = bool(inputs.force_restart) or bool(inputs.replot)
 	phase_cfg = inputs.phases.plot_unit_summary
 	phase_name = "plot_unit_summary"
 
@@ -468,7 +468,7 @@ def run_plot_unit_summary_phase(
 				per_unit_outputs=inputs.per_unit_outputs,
 				phase_output=phase_cfg.output,
 			)
-			needs_plot = bool(force_replot)
+			needs_plot = bool(replot)
 			if not needs_plot:
 				if bool(phase_cfg.output.write_png) and (not phase_paths["png_path"].exists()):
 					needs_plot = True

@@ -1287,8 +1287,8 @@ class ReconstructTemplatesConfig:
 	unit_limit: int | None
 	limit_segments: int | None
 	force_restart: bool
-	force_replot: bool
-	force_replot_per_unit: bool
+	replot: bool
+	replot_per_unit: bool
 	force_rereport: bool
 	unit_label_filter_labels: tuple[str, ...]
 	unit_label_filter_required: bool
@@ -1768,7 +1768,7 @@ def parse_reconstruct_templates_config(
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> ReconstructTemplatesConfig:
 	stage_cfg = runtime_config.get("stages.reconstruct", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
@@ -1794,8 +1794,8 @@ def parse_reconstruct_templates_config(
 	debug_limit_wells_per_dataset = _as_optional_positive_int(debug_mode_cfg.get("limit_wells_per_dataset", None))
 
 	force_restart = _as_bool(execution_cfg.get("force_restart", False), False)
-	force_replot = _as_bool(execution_cfg.get("force_replot", False), False)
-	force_replot_per_unit = _as_bool(execution_cfg.get("force_replot_per_unit", False), False)
+	replot = _as_bool(execution_cfg.get("replot", False), False)
+	replot_per_unit = _as_bool(execution_cfg.get("replot_per_unit", False), False)
 	force_rereport = _as_bool(execution_cfg.get("force_rereport", False), False)
 	unit_label_filter_cfg = execution_cfg.get("unit_label_filter", {}) if isinstance(execution_cfg.get("unit_label_filter", {}), dict) else {}
 	unit_label_filter_labels = tuple(
@@ -1941,13 +1941,13 @@ def parse_reconstruct_templates_config(
 	)
 	if force_restart_override is not None:
 		force_restart = bool(force_restart_override)
-	if force_replot_override is not None:
-		force_replot = bool(force_replot_override)
+	if replot_override is not None:
+		replot = bool(replot_override)
 	if force_rereport:
 		# Report-only reruns should not trigger per-unit regeneration.
 		force_restart = False
-		force_replot = False
-		force_replot_per_unit = False
+		replot = False
+		replot_per_unit = False
 
 	unit_limit_raw = (
 		debug_mode_cfg.get("unit_limit", None)
@@ -4124,8 +4124,8 @@ def parse_reconstruct_templates_config(
 		unit_limit=unit_limit,
 		limit_segments=limit_segments,
 		force_restart=force_restart,
-		force_replot=force_replot,
-		force_replot_per_unit=force_replot_per_unit,
+		replot=replot,
+		replot_per_unit=replot_per_unit,
 		force_rereport=force_rereport,
 		unit_label_filter_labels=unit_label_filter_labels,
 		unit_label_filter_required=unit_label_filter_required,
@@ -4176,8 +4176,8 @@ def build_templates_inputs_for_target(
 		unit_limit=stage_config.unit_limit,
 		limit_segments=stage_config.limit_segments,
 		force_restart=stage_config.force_restart,
-		force_replot=stage_config.force_replot,
-		force_replot_per_unit=stage_config.force_replot_per_unit,
+		replot=stage_config.replot,
+		replot_per_unit=stage_config.replot_per_unit,
 		force_rereport=stage_config.force_rereport,
 		unit_label_filter_labels=stage_config.unit_label_filter_labels,
 		unit_label_filter_required=stage_config.unit_label_filter_required,
@@ -4202,7 +4202,7 @@ def load_reconstruct_templates_inputs_from_runtime(
 	unit_limit_override: int | None = None,
 	limit_segments_override: int | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> TemplatesInputs:
 	runtime_config_path = Path(config_path).expanduser().resolve()
 	runtime_cfg = RuntimeConfig.load(runtime_config_path)
@@ -4256,7 +4256,7 @@ def load_reconstruct_templates_inputs_from_runtime(
 		unit_limit_override=unit_limit_override,
 		limit_segments_override=limit_segments_override,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 	)
 
 	return TemplatesInputs(
@@ -4286,8 +4286,8 @@ def load_reconstruct_templates_inputs_from_runtime(
 		unit_limit=stage_cfg.unit_limit,
 		limit_segments=stage_cfg.limit_segments,
 		force_restart=stage_cfg.force_restart,
-		force_replot=stage_cfg.force_replot,
-		force_replot_per_unit=stage_cfg.force_replot_per_unit,
+		replot=stage_cfg.replot,
+		replot_per_unit=stage_cfg.replot_per_unit,
 		force_rereport=stage_cfg.force_rereport,
 		unit_label_filter_labels=stage_cfg.unit_label_filter_labels,
 		unit_label_filter_required=stage_cfg.unit_label_filter_required,

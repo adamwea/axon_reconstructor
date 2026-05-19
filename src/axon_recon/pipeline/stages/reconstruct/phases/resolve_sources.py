@@ -131,8 +131,8 @@ def run_reconstruct_templates_resolve_sources_phase(inputs: TemplatesInputs) -> 
         "alternate_well_out_dirs": [str(path) for path in alternate_well_out_dirs],
         "run_intent": {
             "force_restart": bool(inputs.force_restart),
-            "force_replot": bool(inputs.force_replot),
-            "force_replot_per_unit": bool(inputs.force_replot_per_unit),
+            "replot": bool(inputs.replot),
+            "replot_per_unit": bool(inputs.replot_per_unit),
             "force_rereport": bool(inputs.force_rereport),
         },
         "applied_debug_limits": templates_runner._templates_applied_debug_limits(inputs),

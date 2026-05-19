@@ -52,6 +52,6 @@ class InitInputs:
 	copied_to_scratch: bool = False
 	output_rel_root: str = "init_outputs"
 	force_restart: bool = False
-	force_replot: bool = False
+	replot: bool = False
 	phase_sequence: tuple[str, ...] = DEFAULT_INIT_PHASE_SEQUENCE
 	phases: InitPhasesConfig = field(default_factory=InitPhasesConfig)

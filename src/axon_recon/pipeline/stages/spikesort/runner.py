@@ -8790,7 +8790,7 @@ def run_spikesort_merge_stage(
 	output_rel_root: str,
 	stage_config: Any,
 	force_restart: bool,
-	force_replot: bool = False,
+	replot: bool = False,
 ) -> SpikesortMergeResult:
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=mea_output_root,
@@ -8854,7 +8854,7 @@ def run_spikesort_merge_stage(
 		"Spikesort merge stage start",
 		stream_id=str(stream_id),
 		force_restart=bool(force_restart),
-		force_replot=bool(force_replot),
+		replot=bool(replot),
 		sequence=requested_sequence_raw,
 	)
 	merge_units_enabled = bool(getattr(stage_config, "merge_units_enabled", True))
@@ -9064,7 +9064,7 @@ def run_spikesort_merge_stage(
 			"merge_output_rel_root": str(merge_output_rel_root),
 			"merge_delete_outputs_on_force_restart": bool(merge_delete_outputs_on_force_restart),
 			"force_restart": bool(force_restart),
-			"force_replot": bool(force_replot),
+			"replot": bool(replot),
 			"replot_only": False,
 			"requested_sequence": [str(token) for token in requested_sequence_raw],
 			"methods": [],
@@ -9114,7 +9114,7 @@ def run_spikesort_merge_stage(
 			outputs=outputs,
 		)
 
-	replot_only_mode = bool(force_replot) and (not bool(force_restart))
+	replot_only_mode = bool(replot) and (not bool(force_restart))
 	if replot_only_mode:
 		_log_phase_step_start(
 			"Merge replot-only step start",
@@ -9535,10 +9535,10 @@ def run_spikesort_merge_stage(
 			)
 
 		status = "ok"
-		reason: str | None = "force_replot_only"
+		reason: str | None = "replot_only"
 		if merge_reports_error is not None or merge_template_heatmaps_error is not None:
 			status = "skipped"
-			reason = "force_replot_failed"
+			reason = "replot_failed"
 
 		payload: dict[str, Any] = {
 			"status": str(status),
@@ -9550,7 +9550,7 @@ def run_spikesort_merge_stage(
 			"merge_output_rel_root": str(merge_output_rel_root),
 			"merge_delete_outputs_on_force_restart": bool(merge_delete_outputs_on_force_restart),
 			"force_restart": bool(force_restart),
-			"force_replot": bool(force_replot),
+			"replot": bool(replot),
 			"replot_only": True,
 			"merge_units_enabled": bool(merge_units_enabled),
 			"merge_reports_enabled": bool(merge_reports_any_enabled),
@@ -10410,7 +10410,7 @@ def run_spikesort_merge_stage(
 		"merge_delete_outputs_on_force_restart": bool(merge_delete_outputs_on_force_restart),
 		"merge_removed_on_force_restart": list(merge_phase_removed_on_force_restart),
 		"force_restart": bool(force_restart),
-		"force_replot": bool(force_replot),
+		"replot": bool(replot),
 		"replot_only": False,
 		"merge_units_enabled": bool(merge_units_enabled),
 		"merge_reports_enabled": bool(merge_reports_any_enabled),
@@ -10652,7 +10652,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 	)
 	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
 	summary_json = stage_output_root_dir / "spikesort_summary.json"
-	effective_force_restart = bool(inputs.force_restart or inputs.force_replot)
+	effective_force_restart = bool(inputs.force_restart)
 	applied_debug_limits = _spikesort_applied_debug_limits_from_inputs(inputs)
 	_log_phase_step_start(
 		"Spikesort stage start",
@@ -10660,7 +10660,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 		sort_engine=str(getattr(inputs, "sort_engine", "mea_analysis") or "mea_analysis"),
 		sorter=str(inputs.sorter),
 		force_restart=bool(inputs.force_restart),
-		force_replot=bool(inputs.force_replot),
+		replot=bool(inputs.replot),
 		output_root=str(inputs.output_rel_root),
 		applied_debug_limits=applied_debug_limits,
 	)
@@ -10682,7 +10682,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 					"sort_enabled": bool(inputs.sort_enabled),
 					"sort_delete_outputs_on_force_restart": bool(inputs.sort_delete_outputs_on_force_restart),
 					"force_restart": bool(inputs.force_restart),
-					"force_replot": bool(inputs.force_replot),
+					"replot": bool(inputs.replot),
 				},
 				"outputs": {
 					"summary_json": str(summary_json),
@@ -10870,7 +10870,7 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 				"summarize_sort_emit_logs": bool(inputs.summarize_sort_emit_logs),
 				"summarize_sort_generate_artifacts": bool(inputs.summarize_sort_generate_artifacts),
 				"force_restart": bool(inputs.force_restart),
-				"force_replot": bool(inputs.force_replot),
+				"replot": bool(inputs.replot),
 				"effective_force_restart": bool(effective_force_restart),
 				"resume_from": inputs.resume_from,
 				"merge_analyzer_compute_sparsity": bool(inputs.merge_analyzer_compute_sparsity),

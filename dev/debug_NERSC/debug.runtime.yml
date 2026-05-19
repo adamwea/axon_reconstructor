@@ -384,7 +384,7 @@ stages:
   preprocess:
     execution:
       force_restart: false
-      force_replot: false
+      replot: false
     logging:
       enabled: true
       verbose: true
@@ -536,7 +536,7 @@ stages:
 
     execution:
       force_restart: false
-      force_replot: false
+      replot: false
       # Optional debug overrides for spikesort execution and outputs.
       # limit_wells: null # int or null for no limit
       # Relative paths resolve under the per-well output directory.
@@ -916,8 +916,9 @@ stages:
         #                  keeping data-only JSONs (unit_diff*, post_merge
         #                  unit_locations) so the status command can still
         #                  derive post-SLAy label counts.
-        #   --force-replot : reuse existing on-disk compute outputs and
-        #                  regenerate only the plots.
+        #   --replot     : run plot/report phases only; compute phases are
+        #                  skipped (orthogonal to --force-restart). Caller is
+        #                  responsible for ensuring upstream data is valid.
         # The CLI override beats any YAML setting below.
         # ---------------------------------------------------------------------
         enabled: false
@@ -926,7 +927,7 @@ stages:
         rel_output_root: merge_SLAy
         delete_outputs_on_force_restart: true
         force_restart: false
-        force_replot: false
+        replot: false
 
         # Slice 4: when dry_run=true, sorter_output is copied to a per-run scratch
         # at <merge_out_dir>/dry_run/sorter_output_scratch and SLAy is pointed
@@ -1213,7 +1214,7 @@ stages:
 
     execution:
       force_restart: false
-      force_replot: true
+      replot: true
       #unit_ids: [1, 3, 7, 10, 17, 20, 22, 23, 24, 28]
 
       unit_label_filter:
@@ -1444,8 +1445,9 @@ stages:
       #                     skip-stub summary marker with reason=plots_disabled
       #                     so `axon-recon status` classifies the well as
       #                     complete-by-skip rather than failed.
-      #   --force-replot  : reuse on-disk compute outputs and regenerate
-      #                     only the figures/reports.
+      #   --replot        : run plot/report phases only; compute phases are
+      #                     skipped (orthogonal to --force-restart). Caller is
+      #                     responsible for ensuring upstream data is valid.
       #
       # The CLI override wins over any per-phase `enabled` setting below.
       # =====================================================================

@@ -5004,7 +5004,7 @@ def test_run_spikesort_merge_stage_preserves_existing_outputs_when_delete_disabl
     assert sentinel.exists()
 
 
-def test_run_spikesort_merge_stage_force_replot_uses_unit_diff_json_as_2panel_source_of_truth(tmp_path: Path, monkeypatch) -> None:
+def test_run_spikesort_merge_stage_replot_uses_unit_diff_json_as_2panel_source_of_truth(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -5105,7 +5105,7 @@ def test_run_spikesort_merge_stage_force_replot_uses_unit_diff_json_as_2panel_so
     )
 
     def _fail_if_called(**kwargs):
-        raise AssertionError("merge methods must not run in force_replot-only mode")
+        raise AssertionError("merge methods must not run in replot-only mode")
 
     report_calls: list[dict[str, object]] = []
 
@@ -5150,7 +5150,7 @@ def test_run_spikesort_merge_stage_force_replot_uses_unit_diff_json_as_2panel_so
         output_rel_root="spikesort_outputs",
         stage_config=stage_cfg,
         force_restart=False,
-        force_replot=True,
+        replot=True,
     )
 
     summary = _read_json(result.summary_json)
@@ -5164,7 +5164,7 @@ def test_run_spikesort_merge_stage_force_replot_uses_unit_diff_json_as_2panel_so
     assert result.outputs.get("merge.report.unit_diff_json") == str(unit_diff_json)
 
 
-def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_path: Path, monkeypatch) -> None:
+def test_run_spikesort_merge_stage_replot_only_uses_existing_metadata(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -5234,7 +5234,7 @@ def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_
     )
 
     def _fail_if_called(**kwargs):
-        raise AssertionError("merge methods must not run in force_replot-only mode")
+        raise AssertionError("merge methods must not run in replot-only mode")
 
     report_calls: list[dict[str, object]] = []
 
@@ -5277,14 +5277,14 @@ def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_
         output_rel_root="spikesort_outputs",
         stage_config=stage_cfg,
         force_restart=False,
-        force_replot=True,
+        replot=True,
     )
 
     summary = _read_json(result.summary_json)
 
     assert summary.get("status") == "ok"
     assert summary.get("replot_only") is True
-    assert summary.get("force_replot") is True
+    assert summary.get("replot") is True
     assert len(report_calls) == 1
     assert report_calls[0].get("before_count") == 1
     assert report_calls[0].get("after_count") == 1
@@ -5292,7 +5292,7 @@ def test_run_spikesort_merge_stage_force_replot_only_uses_existing_metadata(tmp_
     assert "merge.report.unit_locations_before_after_png" in result.outputs
 
 
-def test_run_spikesort_merge_stage_force_replot_only_does_not_fallback_to_applied_operations(tmp_path: Path, monkeypatch) -> None:
+def test_run_spikesort_merge_stage_replot_only_does_not_fallback_to_applied_operations(tmp_path: Path, monkeypatch) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     h5_path = tmp_path / "raw_data" / "input.raw.h5"
@@ -5364,7 +5364,7 @@ def test_run_spikesort_merge_stage_force_replot_only_does_not_fallback_to_applie
     )
 
     def _fail_if_called(**kwargs):
-        raise AssertionError("merge methods must not run in force_replot-only mode")
+        raise AssertionError("merge methods must not run in replot-only mode")
 
     report_calls: list[dict[str, object]] = []
 
@@ -5407,7 +5407,7 @@ def test_run_spikesort_merge_stage_force_replot_only_does_not_fallback_to_applie
         output_rel_root="spikesort_outputs",
         stage_config=stage_cfg,
         force_restart=False,
-        force_replot=True,
+        replot=True,
     )
 
     summary = _read_json(result.summary_json)
@@ -5708,7 +5708,7 @@ def test_run_spikesort_merge_stage_does_not_invoke_bombcell_when_enabled(tmp_pat
         output_rel_root="spikesort_outputs",
         stage_config=stage_cfg,
         force_restart=False,
-        force_replot=False,
+        replot=False,
     )
 
     summary = _read_json(result.summary_json)

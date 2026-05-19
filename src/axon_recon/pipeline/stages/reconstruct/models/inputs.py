@@ -499,7 +499,7 @@ class ReconstructionInputs:
 	require_full_channels_templates: bool = True
 
 	force_restart: bool = False
-	force_replot: bool = False
+	replot: bool = False
 	n_jobs: int = 1
 	max_plotting_concurrency: int | None = None
 

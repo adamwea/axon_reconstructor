@@ -669,8 +669,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 			  reconstruct:
 			    execution:
 			      force_restart: false
-			      force_replot: true
-			      force_replot_per_unit: true
+			      replot: true
+			      replot_per_unit: true
 			      unit_label_filter:
 			        allowed_labels: [good, non_soma_good]
 			        required: false
@@ -824,8 +824,8 @@ def test_load_templates_config_parses_wf_overlay_and_execution_knobs(tmp_path: P
 	)
 
 	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
-	assert inputs.force_replot is True
-	assert inputs.force_replot_per_unit is True
+	assert inputs.replot is True
+	assert inputs.replot_per_unit is True
 	assert inputs.unit_label_filter_labels == ("good", "non_soma_good")
 	assert inputs.unit_label_filter_required is False
 	assert inputs.unit_limit == 7
@@ -3339,8 +3339,8 @@ def test_load_templates_config_force_rereport_enforces_reports_only_mode(tmp_pat
 			  reconstruct:
 			    execution:
 			      force_restart: true
-			      force_replot: true
-			      force_replot_per_unit: true
+			      replot: true
+			      replot_per_unit: true
 			      force_rereport: true
 			    outputs:
 			      reports:
@@ -3354,8 +3354,8 @@ def test_load_templates_config_force_rereport_enforces_reports_only_mode(tmp_pat
 	inputs = load_reconstruct_templates_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.force_rereport is True
 	assert inputs.force_restart is False
-	assert inputs.force_replot is False
-	assert inputs.force_replot_per_unit is False
+	assert inputs.replot is False
+	assert inputs.replot_per_unit is False
 	assert inputs.reports.replot_from_disk is True
 
 

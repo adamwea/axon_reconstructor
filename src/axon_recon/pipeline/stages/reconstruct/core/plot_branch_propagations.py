@@ -217,7 +217,7 @@ def run_plot_branch_propagations_phase(
 	logger: logging.Logger | None = None,
 ) -> list[UnitReconstructionResult]:
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.plot_branch_propagations")
-	force_replot = bool(inputs.force_restart) or bool(inputs.force_replot)
+	replot = bool(inputs.force_restart) or bool(inputs.replot)
 	phase_cfg = inputs.phases.plot_branch_propagations
 	phase_name = "plot_branch_propagations"
 
@@ -340,7 +340,7 @@ def run_plot_branch_propagations_phase(
 				manifest["branches"].append(entry)
 
 			if len(valid_branch_records) > 0:
-				needs_plot = bool(force_replot)
+				needs_plot = bool(replot)
 				if not needs_plot:
 					if bool(phase_cfg.output.write_png) and (not figure_png_path.exists()):
 						needs_plot = True

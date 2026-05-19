@@ -126,7 +126,7 @@ class InitStageConfig:
 	enabled: bool = False
 	phase_sequence: tuple[str, ...] = ()
 	force_restart: bool = False
-	force_replot: bool = False
+	replot: bool = False
 	phases: InitPhasesConfig = field(default_factory=InitPhasesConfig)
 
 
@@ -135,7 +135,7 @@ def parse_init_stage_config(
 	runtime_config: RuntimeConfig,
 	data_config: RuntimeConfig | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> InitStageConfig:
 	"""Parse the `stages.init` block from the runtime config.
 
@@ -162,6 +162,6 @@ def parse_init_stage_config(
 		enabled=enabled,
 		phase_sequence=phase_sequence,
 		force_restart=bool(force_restart_override or False),
-		force_replot=bool(force_replot_override or False),
+		replot=bool(replot_override or False),
 		phases=InitPhasesConfig(copy_src_to_scratch=copy_phase),
 	)

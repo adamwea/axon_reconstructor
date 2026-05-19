@@ -105,7 +105,7 @@ class _PlotTemplatesV2BatchInputs:
 def _run_plot_templates_v2_batch(batch_inputs: _PlotTemplatesV2BatchInputs) -> dict[str, Any]:
 	inputs = batch_inputs.inputs
 	phase_cfg = inputs.phases.plot_templates_v2
-	force_replot_requested = bool(inputs.force_restart) or bool(inputs.force_replot) or bool(inputs.force_replot_per_unit)
+	replot_requested = bool(inputs.force_restart) or bool(inputs.replot) or bool(inputs.replot_per_unit)
 	results_by_unit: dict[str, dict[str, Any]] = {}
 	requested_output_keys: set[str] = set()
 	with templates_runner._quiet_unexpected_plot_logs(inputs):
@@ -128,7 +128,7 @@ def _run_plot_templates_v2_batch(batch_inputs: _PlotTemplatesV2BatchInputs) -> d
 				for key, path in requested_outputs.items()
 				if path.exists()
 			}
-			if requested_outputs and (not force_replot_requested) and len(existing_outputs) == len(requested_outputs):
+			if requested_outputs and (not replot_requested) and len(existing_outputs) == len(requested_outputs):
 				_persist_unit_v2_outputs(
 					unit_summary_json=paths["unit_summary_json"],
 					unit_id=unit_id,
@@ -326,7 +326,7 @@ def run_reconstruct_templates_plot_templates_v2_phase(inputs: TemplatesInputs) -
 		"unit_batch_size": int(unit_batch_size),
 		"unit_executor": str(executor_kind),
 		"force_restart": bool(inputs.force_restart),
-		"force_replot": bool(inputs.force_replot),
+		"replot": bool(inputs.replot),
 		"duration_seconds": float(perf_counter() - phase_started),
 		"applied_debug_limits": templates_runner._templates_applied_debug_limits(inputs),
 	}

@@ -212,7 +212,7 @@ def test_restore_sorter_output_cli_refuses_without_confirm(capsys) -> None:
         config="/nonexistent/config.yml",
         confirm=False,
         force_restart=False,
-        force_replot=False,
+        replot=False,
         target_datasets=None,
         limit_segments=None,
         limit_datasets=None,

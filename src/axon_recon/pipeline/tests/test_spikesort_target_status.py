@@ -91,7 +91,7 @@ def test_run_spikesort_sort_from_runtime_wraps_direct_phase_in_resource_chain(mo
             sort_resource_class="sort_class",
             output_rel_root="spikesort_outputs",
             force_restart=False,
-            force_replot=False,
+            replot=False,
         ),
     )
     monkeypatch.setattr(pipeline_runner, "build_spikesort_inputs_for_target", lambda **kwargs: SimpleNamespace())
@@ -146,7 +146,7 @@ def test_spikesort_direct_phase_from_args_forwards_debug_limits(
             target_datasets=["1,", "3"],
             limit_wells_per_dataset=1,
             force_restart=True,
-            force_replot=False,
+            replot=False,
         )
     )
 
@@ -1369,7 +1369,7 @@ def test_run_spikesort_merge_from_runtime_inherits_template_heatmap_probe_dimens
             debug_limit_wells=None,
             output_rel_root="spikesort_outputs",
             force_restart=False,
-            force_replot=False,
+            replot=False,
             merge_reports_2panel_inherit_probe_dimensions=False,
             merge_reports_2panel_probe_dim_x_um=None,
             merge_reports_2panel_probe_dim_y_um=None,
@@ -1398,7 +1398,7 @@ def test_run_spikesort_merge_from_runtime_inherits_template_heatmap_probe_dimens
         output_rel_root: str,
         stage_config,
         force_restart: bool,
-        force_replot: bool = False,
+        replot: bool = False,
     ) -> SpikesortMergeResult:
         captured_stage_configs.append(stage_config)
         return SpikesortMergeResult(
@@ -1469,13 +1469,13 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
             merge_rel_output_root="merge_output",
             merge_delete_outputs_on_force_restart=False,
             merge_force_restart=False,
-            merge_force_replot=False,
+            merge_replot=False,
             slay_enabled=False,
             merge_slay_enabled=True,
             merge_slay_rel_output_root="merge_SLAy",
             merge_slay_delete_outputs_on_force_restart=True,
             merge_slay_force_restart=False,
-            merge_slay_force_replot=False,
+            merge_slay_replot=False,
             merge_phase_runtime_overrides={
                 "merge_slay": {
                     "merge_analyzer_n_jobs": 7,
@@ -1486,10 +1486,10 @@ def test_run_spikesort_merge_slay_from_runtime_applies_phase_workspace_config(
             merge_reports_2panel_inherit_probe_dimensions=False,
             merge_reports_template_heatmaps_inherit_probe_dimensions=False,
             force_restart=False,
-            force_replot=False,
+            replot=False,
         )
 
-    def _fake_run_spikesort_merge(*, h5_path, stream_id, mea_output_root, output_rel_root, stage_config, force_restart, force_replot):
+    def _fake_run_spikesort_merge(*, h5_path, stream_id, mea_output_root, output_rel_root, stage_config, force_restart, replot):
         captured_stage_configs.append(stage_config)
         return SpikesortMergeResult(
             well_out_dir=tmp_path / "well_out",
@@ -1570,13 +1570,13 @@ def test_run_spikesort_merge_slay_from_runtime_ignores_phase_debug_limits(
             merge_rel_output_root="merge_output",
             merge_delete_outputs_on_force_restart=False,
             merge_force_restart=False,
-            merge_force_replot=False,
+            merge_replot=False,
             slay_enabled=False,
             merge_slay_enabled=True,
             merge_slay_rel_output_root="merge_SLAy",
             merge_slay_delete_outputs_on_force_restart=True,
             merge_slay_force_restart=False,
-            merge_slay_force_replot=False,
+            merge_slay_replot=False,
             merge_slay_debug_mode_enabled=True,
             merge_slay_debug_limit_datasets=1,
             merge_slay_debug_limit_wells=1,
@@ -1584,10 +1584,10 @@ def test_run_spikesort_merge_slay_from_runtime_ignores_phase_debug_limits(
             merge_reports_2panel_inherit_probe_dimensions=False,
             merge_reports_template_heatmaps_inherit_probe_dimensions=False,
             force_restart=False,
-            force_replot=False,
+            replot=False,
         )
 
-    def _fake_run_spikesort_merge(*, h5_path, stream_id, mea_output_root, output_rel_root, stage_config, force_restart, force_replot):
+    def _fake_run_spikesort_merge(*, h5_path, stream_id, mea_output_root, output_rel_root, stage_config, force_restart, replot):
         return SpikesortMergeResult(
             well_out_dir=tmp_path / f"well_out_{stream_id}",
             merge_out_dir=tmp_path / f"merge_out_{stream_id}",

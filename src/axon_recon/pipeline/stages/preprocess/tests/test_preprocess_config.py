@@ -21,7 +21,7 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.output_rel_root == "preprocess_outputs"
     assert parsed.phase_sequence == DEFAULT_PREPROCESS_PHASE_SEQUENCE
     assert parsed.force_restart is False
-    assert parsed.force_replot is False
+    assert parsed.replot is False
     assert parsed.debug_limit_datasets is None
     assert parsed.debug_limit_wells is None
     assert parsed.debug_limit_wells_per_dataset is None
@@ -111,7 +111,7 @@ def test_parse_preprocess_stage_config_force_overrides_take_precedence() -> None
                 "preprocess": {
                     "execution": {
                         "force_restart": False,
-                        "force_replot": True,
+                        "replot": True,
                     },
                     "outputs": {
                         "output_rel_root": "/preprocess_v2",
@@ -124,11 +124,11 @@ def test_parse_preprocess_stage_config_force_overrides_take_precedence() -> None
     parsed = parse_preprocess_stage_config(
         runtime_config=cfg,
         force_restart_override=True,
-        force_replot_override=False,
+        replot_override=False,
     )
 
     assert parsed.force_restart is True
-    assert parsed.force_replot is False
+    assert parsed.replot is False
     assert parsed.output_rel_root == "preprocess_v2"
 
 
@@ -710,7 +710,7 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.stream_id == "well005"
     assert inputs.output_rel_root == "preprocess_stage_outputs"
     assert inputs.force_restart is True
-    assert inputs.force_replot is False
+    assert inputs.replot is False
     assert inputs.debug_limit_segments_per_well == 2
     assert inputs.logging_enabled is True
     assert inputs.logging_verbose is False

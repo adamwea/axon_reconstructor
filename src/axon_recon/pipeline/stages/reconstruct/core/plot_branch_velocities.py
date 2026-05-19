@@ -317,7 +317,7 @@ def run_plot_branch_velocities_phase(
 	logger: logging.Logger | None = None,
 ) -> list[UnitReconstructionResult]:
 	active_logger = logger or logging.getLogger("axon_recon.reconstruct.plot_branch_velocities")
-	force_replot = bool(inputs.force_restart) or bool(inputs.force_replot)
+	replot = bool(inputs.force_restart) or bool(inputs.replot)
 	phase_cfg = inputs.phases.plot_branch_velocities
 	phase_name = "plot_branch_velocities"
 
@@ -408,7 +408,7 @@ def run_plot_branch_velocities_phase(
 			manifest["branches"].extend(list(prepared_plot_data["manifest_entries"]))
 
 			if len(valid_branch_records) > 0:
-				needs_plot = bool(force_replot)
+				needs_plot = bool(replot)
 				if not needs_plot:
 					if bool(phase_cfg.output.write_png) and (not figure_png_path.exists()):
 						needs_plot = True

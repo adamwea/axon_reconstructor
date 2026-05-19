@@ -142,11 +142,11 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 	)
 	parser.add_argument("--force-restart", action="store_true", help="Recompute even if per-unit outputs exist")
 	parser.add_argument(
-		"--force-replot",
+		"--replot",
 		action="store_true",
 		help=(
-			"Replot existing computed outputs without recomputing. Reuses on-disk "
-			"compute and regenerates only the figures/reports for plot_* and report_* phases."
+			"Run plot/report phases in the stage's phase_sequence only; skip non-plot "
+			"phases entirely. Mutually exclusive with --force-restart."
 		),
 	)
 	parser.add_argument(
@@ -196,6 +196,10 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 
 
 def _reconstruct_runtime_kwargs(args: argparse.Namespace) -> dict[str, object]:
+	if bool(getattr(args, "force_restart", False)) and bool(getattr(args, "replot", False)):
+		raise SystemExit(
+			"--force-restart and --replot are mutually exclusive (see guardrails/force_restart.md)"
+		)
 	try:
 		target_datasets_override = _parse_target_dataset_indices(getattr(args, "target_datasets", None))
 	except ValueError as exc:
@@ -210,7 +214,7 @@ def _reconstruct_runtime_kwargs(args: argparse.Namespace) -> dict[str, object]:
 		"target_datasets_override": target_datasets_override,
 		"limit_wells_per_dataset_override": getattr(args, "limit_wells_per_dataset", None),
 		"force_restart_override": (True if bool(getattr(args, "force_restart", False)) else None),
-		"force_replot_override": (True if bool(getattr(args, "force_replot", False)) else None),
+		"replot_override": (True if bool(getattr(args, "replot", False)) else None),
 		"task_allocation_override": getattr(args, "task_allocation_override", None),
 	}
 

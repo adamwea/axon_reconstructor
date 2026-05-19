@@ -76,7 +76,7 @@ class SpikesortInputs:
 	sort_assert_one_source: bool = False
 
 	force_restart: bool = False
-	force_replot: bool = False
+	replot: bool = False
 	resume_from: str | None = None
 	merge_analyzer_compute_sparsity: bool = True
 	merge_analyzer_density_mode: str = "auto"

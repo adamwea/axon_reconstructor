@@ -26,7 +26,7 @@ def test_parse_cleanup_stage_config_defaults() -> None:
 	assert parsed.phase_sequence == ()
 	assert parsed.output_rel_root == "cleanup_outputs"
 	assert parsed.force_restart is False
-	assert parsed.force_replot is False
+	assert parsed.replot is False
 	assert parsed.phases.wipe_src_scratch.enabled is False
 	assert parsed.phases.wipe_src_scratch.dry_run is False
 	assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is False
@@ -58,10 +58,10 @@ def test_parse_cleanup_stage_config_honors_force_overrides() -> None:
 	parsed = parse_cleanup_stage_config(
 		runtime_config=RuntimeConfig({}),
 		force_restart_override=True,
-		force_replot_override=True,
+		replot_override=True,
 	)
 	assert parsed.force_restart is True
-	assert parsed.force_replot is True
+	assert parsed.replot is True
 
 
 def test_parse_cleanup_stage_config_reads_wipe_phase_overrides() -> None:

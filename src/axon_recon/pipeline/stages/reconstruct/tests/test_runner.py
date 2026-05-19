@@ -1949,7 +1949,7 @@ def test_run_reconstruct_report_full_chip_layout_phase_writes_outputs(monkeypatc
 		mea_output_root=tmp_path,
 		output_rel_root="recon_outputs",
 		unit_ids=[1],
-		force_replot=True,
+		replot=True,
 		probe_geometry=ProbeGeometryConfig(active_area_um_x=100.0, active_area_um_y=80.0, pitch_um=17.5),
 		phases=ReconstructionPhasesConfig(
 			report_full_chip_layout=ReconstructionReportFullChipLayoutPhaseConfig(

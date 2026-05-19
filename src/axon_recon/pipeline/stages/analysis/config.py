@@ -111,7 +111,7 @@ class AnalysisStageConfig:
 	pipeline_version: str
 	well_metadata_lookup: dict[tuple[int, str], dict[str, Any]] = field(default_factory=dict)
 	force_restart: bool = False
-	force_replot: bool = False
+	replot: bool = False
 
 
 def parse_analysis_stage_config(
@@ -119,7 +119,7 @@ def parse_analysis_stage_config(
 	runtime_config: RuntimeConfig,
 	data_config: RuntimeConfig | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> AnalysisStageConfig:
 	stage_cfg = runtime_config.get("stages.analysis", {})
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
@@ -181,7 +181,7 @@ def parse_analysis_stage_config(
 		pipeline_version=pipeline_version,
 		well_metadata_lookup=well_metadata_lookup,
 		force_restart=bool(force_restart_override or False),
-		force_replot=bool(force_replot_override or False),
+		replot=bool(replot_override or False),
 	)
 
 

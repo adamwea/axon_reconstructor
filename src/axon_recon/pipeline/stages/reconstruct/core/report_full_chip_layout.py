@@ -267,10 +267,10 @@ def run_report_full_chip_layout_phase(
 	existing_manifest = bool(output_paths["manifest_json"].exists())
 	if preserve_stage_reports:
 		active_logger.info(
-			"reconstruct.report_full_chip_layout preserving existing outputs branch_scope=%s force_restart=%s force_replot=%s existing_png=%s existing_svg=%s existing_manifest=%s",
+			"reconstruct.report_full_chip_layout preserving existing outputs branch_scope=%s force_restart=%s replot=%s existing_png=%s existing_svg=%s existing_manifest=%s",
 			str(phase_cfg.branch_scope),
 			bool(inputs.force_restart),
-			bool(inputs.force_replot),
+			bool(inputs.replot),
 			existing_png,
 			existing_svg,
 			existing_manifest,
@@ -284,10 +284,10 @@ def run_report_full_chip_layout_phase(
 		return stage_outputs
 
 	active_logger.info(
-		"reconstruct.report_full_chip_layout rewriting outputs branch_scope=%s force_restart=%s force_replot=%s existing_png=%s existing_svg=%s existing_manifest=%s units_total=%d",
+		"reconstruct.report_full_chip_layout rewriting outputs branch_scope=%s force_restart=%s replot=%s existing_png=%s existing_svg=%s existing_manifest=%s units_total=%d",
 		str(phase_cfg.branch_scope),
 		bool(inputs.force_restart),
-		bool(inputs.force_replot),
+		bool(inputs.replot),
 		existing_png,
 		existing_svg,
 		existing_manifest,

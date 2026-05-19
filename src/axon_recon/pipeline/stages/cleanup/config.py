@@ -131,7 +131,7 @@ class CleanupStageConfig:
 	enabled: bool = False
 	phase_sequence: tuple[str, ...] = ()
 	force_restart: bool = False
-	force_replot: bool = False
+	replot: bool = False
 	phases: CleanupPhasesConfig = field(default_factory=CleanupPhasesConfig)
 
 
@@ -140,7 +140,7 @@ def parse_cleanup_stage_config(
 	runtime_config: RuntimeConfig,
 	data_config: RuntimeConfig | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> CleanupStageConfig:
 	"""Parse the `stages.cleanup` block from the runtime config.
 
@@ -167,6 +167,6 @@ def parse_cleanup_stage_config(
 		enabled=enabled,
 		phase_sequence=phase_sequence,
 		force_restart=bool(force_restart_override or False),
-		force_replot=bool(force_replot_override or False),
+		replot=bool(replot_override or False),
 		phases=CleanupPhasesConfig(wipe_src_scratch=wipe_phase),
 	)

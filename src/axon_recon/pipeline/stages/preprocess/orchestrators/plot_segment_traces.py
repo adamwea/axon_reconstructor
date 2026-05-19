@@ -22,7 +22,7 @@ def run_preprocess_plot_segment_traces_from_runtime(
 	target_datasets_override: list[int] | None = None,
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
 	return run_preprocess_phase_from_runtime(
 		phase_name=_PHASE_NAME,
@@ -33,7 +33,7 @@ def run_preprocess_plot_segment_traces_from_runtime(
 		target_datasets_override=target_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 	)
 
 

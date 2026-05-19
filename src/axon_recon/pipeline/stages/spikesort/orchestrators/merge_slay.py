@@ -22,7 +22,7 @@ def run_spikesort_merge_slay(
 	output_rel_root: str,
 	stage_config: Any,
 	force_restart: bool,
-	force_replot: bool = False,
+	replot: bool = False,
 ) -> SpikesortMergeResult:
 	return run_spikesort_merge_stage(
 		h5_path=h5_path,
@@ -36,7 +36,7 @@ def run_spikesort_merge_slay(
 			method_enabled_field="slay_enabled",
 		),
 		force_restart=force_restart,
-		force_replot=force_replot,
+		replot=replot,
 	)
 
 
@@ -48,7 +48,7 @@ def run_spikesort_merge_slay_from_runtime(
 	target_datasets_override: list[int] | None = None,
 	limit_wells_per_dataset_override: int | None = None,
 	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
+	replot_override: bool | None = None,
 	task_allocation_override: dict[str, Any] | None = None,
 	stage_name: str = "spikesort.merge_SLAy",
 ) -> MultiTargetStageResult:
@@ -61,7 +61,7 @@ def run_spikesort_merge_slay_from_runtime(
 		target_datasets_override=target_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
+		replot_override=replot_override,
 		task_allocation_override=task_allocation_override,
 		stage_config_transformer=lambda stage_config: _with_standalone_merge_phase_stage_config(
 			stage_config,
@@ -88,7 +88,7 @@ def _run_merge_slay_from_args(args: argparse.Namespace) -> int:
 			target_datasets_override=target_datasets_override,
 			limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 			force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-			force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+			replot_override=(True if bool(getattr(args, "replot", False)) else None),
 			task_allocation_override=getattr(args, "task_allocation_override", None),
 		)
 	)

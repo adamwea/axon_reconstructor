@@ -976,8 +976,8 @@ class TemplatesInputs:
 	limit_segments: int | None = None
 
 	force_restart: bool = False
-	force_replot: bool = False
-	force_replot_per_unit: bool = False
+	replot: bool = False
+	replot_per_unit: bool = False
 	force_rereport: bool = False
 	unit_label_filter_labels: tuple[str, ...] = ("good", "non_soma_good")
 	unit_label_filter_required: bool = True

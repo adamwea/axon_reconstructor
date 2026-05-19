@@ -685,12 +685,13 @@ def _register_stage_sequence_parser(
 	parser.add_argument("--config", type=str, required=True, help="Path to runtime YAML/JSON config")
 	parser.add_argument("--force-restart", action="store_true", help="Force stage restart for selected stages")
 	parser.add_argument(
-		"--force-replot",
+		"--replot",
 		action="store_true",
 		help=(
-			"Replot existing computed outputs without recomputing. For plot-heavy phases "
-			"(merge_SLAy, plot_*, report_*) this reuses on-disk compute and regenerates "
-			"only the figures/reports."
+			"Run plot/report phases in the stage's phase_sequence only; skip non-plot "
+			"phases entirely. Orthogonal to --force-restart (mutually exclusive). "
+			"Caller is responsible for ensuring upstream data is valid; --replot does "
+			"NOT auto-restart anything."
 		),
 	)
 	parser.add_argument(
@@ -982,6 +983,10 @@ def _render_mpi_sample_worker_test(*, rank: int, size: int, config_path: str | N
 
 def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 	stage_list = _parse_stage_list_tokens(list(getattr(args, "stages", []) or []))
+	if bool(getattr(args, "force_restart", False)) and bool(getattr(args, "replot", False)):
+		raise SystemExit(
+			"--force-restart and --replot are mutually exclusive (see guardrails/force_restart.md)"
+		)
 	logger = logging.getLogger("axon_recon.pipeline.stages")
 	if bool(getattr(args, "alloc", False)):
 		task_allocation_override = _build_task_allocation_override_from_args(args)
@@ -1008,7 +1013,7 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 					limit_datasets_override=getattr(args, "limit_datasets", None),
 					limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 					force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-					force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+					replot_override=(True if bool(getattr(args, "replot", False)) else None),
 					task_allocation_override=task_allocation_override,
 				)
 				allocation_preview_text = format_stage_allocation_previews(previews)
@@ -1076,7 +1081,7 @@ def _run_stage_sequence_from_args(args: argparse.Namespace) -> int:
 				limit_datasets_override=getattr(args, "limit_datasets", None),
 				limit_wells_per_dataset_override=getattr(args, "limit_wells_per_dataset", None),
 				force_restart_override=(True if bool(getattr(args, "force_restart", False)) else None),
-				force_replot_override=(True if bool(getattr(args, "force_replot", False)) else None),
+				replot_override=(True if bool(getattr(args, "replot", False)) else None),
 				task_allocation_override=task_allocation_override,
 			)
 			return 0

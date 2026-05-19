@@ -56,10 +56,10 @@ def _run_reconstruct_report_full_chip_layout_phase_impl(
     unit_results: list[UnitReconstructionResult],
 ) -> dict[str, str]:
     reconstruct_runner.LOGGER.info(
-        "reconstruct.report_full_chip_layout overwrite policy: action=rewrite preserve_stage_reports_requested=%s force_restart=%s force_replot=%s selected_units=%d discovered_units=%d existing_full_chip_outputs=%s",
+        "reconstruct.report_full_chip_layout overwrite policy: action=rewrite preserve_stage_reports_requested=%s force_restart=%s replot=%s selected_units=%d discovered_units=%d existing_full_chip_outputs=%s",
         bool(env.preserve_stage_reports),
         bool(inputs.force_restart),
-        bool(inputs.force_replot),
+        bool(inputs.replot),
         len(env.unit_ids),
         len(unit_results),
         sorted(

@@ -297,7 +297,7 @@ def _is_unit_scoped_reconstruct_run(inputs: ReconstructionInputs) -> bool:
 def _should_preserve_reconstruct_reports(inputs: ReconstructionInputs) -> bool:
 	if not _is_unit_scoped_reconstruct_run(inputs):
 		return False
-	if not (bool(inputs.force_restart) or bool(inputs.force_replot)):
+	if not (bool(inputs.force_restart) or bool(inputs.replot)):
 		return False
 	return not bool(inputs.overwrite_report_outputs_on_unit_rerun)
 
@@ -670,7 +670,7 @@ def _prepare_reconstruct_phase_environment(
 		data_file=inputs.h5_path,
 		well=inputs.stream_id,
 	)
-	full_restart = bool(inputs.force_restart) and (not bool(inputs.force_replot))
+	full_restart = bool(inputs.force_restart) and (not bool(inputs.replot))
 	reconstruction_out_dir = well_out_dir / str(inputs.output_rel_root)
 	preserve_stage_reports = _should_preserve_reconstruct_reports(inputs)
 	existing_stage_outputs = (
@@ -1114,10 +1114,10 @@ def _run_reconstruct_report_full_chip_layout_phase_impl(
 	unit_results: list[UnitReconstructionResult],
 ) -> dict[str, str]:
 	LOGGER.info(
-		"reconstruct.report_full_chip_layout overwrite policy: action=rewrite preserve_stage_reports_requested=%s force_restart=%s force_replot=%s selected_units=%d discovered_units=%d existing_full_chip_outputs=%s",
+		"reconstruct.report_full_chip_layout overwrite policy: action=rewrite preserve_stage_reports_requested=%s force_restart=%s replot=%s selected_units=%d discovered_units=%d existing_full_chip_outputs=%s",
 		bool(env.preserve_stage_reports),
 		bool(inputs.force_restart),
-		bool(inputs.force_replot),
+		bool(inputs.replot),
 		len(env.unit_ids),
 		len(unit_results),
 		sorted(
