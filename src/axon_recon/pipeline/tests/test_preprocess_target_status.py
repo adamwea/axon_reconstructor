@@ -11,7 +11,6 @@ from axon_recon.pipeline.execution.context import ExecutionTarget, StageParallel
 from axon_recon.pipeline.runner import (
     run_preprocess_concat_segments_from_runtime,
     run_preprocess_plot_concat_channel_layout_from_runtime,
-    run_preprocess_copy_src_to_scratch_from_runtime,
     run_preprocess_from_runtime,
     run_preprocess_plot_concat_traces_from_runtime,
     run_preprocess_plot_raster_threshold_from_runtime,
@@ -332,7 +331,7 @@ def test_run_preprocess_from_runtime_applies_debug_well_limit(monkeypatch, tmp_p
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(
             debug_limit_wells=1,
-            phases=SimpleNamespace(copy_src_to_scratch=SimpleNamespace(enabled=False)),
+            phases=SimpleNamespace(),
         )
 
     def _fake_build_preprocess_inputs_for_target(*, target, stage_config, unit_workers: int):
@@ -427,7 +426,7 @@ def test_run_preprocess_from_runtime_applies_global_debug_dataset_and_well_limit
         return SimpleNamespace(
             debug_limit_datasets=1,
             debug_limit_wells=2,
-            phases=SimpleNamespace(copy_src_to_scratch=SimpleNamespace(enabled=False)),
+            phases=SimpleNamespace(),
         )
 
     def _fake_build_preprocess_inputs_for_target(*, target, stage_config, unit_workers: int):
@@ -506,15 +505,6 @@ def test_preprocess_debug_limits_select_first_wells_per_dataset(tmp_path: Path) 
         "expected_divider_stdout",
     ),
     [
-        (
-            run_preprocess_copy_src_to_scratch_from_runtime,
-            "run_preprocess_copy_src_to_scratch_from_runtime",
-            "run_preprocess_copy_src_to_scratch",
-            "preprocess.copy_src_to_scratch",
-            "copy_src_to_scratch",
-            1,
-            True,
-        ),
         (
             run_preprocess_save_rec_metadata_from_runtime,
             "run_preprocess_save_rec_metadata_from_runtime",
@@ -690,7 +680,9 @@ def test_run_preprocess_substage_from_runtime_marks_target_ok(
         "summary_json": str(tmp_path / f"{phase_name}_summary.json"),
         "outputs": {},
     }
-    expected_materialize = (stage_name == "preprocess.copy_src_to_scratch")
+    # After slice 5, no preprocess substage triggers scratch materialization
+    # (copy_src_to_scratch moved to the init stage).
+    expected_materialize = False
     assert select_calls == [expected_materialize]
     assert stage_configs_seen
     assert getattr(stage_configs_seen[0], "debug_limit_segments_per_well") == 2
@@ -751,7 +743,6 @@ def test_preprocess_phase_from_args_forwards_debug_limits(monkeypatch, tmp_path:
 @pytest.mark.parametrize(
     ("module_name", "runner_symbol", "phase_name"),
     [
-        ("copy_src_to_scratch", "run_preprocess_copy_src_to_scratch_from_runtime", "copy_src_to_scratch"),
         ("save_rec_metadata", "run_preprocess_save_rec_metadata_from_runtime", "save_rec_metadata"),
         ("wipe_src_scratch", "run_preprocess_wipe_src_scratch_from_runtime", "wipe_src_scratch"),
         ("preprocess_segments", "run_preprocess_preprocess_segments_from_runtime", "preprocess_segments"),
@@ -805,7 +796,15 @@ def test_preprocess_phase_runtime_wrappers_forward_debug_limits(
     assert seen["force_restart_override"] is True
 
 
-def test_run_preprocess_from_runtime_materializes_inputs_when_copy_phase_enabled(monkeypatch, tmp_path: Path) -> None:
+def test_run_preprocess_from_runtime_does_not_materialize_scratch_inputs(monkeypatch, tmp_path: Path) -> None:
+    """After slice 5, preprocess never materializes scratch inputs.
+
+    The `copy_src_to_scratch` phase moved to the init stage; preprocess
+    consumes whatever h5_path was resolved upstream (either the source path
+    or, when init ran, the scratch-staged path). This test locks in that
+    `run_preprocess_from_runtime` always passes `materialize_scratch_inputs=False`
+    to `select_execution_targets`.
+    """
     import axon_recon.pipeline.runner as pipeline_runner
 
     target = ExecutionTarget(
@@ -843,7 +842,7 @@ def test_run_preprocess_from_runtime_materializes_inputs_when_copy_phase_enabled
     def _fake_parse_preprocess_stage_config(**kwargs):
         return SimpleNamespace(
             debug_limit_wells=None,
-            phases=SimpleNamespace(copy_src_to_scratch=SimpleNamespace(enabled=True)),
+            phases=SimpleNamespace(),
         )
 
     def _fake_build_preprocess_inputs_for_target(*, target, stage_config, unit_workers: int):
@@ -869,12 +868,13 @@ def test_run_preprocess_from_runtime_materializes_inputs_when_copy_phase_enabled
     agg = run_preprocess_from_runtime(config_path=str(tmp_path / "runtime.yml"))
 
     assert agg.succeeded_targets == 1
-    assert select_calls == [True]
+    # Preprocess never materializes scratch inputs after slice 5.
+    assert select_calls == [False]
     assert unit_worker_calls == [1]
     assert divider_stdout_calls == [True]
 
 
-def test_run_preprocess_from_runtime_passes_debug_limits_to_scratch_materializing_target_selection(
+def test_run_preprocess_from_runtime_passes_debug_limits_to_target_selection(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -916,7 +916,7 @@ def test_run_preprocess_from_runtime_passes_debug_limits_to_scratch_materializin
             debug_limit_datasets=None,
             debug_limit_wells=None,
             debug_limit_wells_per_dataset=None,
-            phases=SimpleNamespace(copy_src_to_scratch=SimpleNamespace(enabled=True)),
+            phases=SimpleNamespace(),
         )
 
     def _fake_build_preprocess_inputs_for_target(*, target, stage_config, unit_workers: int):
@@ -947,7 +947,8 @@ def test_run_preprocess_from_runtime_passes_debug_limits_to_scratch_materializin
 
     assert agg.succeeded_targets == 1
     assert select_kwargs
-    assert select_kwargs[0]["materialize_scratch_inputs"] is True
+    # Preprocess never materializes scratch inputs after slice 5.
+    assert select_kwargs[0]["materialize_scratch_inputs"] is False
     assert select_kwargs[0]["limit_datasets"] == 1
     assert select_kwargs[0]["limit_wells_per_dataset"] == 1
 
@@ -993,7 +994,6 @@ def test_run_preprocess_from_runtime_uses_nested_workers_when_heavy_phases_enabl
         return SimpleNamespace(
             debug_limit_wells=None,
             phases=SimpleNamespace(
-                copy_src_to_scratch=SimpleNamespace(enabled=False),
                 preprocess_segments=SimpleNamespace(enabled=True),
                 concat_segments=SimpleNamespace(enabled=True),
             ),
@@ -1078,7 +1078,6 @@ def test_run_preprocess_from_runtime_uses_phase_sequence_for_scratch_and_worker_
             debug_limit_wells=None,
             phase_sequence=("save_rec_metadata",),
             phases=SimpleNamespace(
-                copy_src_to_scratch=SimpleNamespace(enabled=True),
                 preprocess_segments=SimpleNamespace(enabled=True),
                 concat_segments=SimpleNamespace(enabled=True),
             ),

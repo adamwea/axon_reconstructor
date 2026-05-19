@@ -105,6 +105,7 @@ SLAY_GOOD_LIKE_LABELS: frozenset[str] = frozenset({"good", "non_soma_good"})
 # Marker that signals "this stage finished for this well." Path is relative
 # to the per-well output dir (compute_mea_analysis_output_dir output).
 STAGE_WELL_MARKER: dict[str, tuple[str, ...]] = {
+	"init": ("init_outputs", "context", "copy_src_to_scratch_summary.json"),
 	"preprocess": ("preprocess_outputs", "preprocess_summary.json"),
 	"spikesort": ("spikesort_outputs", "merge_SLAy", "merge_stage_summary.json"),
 	"reconstruct": ("recon_outputs", "context", "report_summaries_summary.json"),
@@ -115,9 +116,10 @@ STAGE_WELL_MARKER: dict[str, tuple[str, ...]] = {
 # Per-phase markers, relative to the per-well output dir. Ordered to mirror
 # the canonical phase sequence.
 STAGE_PHASES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
-	"init": (),
+	"init": (
+		("copy_src_to_scratch", ("init_outputs", "context", "copy_src_to_scratch_summary.json")),
+	),
 	"preprocess": (
-		("copy_src_to_scratch", ("preprocess_outputs", "context", "copy_src_to_scratch_summary.json")),
 		("save_rec_metadata", ("preprocess_outputs", "context", "recording_metadata_summary.json")),
 		("preprocess_segments", ("preprocess_outputs", "context", "segment_recordings_summary.json")),
 		("plot_segment_traces", ("preprocess_outputs", "context", "plot_segment_traces_summary.json")),
@@ -547,20 +549,10 @@ def scan_status(
 	if target_wells is not None:
 		target_wells_set = {str(w) for w in target_wells if str(w).strip()}
 
-	if stages is not None:
-		stage_list = list(stages)
-		# Explicit user-passed stages stay strict: surface unknown/unmarkered
-		# stage tokens loudly rather than silently dropping them.
-		for stage_name in stage_list:
-			if stage_name not in STAGE_WELL_MARKER:
-				raise ValueError(f"Unknown stage for status: {stage_name!r}")
-	else:
-		# Default scan walks all canonical stages that have a registered
-		# completion marker. New scaffolded stages (init, eventually cleanup)
-		# enter STAGE_ORDER before their marker is wired up; those get
-		# silently skipped here so the default `axon-recon status` keeps
-		# producing a coherent report.
-		stage_list = [name for name in STAGE_ORDER if name in STAGE_WELL_MARKER]
+	stage_list = list(stages) if stages is not None else list(STAGE_ORDER)
+	for stage_name in stage_list:
+		if stage_name not in STAGE_WELL_MARKER:
+			raise ValueError(f"Unknown stage for status: {stage_name!r}")
 
 	stages_out: list[StageStatus] = []
 	for stage_name in stage_list:

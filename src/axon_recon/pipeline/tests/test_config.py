@@ -4,8 +4,8 @@ import logging
 import os
 from pathlib import Path
 
-import axon_recon.pipeline.stages.preprocess.core.copy_src_to_scratch as copy_src_to_scratch_core
-from axon_recon.pipeline.stages.preprocess.core.copy_src_to_scratch import (
+import axon_recon.pipeline.stages.init.core.copy_src_to_scratch as copy_src_to_scratch_core
+from axon_recon.pipeline.stages.init.core.copy_src_to_scratch import (
     _copy_file_if_needed,
     _materialize_dataset_input_in_scratch,
     resolve_copy_src_to_scratch_input_path,

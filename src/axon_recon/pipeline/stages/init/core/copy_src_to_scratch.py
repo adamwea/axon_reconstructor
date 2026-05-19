@@ -9,7 +9,7 @@ import time
 from typing import Any, Callable
 
 
-LOGGER = logging.getLogger("axon_recon.pipeline.config")
+LOGGER = logging.getLogger("axon_recon.init.copy_src_to_scratch")
 
 _SCRATCH_COPY_CHUNK_BYTES = 16 * 1024 * 1024
 _SCRATCH_COPY_PROGRESS_BAR_WIDTH = 28

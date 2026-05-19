@@ -1,31 +1,102 @@
 from __future__ import annotations
 
 import logging
+import traceback
+from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
+from ...execution.context import ExecutionTarget
 from ...execution.results import MultiTargetStageResult, TargetStageResult
 
 from .config import InitStageConfig
+from .models.inputs import InitInputs
+from .phases.copy_src_to_scratch import run_init_copy_src_to_scratch_phase
 
 
 LOGGER = logging.getLogger("axon_recon.init.runner")
 
 
+def build_init_inputs_for_target(
+	*,
+	target: ExecutionTarget,
+	stage_config: InitStageConfig,
+) -> InitInputs:
+	"""Project an `ExecutionTarget` + parsed stage config into per-target `InitInputs`.
+
+	Mirrors `build_preprocess_inputs_for_target` but for the slimmer init
+	dataclass. `copied_to_scratch` is computed the same way: source_h5 differs
+	from h5 iff `select_execution_targets` materialized the file under the
+	dataset's scratch_input_root.
+	"""
+
+	source_h5_path = target.source_h5_path or target.h5_path
+	try:
+		copied_to_scratch = Path(source_h5_path).expanduser().resolve() != Path(target.h5_path).expanduser().resolve()
+	except Exception:
+		copied_to_scratch = Path(source_h5_path) != Path(target.h5_path)
+	return InitInputs(
+		h5_path=target.h5_path,
+		stream_id=target.stream_id,
+		mea_output_root=target.mea_output_root,
+		source_h5_path=source_h5_path,
+		copied_to_scratch=bool(copied_to_scratch),
+		output_rel_root=stage_config.output_rel_root,
+		force_restart=stage_config.force_restart,
+		force_replot=stage_config.force_replot,
+		phase_sequence=stage_config.phase_sequence,
+		phases=stage_config.phases,
+	)
+
+
+def _run_init_copy_src_to_scratch_target(
+	*,
+	target: ExecutionTarget,
+	stage_config: InitStageConfig,
+) -> TargetStageResult:
+	inputs = build_init_inputs_for_target(target=target, stage_config=stage_config)
+	try:
+		payload = run_init_copy_src_to_scratch_phase(inputs)
+		return TargetStageResult(target=target, status="ok", result=payload, error=None)
+	except Exception as exc:
+		LOGGER.exception(
+			"init copy_src_to_scratch failed for target dataset=%s stream_id=%s",
+			str(getattr(target, "dataset_index", "?")),
+			str(getattr(target, "stream_id", "?")),
+		)
+		return TargetStageResult(
+			target=target,
+			status="error",
+			result=None,
+			error=f"{exc!s}\n{traceback.format_exc()}",
+		)
+
+
+# Lookup table: phase_name -> per-target runner. Slice 5 ships a single entry;
+# additional once-per-data-config phases plug in here without touching
+# `run_init_stage`'s control flow.
+_INIT_TARGET_RUNNERS = {
+	"copy_src_to_scratch": _run_init_copy_src_to_scratch_target,
+}
+
+
 def run_init_stage(
 	stage_config: InitStageConfig,
 	*,
-	targets: list[Any] | None = None,
+	targets: list[ExecutionTarget] | None = None,
 ) -> MultiTargetStageResult:
-	"""Run the init stage.
+	"""Run the init stage's configured phase sequence for the supplied targets.
 
-	Slice 4 scaffolds this stage with no phases. When the stage is disabled
-	OR its `phase_sequence` is empty (the defaults today), the runner is a
-	clean no-op that returns an empty `MultiTargetStageResult`. Once slice 5
-	moves `copy_src_to_scratch` here the `NotImplementedError` branch will
-	be replaced with real per-phase wiring.
+	When the stage is disabled OR its `phase_sequence` is empty (the YAML
+	default), the runner short-circuits to an empty `MultiTargetStageResult`.
+	When phases are configured but no targets are supplied (the no-bundle
+	dataclass-only invocation used in unit tests) the runner likewise no-ops:
+	the runtime entry point `run_init_from_runtime` is the production path
+	that resolves and supplies targets.
+
+	An unsupported phase in `phase_sequence` raises `NotImplementedError` so
+	a half-wired YAML surfaces loudly rather than silently passing.
 	"""
-
-	del targets  # currently unused; reserved for slice 5 when a real phase moves in
 
 	if not stage_config.enabled or not stage_config.phase_sequence:
 		LOGGER.debug(
@@ -41,14 +112,47 @@ def run_init_stage(
 			target_results=[],
 		)
 
-	# Unreachable until slice 5 moves `copy_src_to_scratch` in. Raising here
-	# (rather than silently returning a no-op) protects against an operator
-	# enabling the stage via YAML before a phase has been registered: the
-	# error makes the half-wired state visible instead of silently passing.
-	raise NotImplementedError("init stage has no phases registered yet")
+	target_list: list[ExecutionTarget] = list(targets or [])
+	if not target_list:
+		LOGGER.info(
+			"init stage configured but no targets supplied; returning empty MultiTargetStageResult",
+		)
+		return MultiTargetStageResult(
+			stage="init",
+			total_targets=0,
+			succeeded_targets=0,
+			failed_targets=0,
+			target_results=[],
+		)
+
+	for phase_name in stage_config.phase_sequence:
+		if phase_name not in _INIT_TARGET_RUNNERS:
+			raise NotImplementedError(
+				f"init stage has no target runner registered for phase '{phase_name}'"
+			)
+
+	all_target_results: list[TargetStageResult] = []
+	final_stage_name = "init"
+	for phase_name in stage_config.phase_sequence:
+		runner_fn = _INIT_TARGET_RUNNERS[phase_name]
+		for target in target_list:
+			result = runner_fn(target=target, stage_config=stage_config)
+			all_target_results.append(result)
+
+	succeeded = sum(1 for item in all_target_results if item.status == "ok")
+	failed = sum(1 for item in all_target_results if item.status != "ok")
+	return MultiTargetStageResult(
+		stage=final_stage_name,
+		total_targets=len(all_target_results),
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=all_target_results,
+	)
 
 
-# Re-export the result type so callers can compose against this module without
-# pulling in the execution.results path explicitly. Kept here rather than in
-# __init__ so the import surface stays tight.
-__all__ = ["MultiTargetStageResult", "TargetStageResult", "run_init_stage"]
+__all__ = [
+	"MultiTargetStageResult",
+	"TargetStageResult",
+	"build_init_inputs_for_target",
+	"run_init_stage",
+]

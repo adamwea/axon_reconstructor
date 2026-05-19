@@ -16,7 +16,7 @@ from .resources import (
 	get_max_phase_resource_demands,
 	parse_resources_config,
 )
-from .stages.preprocess.core.copy_src_to_scratch import resolve_copy_src_to_scratch_input_path
+from .stages.init.core.copy_src_to_scratch import resolve_copy_src_to_scratch_input_path
 
 
 LOGGER = logging.getLogger("axon_recon.pipeline.config")
@@ -141,6 +141,41 @@ def set_active_profile_override(profile_name: str | None) -> None:
 def get_active_profile_override() -> str | None:
 	"""Return the current process-wide active-profile override, or None."""
 	return _ACTIVE_PROFILE_OVERRIDE
+
+
+# Process-wide --scratch-output override. When set, replaces the data config's
+# `scratch_root` for the duration of the invocation AND implicitly flips
+# `use_scratch_root` to True (a user opting in to `--scratch-output` is
+# unambiguously asking for scratch staging). This keeps iteration runs from
+# mutating the reference data config's `scratch_root` setting — Claude writes
+# into `<override>/axon_recon_scratch/{inputs,outputs}/` while the YAML stays
+# clean.
+_SCRATCH_OUTPUT_OVERRIDE: Path | None = None
+
+
+def set_scratch_output_override(value: str | Path | None) -> None:
+	"""Set the process-wide `--scratch-output` override.
+
+	When non-None, this Path replaces data_config.scratch_root (and implicitly
+	forces `use_scratch_root: true`) inside `select_execution_targets`.
+	Pass None / empty string to clear. Typically called once by the CLI's
+	`main()` entry point.
+	"""
+
+	global _SCRATCH_OUTPUT_OVERRIDE
+	if value is None:
+		_SCRATCH_OUTPUT_OVERRIDE = None
+		return
+	token = str(value).strip()
+	if not token:
+		_SCRATCH_OUTPUT_OVERRIDE = None
+		return
+	_SCRATCH_OUTPUT_OVERRIDE = Path(token).expanduser().resolve()
+
+
+def get_scratch_output_override() -> Path | None:
+	"""Return the current process-wide scratch-output override, or None."""
+	return _SCRATCH_OUTPUT_OVERRIDE
 
 
 def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
@@ -393,6 +428,14 @@ def select_execution_targets(
 	)
 	scratch_root_raw = bundle.data_config.get("scratch_root", None)
 	use_scratch_root = _as_bool(bundle.data_config.get("use_scratch_root", True), True)
+	# `--scratch-output` overrides both the YAML's scratch_root AND the
+	# use_scratch_root flag (any operator opting in to --scratch-output is
+	# unambiguously asking for scratch staging — overriding the path while
+	# leaving use_scratch_root=false would silently drop the override).
+	scratch_output_override = get_scratch_output_override()
+	if scratch_output_override is not None:
+		scratch_root_raw = str(scratch_output_override)
+		use_scratch_root = True
 	default_scratch_layout = resolve_scratch_layout(scratch_root_raw) if bool(use_scratch_root) else None
 	default_scratch_output_root = None if default_scratch_layout is None else default_scratch_layout.outputs_root
 	default_scratch_input_root = None if default_scratch_layout is None else default_scratch_layout.inputs_root

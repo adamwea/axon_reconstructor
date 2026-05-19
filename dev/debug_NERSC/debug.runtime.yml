@@ -365,9 +365,21 @@ logging:
 stages:
 
   init:
+    # `copy_src_to_scratch` moved here from preprocess in phase_roster_cleanup
+    # slice 5. NERSC keeps `enabled: false` because raw data already lives on
+    # pscratch (use_scratch_root: false in the data config) so the copy is a
+    # no-op for the cohorts iterated here. Flip to true (and confirm
+    # use_scratch_root: true) when working with raw_data trees that need to
+    # be staged into scratch_root/axon_recon_scratch/inputs/.
     enabled: false
-    phase_sequence: []
-    phases: {}
+    phase_sequence:
+    - copy_src_to_scratch
+    phases:
+      copy_src_to_scratch:
+        enabled: true
+        resource_class: h5_to_binary
+        requires_use_scratch_root: true
+        summary_json_relpath: context/copy_src_to_scratch_summary.json
 
   preprocess:
     execution:
@@ -405,10 +417,9 @@ stages:
     resources:
       # Stage parallelism now derives from the active machine profile and the enabled phase resource_class envelopes.
     rel_output_root: preprocess_outputs # optional subdir under each well's output directory for all preprocess outputs; relative paths for preprocess phases resolve under this directory in each well's output directory
-    #phase_sequence: [copy_src_to_scratch, save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
+    #phase_sequence: [save_rec_metadata, preprocess_segments, plot_segment_traces, plot_segment_channel_layouts, plot_raster_threshold]
     phase_sequence:
-    # copy_src_to_scratch dropped: raw data already on pscratch and use_scratch_root=false.
-    #- copy_src_to_scratch
+    # copy_src_to_scratch moved to the init stage (see stages.init).
     - save_rec_metadata
     - preprocess_segments
     #- plot_segment_traces
@@ -419,13 +430,6 @@ stages:
     #- plot_raster_threshold
     #- wipe_src_scratch
     phases:
-
-      # TODO Claude: move this phase to a dedicated stage. Maybe call it init. No need to force restart this when testing preprocess iterations, and it adds unnecessary overhead to the critical path of preprocess when enabled.
-      copy_src_to_scratch:
-        enabled: true
-        resource_class: h5_to_binary
-        requires_use_scratch_root: true
-        summary_json_relpath: context/copy_src_to_scratch_summary.json
 
       save_rec_metadata:
         enabled: true

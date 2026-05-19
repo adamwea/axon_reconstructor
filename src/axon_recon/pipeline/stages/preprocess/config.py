@@ -18,7 +18,6 @@ from .models.inputs import (
 	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
 	PreprocessConcatSegmentsPhaseConfig,
 	PreprocessConcatenatePreprocessedRecordingsPhaseConfig,
-	PreprocessCopySrcToScratchPhaseConfig,
 	PreprocessInputs,
 	PreprocessPlotConcatChannelLayoutPhaseConfig,
 	PreprocessPhaseConfig,
@@ -42,9 +41,6 @@ LOGGER = logging.getLogger("axon_recon.preprocess.config")
 
 
 _PREPROCESS_PHASE_ALIASES: dict[str, str] = {
-	"copy_src_to_scratch": "copy_src_to_scratch",
-	"copy_source_to_scratch": "copy_src_to_scratch",
-	"copy_src": "copy_src_to_scratch",
 	"save_rec_metadata": "save_rec_metadata",
 	"save_recording_metadata": "save_rec_metadata",
 	"recording_metadata": "save_rec_metadata",
@@ -737,7 +733,6 @@ def parse_preprocess_stage_config(
 		resource_class=None,
 	)
 
-	copy_phase_cfg = phases_cfg.get("copy_src_to_scratch", {}) if isinstance(phases_cfg.get("copy_src_to_scratch", {}), dict) else {}
 	save_rec_metadata_phase_cfg = phases_cfg.get("save_rec_metadata", {}) if isinstance(phases_cfg.get("save_rec_metadata", {}), dict) else {}
 	wipe_src_scratch_phase_cfg = phases_cfg.get("wipe_src_scratch", {}) if isinstance(phases_cfg.get("wipe_src_scratch", {}), dict) else {}
 	preprocess_segments_phase_cfg = phases_cfg.get("preprocess_segments", {}) if isinstance(phases_cfg.get("preprocess_segments", {}), dict) else {}
@@ -1079,18 +1074,6 @@ def parse_preprocess_stage_config(
 		raw_cfg=plot_raster_threshold_phase_cfg,
 		resource_class=_phase_resource_class(plot_raster_threshold_phase_cfg, "plot_raster_threshold"),
 	)
-	copy_src_to_scratch_phase = PreprocessCopySrcToScratchPhaseConfig(
-		enabled=_as_bool(copy_phase_cfg.get("enabled", copy_phase_cfg.get("enable", False)), False),
-		requires_use_scratch_root=_as_bool(
-			copy_phase_cfg.get("requires_use_scratch_root", False),
-			False,
-		),
-		summary_json_relpath=str(
-			copy_phase_cfg.get("summary_json_relpath", "context/copy_src_to_scratch_summary.json")
-			or "context/copy_src_to_scratch_summary.json"
-		),
-		resource_class=_phase_resource_class(copy_phase_cfg, "copy_src_to_scratch"),
-	)
 	save_rec_metadata_phase = _parse_save_rec_metadata_phase_config(
 		raw_cfg=save_rec_metadata_phase_cfg,
 		resource_class=_phase_resource_class(save_rec_metadata_phase_cfg, "save_rec_metadata"),
@@ -1166,7 +1149,6 @@ def parse_preprocess_stage_config(
 		save_progress_bar=save_progress_bar,
 		print_n_jobs_used=print_n_jobs_used,
 		phases=PreprocessPhasesConfig(
-			copy_src_to_scratch=copy_src_to_scratch_phase,
 			save_rec_metadata=save_rec_metadata_phase,
 			wipe_src_scratch=wipe_src_scratch_phase,
 			preprocess_segments=preprocess_segments_phase,

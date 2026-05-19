@@ -67,8 +67,6 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.save_chunk_duration == "1s"
     assert parsed.save_progress_bar is False
     assert parsed.print_n_jobs_used is False
-    assert parsed.phases.copy_src_to_scratch.enabled is False
-    assert parsed.phases.copy_src_to_scratch.summary_json_relpath == "context/copy_src_to_scratch_summary.json"
     assert parsed.phases.save_rec_metadata.enabled is False
     assert parsed.phases.save_rec_metadata.verbose is False
     assert parsed.phases.save_rec_metadata.metadata_source == "source_h5"
@@ -402,11 +400,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
             "stages": {
                 "preprocess": {
                     "phases": {
-                        "copy_src_to_scratch": {
-                            "enabled": True,
-                            "requires_use_scratch_root": True,
-                            "summary_json_relpath": "context/custom_copy_summary.json",
-                        },
                         "save_rec_metadata": {
                             "enabled": True,
                             "verbose": True,
@@ -511,9 +504,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
 
     parsed = parse_preprocess_stage_config(runtime_config=cfg)
 
-    assert parsed.phases.copy_src_to_scratch.enabled is True
-    assert parsed.phases.copy_src_to_scratch.requires_use_scratch_root is True
-    assert parsed.phases.copy_src_to_scratch.summary_json_relpath == "context/custom_copy_summary.json"
     assert parsed.phases.save_rec_metadata.enabled is True
     assert parsed.phases.save_rec_metadata.verbose is True
     assert parsed.phases.save_rec_metadata.metadata_source == "scratch_copy"
@@ -579,12 +569,14 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
 
 
 def test_parse_preprocess_stage_config_reads_phase_sequence() -> None:
+    # `copy_src_to_scratch` moved to the init stage in slice 5 — it's no
+    # longer a valid preprocess phase. The legacy alias is gone; the
+    # preprocess phase_sequence only honors the surviving phases.
     cfg = RuntimeConfig(
         {
             "stages": {
                 "preprocess": {
                     "phase_sequence": [
-                        "preprocess.copy_src_to_scratch",
                         "save_segment_recordings",
                         "concat_segments",
                     ]
@@ -596,7 +588,6 @@ def test_parse_preprocess_stage_config_reads_phase_sequence() -> None:
     parsed = parse_preprocess_stage_config(runtime_config=cfg)
 
     assert parsed.phase_sequence == (
-        "copy_src_to_scratch",
         "preprocess_segments",
         "concat_segments",
     )
@@ -733,9 +724,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "      save_concat_recording: true\n"
                         "      save_segment_recordings: false\n"
                         "    phases:\n"
-                        "      copy_src_to_scratch:\n"
-                        "        enabled: true\n"
-                        "        requires_use_scratch_root: false\n"
                         "      save_rec_metadata:\n"
                         "        enabled: true\n"
                         "        verbose: true\n"
@@ -814,7 +802,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.observability_stage_log_relpath == "logs/preprocess_pipeline.log"
     assert inputs.save_concat_recording is True
     assert inputs.save_segment_recordings is False
-    assert inputs.phases.copy_src_to_scratch.enabled is True
     assert inputs.phases.save_rec_metadata.enabled is True
     assert inputs.phases.save_rec_metadata.verbose is True
     assert inputs.phases.save_rec_metadata.metadata_source == "source_h5"

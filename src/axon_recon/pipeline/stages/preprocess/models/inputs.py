@@ -6,8 +6,10 @@ from pathlib import Path
 from ..constants import PREPROCESS_OUTPUTS_DIRNAME
 
 
+# `copy_src_to_scratch` was moved to the init stage in
+# `phase_roster_cleanup_plan.md` slice 5; it is no longer part of the
+# preprocess phase roster.
 DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
-	"copy_src_to_scratch",
 	"save_rec_metadata",
 	"preprocess_segments",
 	"plot_segment_traces",
@@ -24,14 +26,6 @@ DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
 class PreprocessPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/preprocess_phase_summary.json"
-	resource_class: str | None = None
-
-
-@dataclass(frozen=True)
-class PreprocessCopySrcToScratchPhaseConfig:
-	enabled: bool = False
-	requires_use_scratch_root: bool = False
-	summary_json_relpath: str = "context/copy_src_to_scratch_summary.json"
 	resource_class: str | None = None
 
 
@@ -187,9 +181,6 @@ PreprocessConcatenatePreprocessedRecordingsPhaseConfig = PreprocessConcatSegment
 
 @dataclass(frozen=True)
 class PreprocessPhasesConfig:
-	copy_src_to_scratch: PreprocessCopySrcToScratchPhaseConfig = field(
-		default_factory=PreprocessCopySrcToScratchPhaseConfig
-	)
 	save_rec_metadata: PreprocessSaveRecMetadataPhaseConfig = field(
 		default_factory=lambda: PreprocessSaveRecMetadataPhaseConfig(
 			enabled=False,

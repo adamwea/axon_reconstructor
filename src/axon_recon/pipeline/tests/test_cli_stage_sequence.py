@@ -90,7 +90,13 @@ def test_parse_stage_list_tokens_rejects_removed_extract_template_segments(raw_t
 @pytest.mark.parametrize(
     ("raw_token", "expected"),
     [
-        ("preprocess.copy_src_to_scratch", "preprocess.copy_src_to_scratch"),
+        # `copy_src_to_scratch` moved from preprocess to init in slice 5;
+        # the legacy preprocess.copy_src_to_scratch token now resolves to
+        # init.copy_src_to_scratch via _STAGE_ALIASES.
+        ("preprocess.copy_src_to_scratch", "init.copy_src_to_scratch"),
+        ("pre.copy_src_to_scratch", "init.copy_src_to_scratch"),
+        ("copy_src_to_scratch", "init.copy_src_to_scratch"),
+        ("init.copy_src_to_scratch", "init.copy_src_to_scratch"),
         ("preprocess.save_rec_metadata", "preprocess.save_rec_metadata"),
         ("preprocess.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preprocess.preprocess_segments", "preprocess.preprocess_segments"),
@@ -709,7 +715,11 @@ def test_main_stops_after_first_failure(monkeypatch, tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("stage_token", "handler_key"),
     [
-        ("preprocess.copy_src_to_scratch", "preprocess.copy_src_to_scratch"),
+        # `copy_src_to_scratch` moved to init in slice 5; the legacy
+        # preprocess.copy_src_to_scratch token resolves to init.copy_src_to_scratch
+        # via _STAGE_ALIASES and dispatches through the init handler.
+        ("preprocess.copy_src_to_scratch", "init.copy_src_to_scratch"),
+        ("init.copy_src_to_scratch", "init.copy_src_to_scratch"),
         ("preprocess.save_rec_metadata", "preprocess.save_rec_metadata"),
         ("preprocess.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preprocess.preprocess_segments", "preprocess.preprocess_segments"),
@@ -927,3 +937,67 @@ def test_main_runs_spikesort_merge_slay_substage(monkeypatch, tmp_path: Path) ->
 def test_parse_stage_list_tokens_rejects_unknown_stage() -> None:
     with pytest.raises(SystemExit):
         pipeline_cli._parse_stage_list_tokens(["bogus_stage"])
+
+
+def test_scratch_output_flag_sets_and_clears_override(monkeypatch, tmp_path: Path) -> None:
+	"""--scratch-output sets the process-wide override during a stage run and clears it afterwards."""
+
+	from axon_recon.pipeline import config as pipeline_config
+
+	runtime_cfg = tmp_path / "runtime.yml"
+	_write_runtime_cfg(runtime_cfg)
+
+	scratch_override = tmp_path / "iter_scratch"
+	captured_override_during_handler: list[Path | None] = []
+
+	def _capture_handler(args):
+		# Capture what the override looks like inside the handler.
+		captured_override_during_handler.append(pipeline_config.get_scratch_output_override())
+		return 0
+
+	monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _capture_handler)
+
+	# Override must be cleared before the run to avoid leakage from a previous test.
+	pipeline_config.set_scratch_output_override(None)
+	assert pipeline_config.get_scratch_output_override() is None
+
+	rc = pipeline_cli.main(
+		[
+			"stages",
+			"preprocess",
+			"--config",
+			str(runtime_cfg),
+			"--scratch-output",
+			str(scratch_override),
+		]
+	)
+
+	assert rc == 0
+	assert len(captured_override_during_handler) == 1
+	# Inside the handler, the override should be the resolved Path version of the flag.
+	assert captured_override_during_handler[0] == scratch_override.resolve()
+	# After main() returns, the override must be cleared (finally-block reset).
+	assert pipeline_config.get_scratch_output_override() is None
+
+
+def test_scratch_output_flag_default_leaves_override_unset(monkeypatch, tmp_path: Path) -> None:
+	"""When --scratch-output is omitted, the override stays None throughout the run."""
+
+	from axon_recon.pipeline import config as pipeline_config
+
+	runtime_cfg = tmp_path / "runtime.yml"
+	_write_runtime_cfg(runtime_cfg)
+
+	override_seen: list[Path | None] = []
+
+	def _capture_handler(args):
+		override_seen.append(pipeline_config.get_scratch_output_override())
+		return 0
+
+	monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _capture_handler)
+	pipeline_config.set_scratch_output_override(None)
+
+	rc = pipeline_cli.main(["stages", "preprocess", "--config", str(runtime_cfg)])
+
+	assert rc == 0
+	assert override_seen == [None]

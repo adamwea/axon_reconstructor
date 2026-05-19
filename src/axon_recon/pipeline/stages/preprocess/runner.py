@@ -50,7 +50,6 @@ from .core import (
 	load_segment_manifest,
 	read_json,
 	run_concat_segments_core,
-	run_copy_src_to_scratch_core,
 	run_plot_concat_channel_layout_core,
 	run_plot_concat_traces_core,
 	run_plot_raster_threshold_core,
@@ -1055,14 +1054,6 @@ def _phase_in_configured_sequence(inputs: PreprocessInputs, phase_name: str) -> 
 	return str(phase_name) in set(_configured_preprocess_phase_sequence(inputs))
 
 
-def _copy_phase_requested(inputs: PreprocessInputs, *, selected_phase: str | None) -> bool:
-	if selected_phase == "copy_src_to_scratch":
-		return True
-	if selected_phase is not None:
-		return False
-	return bool(inputs.phases.copy_src_to_scratch.enabled) and _phase_in_configured_sequence(inputs, "copy_src_to_scratch")
-
-
 def _recording_metadata_phase_requested(inputs: PreprocessInputs, *, selected_phase: str | None) -> bool:
 	if selected_phase == "save_rec_metadata":
 		return True
@@ -1079,15 +1070,6 @@ def _wipe_src_scratch_phase_requested(inputs: PreprocessInputs, *, selected_phas
 	return bool(inputs.phases.wipe_src_scratch.enabled) and _phase_in_configured_sequence(inputs, "wipe_src_scratch")
 
 
-def _validate_copy_phase_requirements(inputs: PreprocessInputs, *, selected_phase: str | None) -> None:
-	if not _copy_phase_requested(inputs, selected_phase=selected_phase):
-		return
-	if bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root) and not bool(inputs.copied_to_scratch):
-		raise RuntimeError(
-			"preprocess copy_src_to_scratch phase requires scratch input materialization, but the selected target is using the source h5 path"
-		)
-
-
 def _validate_wipe_phase_requirements(inputs: PreprocessInputs, *, selected_phase: str | None) -> None:
 	if not _wipe_src_scratch_phase_requested(inputs, selected_phase=selected_phase):
 		return
@@ -1095,16 +1077,6 @@ def _validate_wipe_phase_requirements(inputs: PreprocessInputs, *, selected_phas
 		raise RuntimeError(
 			"preprocess wipe_src_scratch phase requires scratch input materialization, but the selected target is using the source h5 path"
 		)
-
-
-def _build_copy_src_to_scratch_phase_payload(inputs: PreprocessInputs) -> dict[str, Any]:
-	return {
-		"phase": "copy_src_to_scratch",
-		"source_h5_path": str(inputs.source_h5_path or inputs.h5_path),
-		"resolved_h5_path": str(inputs.h5_path),
-		"copied_to_scratch": bool(inputs.copied_to_scratch),
-		"requires_use_scratch_root": bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
-	}
 
 
 def _scratch_input_usage_key(inputs: PreprocessInputs) -> str | None:
@@ -1495,8 +1467,6 @@ def _resolve_preprocess_segments_source_selection(
 
 def _resolve_preprocess_phase_read_h5_path(inputs: PreprocessInputs, *, phase_name: str) -> Path | None:
 	phase = str(phase_name)
-	if phase == "copy_src_to_scratch":
-		return Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()
 	if phase == "save_rec_metadata":
 		metadata_h5_path, _source_h5_path, _requested_metadata_source, _metadata_source = _resolve_metadata_source_selection(inputs)
 		return metadata_h5_path
@@ -1953,8 +1923,6 @@ def _normalize_requested_preprocess_phase(selected_phase: str | None) -> str | N
 
 
 def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
-	if phase_name == "copy_src_to_scratch":
-		return bool(inputs.phases.copy_src_to_scratch.enabled)
 	if phase_name == "save_rec_metadata":
 		return bool(inputs.phases.save_rec_metadata.enabled)
 	if phase_name == "preprocess_segments":
@@ -1985,8 +1953,6 @@ def _disabled_phase_skip_reason(inputs: PreprocessInputs, phase_name: str) -> st
 
 
 def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str:
-	if phase_name == "copy_src_to_scratch":
-		return str(inputs.phases.copy_src_to_scratch.summary_json_relpath)
 	if phase_name == "save_rec_metadata":
 		return str(inputs.phases.save_rec_metadata.summary_json_relpath)
 	if phase_name == "preprocess_segments":
@@ -2009,8 +1975,6 @@ def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str
 
 
 def _resource_class_for_phase(inputs: PreprocessInputs, phase_name: str) -> str | None:
-	if phase_name == "copy_src_to_scratch":
-		return inputs.phases.copy_src_to_scratch.resource_class
 	if phase_name == "save_rec_metadata":
 		return inputs.phases.save_rec_metadata.resource_class
 	if phase_name == "preprocess_segments":
@@ -2040,11 +2004,6 @@ def _summary_outputs_for_phase(
 	payload: dict[str, Any],
 	outputs: dict[str, str],
 ) -> dict[str, str]:
-	if phase_name == "copy_src_to_scratch":
-		return {
-			"source_h5_path": str(payload.get("source_h5_path", "")),
-			"resolved_h5_path": str(payload.get("resolved_h5_path", "")),
-		}
 	if phase_name == "save_rec_metadata":
 		return {
 			"segment_epochs_json": str(recording_metadata_paths.segment_epochs_path),
@@ -2175,31 +2134,6 @@ def _resume_artifact_log_details(payload: dict[str, Any]) -> str:
 		if isinstance(value, list) and value:
 			details.append(f"{key}={len(value)}")
 	return "; ".join(details)
-
-
-def _resume_copy_phase_payload_if_complete(
-	*,
-	inputs: PreprocessInputs,
-	paths: _PreprocessPathSet,
-) -> dict[str, Any] | None:
-	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="copy_src_to_scratch")
-	if existing_payload is None:
-		return None
-	resolved_h5_path = Path(inputs.h5_path).expanduser().resolve()
-	source_h5_path = Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()
-	if bool(inputs.copied_to_scratch) and not _safe_path_exists(resolved_h5_path):
-		return None
-	if not _safe_path_exists(source_h5_path):
-		return None
-	return _build_resumed_phase_payload(
-		phase_name="copy_src_to_scratch",
-		existing_payload=existing_payload,
-		payload_updates={
-			"source_h5_path": str(source_h5_path),
-			"resolved_h5_path": str(resolved_h5_path),
-			"copied_to_scratch": bool(inputs.copied_to_scratch),
-		},
-	)
 
 
 def _resume_save_rec_metadata_payload_if_complete(
@@ -2608,8 +2542,6 @@ def _resume_phase_payload_if_complete(
 ) -> dict[str, Any] | None:
 	if bool(inputs.force_restart):
 		return None
-	if phase_name == "copy_src_to_scratch":
-		return _resume_copy_phase_payload_if_complete(inputs=inputs, paths=paths)
 	if phase_name == "save_rec_metadata":
 		return _resume_save_rec_metadata_payload_if_complete(
 			inputs=inputs,
@@ -2863,9 +2795,7 @@ def _run_preprocess_phase_sequence(
 						),
 						extra={"event": "phase_started"},
 					)
-				if phase_name == "copy_src_to_scratch":
-					_validate_copy_phase_requirements(inputs, selected_phase=canonical_selected_phase)
-				elif phase_name == "wipe_src_scratch":
+				if phase_name == "wipe_src_scratch":
 					_validate_wipe_phase_requirements(inputs, selected_phase=canonical_selected_phase)
 
 				payload = _resume_phase_payload_if_complete(
@@ -2884,15 +2814,7 @@ def _run_preprocess_phase_sequence(
 						(": " if resume_artifacts else ""),
 						str(resume_artifacts),
 					)
-				if payload is None and phase_name == "copy_src_to_scratch":
-					payload = run_copy_src_to_scratch_core(
-						h5_path=inputs.h5_path,
-						source_h5_path=(inputs.source_h5_path or inputs.h5_path),
-						stream_id=str(inputs.stream_id),
-						copied_to_scratch=bool(inputs.copied_to_scratch),
-						requires_use_scratch_root=bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
-					)
-				elif payload is None and phase_name == "save_rec_metadata":
+				if payload is None and phase_name == "save_rec_metadata":
 					metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
 					if (
 						_metadata_source_requests_scratch(requested_metadata_source)
@@ -3248,14 +3170,6 @@ def run_preprocess_stage(inputs: PreprocessInputs) -> PreprocessResult:
 			},
 		}
 	]
-	if _copy_phase_requested(inputs, selected_phase=None):
-		event_records.append(
-			{
-				"event": "copy_src_to_scratch",
-				"utc": _utc_now_iso(),
-				"details": _build_copy_src_to_scratch_phase_payload(inputs),
-			}
-		)
 	if _reset_preprocess_output_root_for_force_restart(
 		inputs=inputs,
 		preprocess_out_dir=paths.preprocess_out_dir,
@@ -3515,12 +3429,6 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 	payload.setdefault("preprocess_out_dir", str(paths.preprocess_out_dir))
 	payload.setdefault("well_out_dir", str(paths.well_out_dir))
 	return payload
-
-
-def run_preprocess_copy_src_to_scratch_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	from .orchestrators.copy_src_to_scratch import run_preprocess_copy_src_to_scratch
-
-	return run_preprocess_copy_src_to_scratch(inputs)
 
 
 def run_preprocess_save_rec_metadata_phase(inputs: PreprocessInputs) -> dict[str, Any]:

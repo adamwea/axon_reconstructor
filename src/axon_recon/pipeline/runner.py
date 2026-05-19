@@ -34,6 +34,7 @@ from .cpu_allocation import (
 	task_allocation_context,
 	task_slot_affinity_context,
 )
+from .execution.context import ExecutionTarget
 from .execution.distributor import distribute_targets
 from .execution.read_groups import count_target_read_groups
 from .execution.logging_context import (
@@ -50,7 +51,6 @@ from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.api import (
 	run_preprocess,
 	run_preprocess_concat_segments,
-	run_preprocess_copy_src_to_scratch,
 	run_preprocess_plot_concat_channel_layout,
 	run_preprocess_plot_concat_traces,
 	run_preprocess_plot_raster_threshold,
@@ -131,11 +131,12 @@ from .stages.analysis.config import (
 	parse_analysis_stage_config,
 )
 from .stages.analysis.models.results import AnalysisResult
+from .stages.init.api import run_init_copy_src_to_scratch
 from .stages.init.config import (
 	InitStageConfig,
 	parse_init_stage_config,
 )
-from .stages.init.runner import run_init_stage
+from .stages.init.runner import build_init_inputs_for_target, run_init_stage
 
 LOGGER = logging.getLogger("axon_recon.pipeline.runner")
 _WARNED_IGNORED_PHASE_DEBUG_LIMITS: set[tuple[str, str]] = set()
@@ -179,13 +180,16 @@ def _warn_ignored_phase_debug_limits(*, stage_name: str, phase_label: str) -> No
 
 
 def _preprocess_copy_phase_enabled(stage_config: Any) -> bool:
-	try:
-		return bool(stage_config.phases.copy_src_to_scratch.enabled) and _preprocess_stage_phase_in_sequence(
-			stage_config,
-			"copy_src_to_scratch",
-		)
-	except Exception:
-		return False
+	"""Always False after slice 5: `copy_src_to_scratch` moved to the init stage.
+
+	Retained as a thin shim so the few call sites that gated
+	`materialize_scratch_inputs` on it (the `run_preprocess_from_runtime` path)
+	keep compiling without a wider refactor. New scratch materialization is
+	triggered by the init stage's own `_init_copy_phase_enabled` check.
+	"""
+
+	del stage_config
+	return False
 
 
 def _preprocess_stage_phase_in_sequence(stage_config: Any, phase_name: str) -> bool:
@@ -2481,10 +2485,14 @@ def _run_preprocess_substage_from_runtime(
 		limit_datasets_override=limit_datasets_override,
 		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
 	)
+	# `copy_src_to_scratch` moved to the init stage in slice 5; preprocess
+	# substages never materialize scratch inputs themselves. The init
+	# stage's run_init_*_from_runtime entry points trigger materialization
+	# when their copy phase is configured.
 	targets = _select_preprocess_execution_targets(
 		bundle=bundle,
 		stage_config=stage_config,
-		materialize_scratch_inputs=(str(stage_name).strip() == "preprocess.copy_src_to_scratch"),
+		materialize_scratch_inputs=False,
 		target_datasets=target_datasets_override,
 	)
 	targets = _apply_preprocess_stage_debug_limits(
@@ -2562,31 +2570,6 @@ def _run_preprocess_substage_from_runtime(
 		succeeded_targets=succeeded,
 		failed_targets=failed,
 		target_results=target_results,
-	)
-
-
-def run_preprocess_copy_src_to_scratch_from_runtime(
-	*,
-	config_path: str,
-	limit_segments_override: int | None = None,
-	limit_datasets_override: int | None = None,
-	target_datasets_override: list[int] | None = None,
-	limit_wells_per_dataset_override: int | None = None,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-	task_allocation_override: dict[str, Any] | None = None,
-) -> MultiTargetStageResult:
-	return _run_preprocess_substage_from_runtime(
-		config_path=config_path,
-		stage_name="preprocess.copy_src_to_scratch",
-		runner_fn=run_preprocess_copy_src_to_scratch,
-		limit_segments_override=limit_segments_override,
-		limit_datasets_override=limit_datasets_override,
-		target_datasets_override=target_datasets_override,
-		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-		task_allocation_override=task_allocation_override,
 	)
 
 
@@ -3890,6 +3873,108 @@ def run_analysis_from_runtime(
 	)
 
 
+def _init_copy_phase_enabled(stage_config: InitStageConfig) -> bool:
+	"""True iff `copy_src_to_scratch` is enabled AND listed in `phase_sequence`."""
+
+	if not bool(stage_config.enabled):
+		return False
+	if "copy_src_to_scratch" not in tuple(stage_config.phase_sequence):
+		return False
+	return bool(getattr(stage_config.phases.copy_src_to_scratch, "enabled", False))
+
+
+def _select_init_execution_targets(
+	*,
+	bundle: PipelineRuntimeBundle,
+	stage_config: InitStageConfig,
+	target_datasets: list[int] | None = None,
+	limit_datasets: int | None = None,
+	limit_wells_per_dataset: int | None = None,
+) -> list[ExecutionTarget]:
+	"""Build execution targets for the init stage.
+
+	`materialize_scratch_inputs` is True iff the configured `copy_src_to_scratch`
+	phase is going to run — that's the same contract preprocess uses (and the
+	contract `select_execution_targets` ultimately enforces by triggering the
+	on-disk copy). All other init-stage invocations operate on whatever h5
+	paths the data config already exposes.
+	"""
+
+	kwargs: dict[str, Any] = {
+		"bundle": bundle,
+		"materialize_scratch_inputs": bool(_init_copy_phase_enabled(stage_config)),
+	}
+	if target_datasets is not None:
+		kwargs["target_datasets"] = list(target_datasets)
+	if limit_datasets is not None:
+		kwargs["limit_datasets"] = int(limit_datasets)
+	if limit_wells_per_dataset is not None:
+		kwargs["limit_wells_per_dataset"] = int(limit_wells_per_dataset)
+	return select_execution_targets(**kwargs)
+
+
+def run_init_copy_src_to_scratch_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	force_replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	"""Run just the init `copy_src_to_scratch` phase end-to-end.
+
+	Modeled on `run_analysis_compute_metrics_from_runtime`: load the runtime
+	bundle, parse the init stage config, select execution targets with scratch
+	materialization enabled, then iterate per-target and call the orchestrator.
+	`limit_segments_override` and `task_allocation_override` are unused (init
+	doesn't have segments and is single-CPU per target), kept for signature
+	parity with sibling `run_*_from_runtime` entries.
+	"""
+
+	del limit_segments_override
+	del task_allocation_override
+
+	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
+	stage_config = parse_init_stage_config(
+		runtime_config=bundle.runtime_config,
+		data_config=bundle.data_config,
+		force_restart_override=force_restart_override,
+		force_replot_override=force_replot_override,
+	)
+	# Force the copy phase enabled when invoked through this explicit handler:
+	# the user typed `init.copy_src_to_scratch`, so honor it even if the YAML's
+	# stage-level `enabled` flag is false. This matches the preprocess substage
+	# handler semantics (which materialize_scratch_inputs via stage_name=='preprocess.copy_src_to_scratch').
+	from dataclasses import replace as _replace
+	from .stages.init.models.inputs import InitCopySrcToScratchPhaseConfig, InitPhasesConfig
+
+	current_copy_phase = stage_config.phases.copy_src_to_scratch
+	stage_config = _replace(
+		stage_config,
+		enabled=True,
+		phase_sequence=("copy_src_to_scratch",),
+		phases=InitPhasesConfig(
+			copy_src_to_scratch=InitCopySrcToScratchPhaseConfig(
+				enabled=True,
+				requires_use_scratch_root=bool(current_copy_phase.requires_use_scratch_root),
+				summary_json_relpath=str(current_copy_phase.summary_json_relpath),
+				resource_class=current_copy_phase.resource_class,
+			),
+		),
+	)
+	targets = _select_init_execution_targets(
+		bundle=bundle,
+		stage_config=stage_config,
+		target_datasets=target_datasets_override,
+		limit_datasets=limit_datasets_override,
+		limit_wells_per_dataset=limit_wells_per_dataset_override,
+	)
+	return run_init_stage(stage_config, targets=list(targets))
+
+
 def run_init_from_runtime(
 	*,
 	config_path: str,
@@ -3901,25 +3986,16 @@ def run_init_from_runtime(
 	force_replot_override: bool | None = None,
 	task_allocation_override: dict[str, Any] | None = None,
 ) -> MultiTargetStageResult:
-	"""Run the init stage from a runtime config path.
+	"""Run the init stage's full phase_sequence end-to-end.
 
-	Slice 4 scaffolds this entry point. Until slice 5 moves
-	`copy_src_to_scratch` into the stage, the runner is a clean no-op when
-	the stage is disabled or its phase_sequence is empty (the YAML defaults).
-	If a user enables the stage with phases configured before slice 5 lands,
-	`run_init_stage` raises `NotImplementedError` — surfacing the half-wired
-	state instead of silently passing.
+	Walks `stage_config.phase_sequence` and dispatches each phase to the
+	corresponding `run_init_<phase>_from_runtime` helper, accumulating results
+	into a single `MultiTargetStageResult`. Mirrors `run_analysis_from_runtime`'s
+	shape so the CLI plumbing stays uniform.
 
-	Signature mirrors `run_analysis_from_runtime` so the CLI plumbing and
-	override flags stay uniform across stages, even though the scope-/limit
-	overrides aren't consumed yet by an empty phase sequence.
+	Slice 5 ships a single phase (`copy_src_to_scratch`); the loop scales to
+	additional once-per-data-config phases without restructuring.
 	"""
-
-	del limit_segments_override
-	del limit_datasets_override
-	del target_datasets_override
-	del limit_wells_per_dataset_override
-	del task_allocation_override
 
 	bundle: PipelineRuntimeBundle = load_pipeline_runtime_bundle(config_path=config_path)
 	stage_config = parse_init_stage_config(
@@ -3928,7 +4004,43 @@ def run_init_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 	)
-	return run_init_stage(stage_config)
+
+	if not stage_config.enabled or not stage_config.phase_sequence:
+		# No-op early so we don't pointlessly load+select targets when the
+		# stage is disabled or has nothing to do.
+		return run_init_stage(stage_config)
+
+	results: list[TargetStageResult] = []
+	final_stage = "init"
+	total_targets = 0
+	succeeded = 0
+	failed = 0
+	for phase_label in stage_config.phase_sequence:
+		stage_name = f"init.{phase_label}"
+		if phase_label == "copy_src_to_scratch":
+			phase_result = run_init_copy_src_to_scratch_from_runtime(
+				config_path=config_path,
+				limit_segments_override=limit_segments_override,
+				limit_datasets_override=limit_datasets_override,
+				target_datasets_override=target_datasets_override,
+				limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+				force_restart_override=force_restart_override,
+				force_replot_override=force_replot_override,
+				task_allocation_override=task_allocation_override,
+			)
+		else:
+			raise ValueError(f"Unknown init phase: {phase_label}")
+		results.extend(phase_result.target_results)
+		total_targets += phase_result.total_targets
+		succeeded += phase_result.succeeded_targets
+		failed += phase_result.failed_targets
+	return MultiTargetStageResult(
+		stage=final_stage,
+		total_targets=total_targets,
+		succeeded_targets=succeeded,
+		failed_targets=failed,
+		target_results=results,
+	)
 
 
 def _run_spikesort_sort_from_runtime(

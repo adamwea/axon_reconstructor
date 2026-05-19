@@ -29,9 +29,6 @@ from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.cli import (
 	_run_concat_segments_from_args as _run_preprocess_concat_segments_from_args,
 )
-from .stages.preprocess.cli import (
-	_run_copy_src_to_scratch_from_args as _run_preprocess_copy_src_to_scratch_from_args,
-)
 from .stages.preprocess.cli import _run_from_args as _run_preprocess_from_args
 from .stages.preprocess.cli import (
 	_run_plot_concat_channel_layout_from_args as _run_preprocess_plot_concat_channel_layout_from_args,
@@ -131,6 +128,9 @@ from .stages.analysis.cli import (
 )
 from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.init.cli import _run_from_args as _run_init_from_args
+from .stages.init.cli import (
+	_run_copy_src_to_scratch_from_args as _run_init_copy_src_to_scratch_from_args,
+)
 
 StageHandler = Callable[[argparse.Namespace], int]
 
@@ -146,7 +146,14 @@ _STAGE_ALIASES: dict[str, str] = {
 	"pre": "preprocess",
 	"prep": "preprocess",
 	"preproc": "preprocess",
-	"pre.copy_src_to_scratch": "preprocess.copy_src_to_scratch",
+	# `copy_src_to_scratch` moved from preprocess to the init stage in
+	# `phase_roster_cleanup_plan` slice 5. Legacy `preprocess.copy_src_to_scratch`
+	# / `pre.copy_src_to_scratch` / `copy_src_to_scratch` tokens still resolve,
+	# but they redirect to the new canonical `init.copy_src_to_scratch` route.
+	"copy_src_to_scratch": "init.copy_src_to_scratch",
+	"preprocess.copy_src_to_scratch": "init.copy_src_to_scratch",
+	"pre.copy_src_to_scratch": "init.copy_src_to_scratch",
+	"preproc.copy_src_to_scratch": "init.copy_src_to_scratch",
 	"pre.save_rec_metadata": "preprocess.save_rec_metadata",
 	"pre.wipe_src_scratch": "preprocess.wipe_src_scratch",
 	"pre.preprocess_segments": "preprocess.preprocess_segments",
@@ -156,7 +163,6 @@ _STAGE_ALIASES: dict[str, str] = {
 	"pre.plot_concat_traces": "preprocess.plot_concat_traces",
 	"pre.plot_concat_channel_layout": "preprocess.plot_concat_channel_layout",
 	"pre.plot_raster_threshold": "preprocess.plot_raster_threshold",
-	"preproc.copy_src_to_scratch": "preprocess.copy_src_to_scratch",
 	"preproc.save_rec_metadata": "preprocess.save_rec_metadata",
 	"preproc.wipe_src_scratch": "preprocess.wipe_src_scratch",
 	"preproc.preprocess_segments": "preprocess.preprocess_segments",
@@ -273,8 +279,8 @@ _STAGE_ALIASES: dict[str, str] = {
 
 _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"init": _run_init_from_args,
+	"init.copy_src_to_scratch": _run_init_copy_src_to_scratch_from_args,
 	"preprocess": _run_preprocess_from_args,
-	"preprocess.copy_src_to_scratch": _run_preprocess_copy_src_to_scratch_from_args,
 	"preprocess.save_rec_metadata": _run_preprocess_save_rec_metadata_from_args,
 	"preprocess.wipe_src_scratch": _run_preprocess_wipe_src_scratch_from_args,
 	"preprocess.preprocess_segments": _run_preprocess_preprocess_segments_from_args,
@@ -606,6 +612,16 @@ def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
 			"Per-pair dataset:well filter, e.g. --targets 6:1,6:4,12:4. Each entry is "
 			"<dataset_index>:<well> where well is an integer index or wellNNN. Takes "
 			"precedence over --target-datasets / --target-wells when set."
+		),
+	)
+	parser.add_argument(
+		"--scratch-output",
+		default=None,
+		dest="scratch_output",
+		help=(
+			"Override data_config.scratch_root for this invocation (writes go under "
+			"<path>/axon_recon_scratch/{inputs,outputs}/). Use for iteration runs that "
+			"should not mutate the reference scratch tree. Implies use_scratch_root=true."
 		),
 	)
 	parser.add_argument(
@@ -1245,7 +1261,12 @@ def main(argv: list[str] | None = None) -> int:
 	# Activate the process-wide --target-wells / --targets overrides before any
 	# stage handler fires. select_execution_targets honors them at the leaf, so we
 	# don't need to plumb override parameters through every runner helper.
-	from .config import set_no_plot_override, set_target_pairs_override, set_target_wells_override
+	from .config import (
+		set_no_plot_override,
+		set_scratch_output_override,
+		set_target_pairs_override,
+		set_target_wells_override,
+	)
 
 	target_wells_filter = _parse_target_well_ids_from_args(args)
 	if target_wells_filter is not None:
@@ -1260,6 +1281,13 @@ def main(argv: list[str] | None = None) -> int:
 	# block so subsequent in-process invocations aren't poisoned.
 	if bool(getattr(args, "no_plot", False)):
 		set_no_plot_override(True)
+
+	# Same pattern for --scratch-output: set once at CLI entry, honored at the
+	# leaf by select_execution_targets, cleared in the finally block so a
+	# subsequent in-process invocation isn't poisoned by a leaked override.
+	scratch_output_override = getattr(args, "scratch_output", None)
+	if scratch_output_override:
+		set_scratch_output_override(scratch_output_override)
 
 	handler = getattr(args, "handler", None)
 	if handler is None:
@@ -1284,6 +1312,7 @@ def main(argv: list[str] | None = None) -> int:
 		set_target_wells_override(None)
 		set_target_pairs_override(None)
 		set_no_plot_override(None)
+		set_scratch_output_override(None)
 		try:
 			from .resource_usage import configure_phase_tuning_monitoring
 
