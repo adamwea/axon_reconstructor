@@ -5191,6 +5191,13 @@ def _run_reconstruct_substage_from_runtime(
 		target_count=len(targets),
 	)
 
+	from .stages.reconstruct.runner import target_all_reconstruct_phases_succeeded
+
+	bypass_auto_restart_skip = bool(
+		getattr(stage_config, "force_restart", False)
+		or getattr(stage_config, "replot", False)
+	)
+
 	def _worker(target):
 		inputs = build_reconstruction_inputs_for_target(
 			target=target,
@@ -5207,6 +5214,17 @@ def _run_reconstruct_substage_from_runtime(
 			)
 			inputs = replace(inputs, templates_inputs=templates_inputs)
 		if str(stage_name).strip() == "reconstruct":
+			# Slice 14c (target-level auto-restart skip) — only fires for
+			# the full-stage dispatch path. Individual phase substage entry
+			# points (e.g. reconstruct.axon_velocity_gtrs) keep their own
+			# per-phase per-target idempotency via slice 13's
+			# `with_checkpoint_marker`.
+			if not bypass_auto_restart_skip and target_all_reconstruct_phases_succeeded(inputs):
+				return {
+					"stage": "reconstruct",
+					"status": "skipped",
+					"reason": "all_phases_ok",
+				}
 			result = runner_fn(inputs)
 		else:
 			direct_phase_name = str(stage_name).split(".", 1)[1] if "." in str(stage_name) else str(stage_name)

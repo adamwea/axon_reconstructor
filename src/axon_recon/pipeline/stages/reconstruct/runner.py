@@ -8,6 +8,7 @@ from dataclasses import dataclass, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import find_first_broken_phase
 from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.execution.phase_chain import PhaseDescriptor, run_phase_chain
 from axon_recon.pipeline.execution.progress import (
@@ -658,6 +659,52 @@ def _write_reconstruct_phase_summary(
 	write_json(summary_json, payload)
 	payload["summary_json"] = str(summary_json)
 	return payload
+
+
+def target_all_reconstruct_phases_succeeded(inputs: ReconstructionInputs) -> bool:
+	"""Slice 14c: True iff every phase in ``inputs.phase_sequence`` has an
+	``ok`` summary on disk for this target.
+
+	Walks the phase sequence and reads each phase's summary_json (path:
+	``<well_out_dir>/<output_rel_root>/<phase.summary_json_relpath>``).
+	YAML-disabled phases are treated as legitimately skipped (their
+	missing summary is intentional). A single missing / error / stale
+	summary returns False — the target's monolithic ``run_reconstruct``
+	call should proceed.
+
+	Returns False when ``inputs.phase_sequence`` is None or empty (the
+	monolithic dispatch path), since there's nothing to skip ON.
+	"""
+
+	phase_sequence = tuple(inputs.phase_sequence or ())
+	if not phase_sequence:
+		return False
+	well_out_dir = compute_mea_analysis_output_dir(
+		output_root=inputs.mea_output_root,
+		data_file=inputs.h5_path,
+		well=inputs.stream_id,
+	)
+	recon_output_dir = well_out_dir / str(inputs.output_rel_root or "recon_outputs")
+	summary_paths: dict[str, Path] = {}
+	yaml_skipped: list[str] = []
+	for phase_name in phase_sequence:
+		phase_cfg = getattr(inputs.phases, str(phase_name), None)
+		if phase_cfg is None:
+			# Unknown phase in the sequence — can't determine completion;
+			# defer to the monolithic runner.
+			return False
+		rel = str(getattr(phase_cfg, "summary_json_relpath", "") or "").strip()
+		if not rel:
+			return False
+		summary_paths[str(phase_name)] = recon_output_dir / Path(rel)
+		if not bool(getattr(phase_cfg, "enabled", True)):
+			yaml_skipped.append(str(phase_name))
+	return (
+		find_first_broken_phase(
+			phase_sequence, summary_paths, yaml_skipped_phases=frozenset(yaml_skipped)
+		)
+		is None
+	)
 
 
 def _prepare_reconstruct_phase_environment(
