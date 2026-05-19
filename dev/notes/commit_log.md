@@ -3954,3 +3954,7 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 (kssynth-1) | kssynth slice 1 [opus] | scaffold sibling package at ~/dev/pkgs/kssynth/ (`git init`, no remote); 2 tests; commit 7e236f3 in kssynth repo
 (unitlink-1) | unitlink slice 1 [opus] | scaffold sibling package at ~/dev/pkgs/unitlink/ (`git init`, no remote); 2 tests; commit 81e4d3c in unitlink repo
 (kssynth-2) | kssynth slice 2 [opus] | core/cluster_tsv_sync.py — generalized `_sync_auxiliary_cluster_tsvs` from SLAy; 11 new tests; commit e706771 in kssynth repo
+(kssynth-3) | kssynth slice 3 [opus] | core/channel_grid.py — compute_channel_grid; 12 new tests; commit 6d144f6
+(kssynth-4) | kssynth slice 4 [opus] | core/rasterize.py — rasterize_to_grid (sparse template → dense global grid); 7 tests; commit 77f6783
+(kssynth-5) | kssynth slice 5 [opus] | core/partial_templates.py — extract_partial_templates_for_analyzer; 6 tests; commit bacc9db
+(kssynth-6) | kssynth slice 6 [opus] | core/merge_templates.py — merge_partial_templates (mean/weighted/median/time_aligned); 12 tests; commit 6680b2e
