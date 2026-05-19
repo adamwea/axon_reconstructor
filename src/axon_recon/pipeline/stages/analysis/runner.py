@@ -148,6 +148,8 @@ def target_analysis_phase_summary_ok(
 		summary_path = stage_output_root / Path(manifest_rel)
 	elif str(phase_name).strip() == "unitmatch":
 		summary_path = stage_output_root / "context" / "unitmatch_summary.json"
+	elif str(phase_name).strip() == "propagation_video":
+		summary_path = stage_output_root / "context" / "propagation_video_summary.json"
 	else:
 		return False
 	if not summary_path.is_file():

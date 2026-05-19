@@ -14,7 +14,11 @@ LOGGER = logging.getLogger("axon_recon.analysis.config")
 
 _DEFAULT_OUTPUT_REL_ROOT = "analysis_outputs"
 
-DEFAULT_ANALYSIS_PHASE_SEQUENCE: tuple[str, ...] = ("compute_metrics", "unitmatch")
+DEFAULT_ANALYSIS_PHASE_SEQUENCE: tuple[str, ...] = (
+	"compute_metrics",
+	"unitmatch",
+	"propagation_video",
+)
 
 _ANALYSIS_PHASE_ALIASES: dict[str, str] = {
 	"compute_metrics": "compute_metrics",
@@ -24,6 +28,9 @@ _ANALYSIS_PHASE_ALIASES: dict[str, str] = {
 	"unitmatch": "unitmatch",
 	"unit_match": "unitmatch",
 	"match": "unitmatch",
+	"propagation_video": "propagation_video",
+	"video": "propagation_video",
+	"prop_video": "propagation_video",
 }
 
 
@@ -118,6 +125,12 @@ class AnalysisStageConfig:
 	unitmatch_enabled: bool = False
 	unitmatch_resource_class: str | None = None
 	unitmatch_rel_output_root: str = "unitmatch"
+	# Slice 2 of analysis_propagation_video_plan: scaffold-only fields.
+	# Phase defaults to disabled; subsequent slices wire YAML knobs
+	# (fps, skip_frames, cmap, clip_quantile, …) as separate fields.
+	propagation_video_enabled: bool = False
+	propagation_video_resource_class: str | None = None
+	propagation_video_rel_output_root: str = "propagation_video"
 	well_metadata_lookup: dict[tuple[int, str], dict[str, Any]] = field(default_factory=dict)
 	force_restart: bool = False
 	replot: bool = False
@@ -135,6 +148,7 @@ def parse_analysis_stage_config(
 	phases_cfg = _as_section(stage_cfg.get("phases", {}))
 	compute_metrics_phase_cfg = _as_section(phases_cfg.get("compute_metrics", {}))
 	unitmatch_phase_cfg = _as_section(phases_cfg.get("unitmatch", {}))
+	propagation_video_phase_cfg = _as_section(phases_cfg.get("propagation_video", {}))
 
 	resources_config = parse_resources_config(runtime_config=runtime_config, logger=LOGGER)
 	compute_metrics_resource_class = validate_phase_resource_class(
@@ -146,6 +160,11 @@ def parse_analysis_stage_config(
 		resource_class=unitmatch_phase_cfg.get("resource_class", None),
 		resources=resources_config,
 		phase_name="analysis.unitmatch",
+	)
+	propagation_video_resource_class = validate_phase_resource_class(
+		resource_class=propagation_video_phase_cfg.get("resource_class", None),
+		resources=resources_config,
+		phase_name="analysis.propagation_video",
 	)
 
 	debug_mode_cfg = _as_section(stage_cfg.get("debug_mode", {}))
@@ -166,6 +185,10 @@ def parse_analysis_stage_config(
 	compute_metrics_enabled = _as_bool(compute_metrics_phase_cfg.get("enabled", True), True)
 	unitmatch_enabled = _as_bool(unitmatch_phase_cfg.get("enabled", False), False)
 	unitmatch_rel_output_root = str(unitmatch_phase_cfg.get("rel_output_root", "unitmatch") or "unitmatch")
+	propagation_video_enabled = _as_bool(propagation_video_phase_cfg.get("enabled", False), False)
+	propagation_video_rel_output_root = str(
+		propagation_video_phase_cfg.get("rel_output_root", "propagation_video") or "propagation_video"
+	)
 
 	well_metadata_lookup: dict[tuple[int, str], dict[str, Any]] = {}
 	if data_config is not None:
@@ -199,6 +222,9 @@ def parse_analysis_stage_config(
 		unitmatch_enabled=unitmatch_enabled,
 		unitmatch_resource_class=unitmatch_resource_class,
 		unitmatch_rel_output_root=unitmatch_rel_output_root,
+		propagation_video_enabled=propagation_video_enabled,
+		propagation_video_resource_class=propagation_video_resource_class,
+		propagation_video_rel_output_root=propagation_video_rel_output_root,
 		well_metadata_lookup=well_metadata_lookup,
 		force_restart=bool(force_restart_override or False),
 		replot=bool(replot_override or False),
