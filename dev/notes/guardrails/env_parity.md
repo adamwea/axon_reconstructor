@@ -82,10 +82,16 @@ governing artifact for a given concern shifts.
      `mat73` is in `UNITMATCH_RUNTIME_SPEC` but gated by `UNITMATCH_SPEC`),
      fix the activation gap or move the dep to an always-installed ARG.
 
-   The loop never triggers the shifter rebuild itself — it posts a
-   "shifter rebuild needed: X" line under
-   `dev/notes/memory/current_state.md` §"⚡ USER INJECTIONS" so the user
-   knows what to bake into the next rebuild.
+   **The loop IS authorized to trigger shifter rebuilds (as of
+   2026-05-19, per user authorization)** via the local container
+   toolchain on Perlmutter (`podman build` → `podman push docker.io/...`
+   → `shifterimg pull docker:...`). Before attempting a rebuild the
+   loop runs `podman login --get-login docker.io` to confirm credentials;
+   if not logged in, it falls back to posting a "shifter rebuild
+   blocked: docker.io login required" line under
+   `dev/notes/memory/current_state.md` §"⚡ USER INJECTIONS" instead of
+   attempting a build that will fail at push time. NEVER use `docker` —
+   Perlmutter has `podman` only.
 
 2. **Sibling-package install** (`SLAy`, `UnitMatchPy`, `kssynth`, `unitlink`):
    - **Target shape, production (non-editable)**: add to
