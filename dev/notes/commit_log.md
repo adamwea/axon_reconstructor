@@ -3938,3 +3938,4 @@ fcff9b5 | slice 6 [opus]  | scaffold cleanup stage + move wipe_src_scratch prepr
 38e6e0f | injection [opus] | user-authored: USER INJECTIONS channel + first injection (YAML hygiene as you go)
 5c42ed3 | slice 7 [opus]  | concat_binary consolidation: delete preprocess.concat_segments; rename spikesort.bootstrap_concat_binary→concat_binary; YAML audit (slices 1-2 leftovers) clean
 cec709b | slice 8 [opus]  | move plot_concat_traces + plot_concat_channel_layout preprocess→spikesort; both stay enabled:false (diagnostic)
+6f163f3 | slice 9 [opus]  | disable bombcell_label + merge_SLAy in spikesort default sequence (YAML-only); code stays
