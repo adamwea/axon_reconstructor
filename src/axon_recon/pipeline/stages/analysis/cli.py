@@ -4,6 +4,7 @@ import argparse
 
 from .orchestrators import (
 	_run_compute_metrics_from_args as _run_compute_metrics_orchestrator_from_args,
+	_run_unitmatch_from_args as _run_unitmatch_orchestrator_from_args,
 	_target_datasets_override_from_args,
 	_print_analysis_aggregate,
 )
@@ -59,3 +60,7 @@ def _run_from_args(args: argparse.Namespace) -> int:
 
 def _run_compute_metrics_from_args(args: argparse.Namespace) -> int:
 	return _run_compute_metrics_orchestrator_from_args(args)
+
+
+def _run_unitmatch_from_args(args: argparse.Namespace) -> int:
+	return _run_unitmatch_orchestrator_from_args(args)

@@ -120,6 +120,9 @@ from .stages.spikesort.orchestrators import _run_sort_from_args as _run_spikesor
 from .stages.analysis.cli import (
 	_run_compute_metrics_from_args as _run_analysis_compute_metrics_from_args,
 )
+from .stages.analysis.cli import (
+	_run_unitmatch_from_args as _run_analysis_unitmatch_from_args,
+)
 from .stages.analysis.cli import _run_from_args as _run_analysis_from_args
 from .stages.init.cli import _run_from_args as _run_init_from_args
 from .stages.init.cli import (
@@ -342,6 +345,7 @@ _STAGE_HANDLERS: dict[str, StageHandler] = {
 	"reconstruct.clear_templates_cache": _run_reconstruct_clear_templates_cache_from_args,
 	"analysis": _run_analysis_from_args,
 	"analysis.compute_metrics": _run_analysis_compute_metrics_from_args,
+	"analysis.unitmatch": _run_analysis_unitmatch_from_args,
 	"cleanup": _run_cleanup_from_args,
 	"cleanup.wipe_src_scratch": _run_cleanup_wipe_src_scratch_from_args,
 }

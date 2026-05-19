@@ -14,13 +14,16 @@ LOGGER = logging.getLogger("axon_recon.analysis.config")
 
 _DEFAULT_OUTPUT_REL_ROOT = "analysis_outputs"
 
-DEFAULT_ANALYSIS_PHASE_SEQUENCE: tuple[str, ...] = ("compute_metrics",)
+DEFAULT_ANALYSIS_PHASE_SEQUENCE: tuple[str, ...] = ("compute_metrics", "unitmatch")
 
 _ANALYSIS_PHASE_ALIASES: dict[str, str] = {
 	"compute_metrics": "compute_metrics",
 	"metrics": "compute_metrics",
 	"compute": "compute_metrics",
 	"analysis": "compute_metrics",
+	"unitmatch": "unitmatch",
+	"unit_match": "unitmatch",
+	"match": "unitmatch",
 }
 
 
@@ -109,6 +112,12 @@ class AnalysisStageConfig:
 	manifest_relpath: str
 	tables_relpath: str
 	pipeline_version: str
+	# Slice 1 of unitmatch_phase_plan: scaffold-only fields. Phase defaults
+	# to disabled; subsequent slices add per-phase YAML knobs (match_threshold,
+	# good_units_only, backend, …) as separate AnalysisStageConfig fields.
+	unitmatch_enabled: bool = False
+	unitmatch_resource_class: str | None = None
+	unitmatch_rel_output_root: str = "unitmatch"
 	well_metadata_lookup: dict[tuple[int, str], dict[str, Any]] = field(default_factory=dict)
 	force_restart: bool = False
 	replot: bool = False
@@ -125,12 +134,18 @@ def parse_analysis_stage_config(
 	stage_cfg = stage_cfg if isinstance(stage_cfg, dict) else {}
 	phases_cfg = _as_section(stage_cfg.get("phases", {}))
 	compute_metrics_phase_cfg = _as_section(phases_cfg.get("compute_metrics", {}))
+	unitmatch_phase_cfg = _as_section(phases_cfg.get("unitmatch", {}))
 
 	resources_config = parse_resources_config(runtime_config=runtime_config, logger=LOGGER)
 	compute_metrics_resource_class = validate_phase_resource_class(
 		resource_class=compute_metrics_phase_cfg.get("resource_class", None),
 		resources=resources_config,
 		phase_name="analysis.compute_metrics",
+	)
+	unitmatch_resource_class = validate_phase_resource_class(
+		resource_class=unitmatch_phase_cfg.get("resource_class", None),
+		resources=resources_config,
+		phase_name="analysis.unitmatch",
 	)
 
 	debug_mode_cfg = _as_section(stage_cfg.get("debug_mode", {}))
@@ -149,6 +164,8 @@ def parse_analysis_stage_config(
 	pipeline_version = str(stage_cfg.get("pipeline_version", _resolve_pipeline_version()))
 
 	compute_metrics_enabled = _as_bool(compute_metrics_phase_cfg.get("enabled", True), True)
+	unitmatch_enabled = _as_bool(unitmatch_phase_cfg.get("enabled", False), False)
+	unitmatch_rel_output_root = str(unitmatch_phase_cfg.get("rel_output_root", "unitmatch") or "unitmatch")
 
 	well_metadata_lookup: dict[tuple[int, str], dict[str, Any]] = {}
 	if data_config is not None:
@@ -179,6 +196,9 @@ def parse_analysis_stage_config(
 		manifest_relpath=manifest_relpath,
 		tables_relpath=tables_relpath,
 		pipeline_version=pipeline_version,
+		unitmatch_enabled=unitmatch_enabled,
+		unitmatch_resource_class=unitmatch_resource_class,
+		unitmatch_rel_output_root=unitmatch_rel_output_root,
 		well_metadata_lookup=well_metadata_lookup,
 		force_restart=bool(force_restart_override or False),
 		replot=bool(replot_override or False),

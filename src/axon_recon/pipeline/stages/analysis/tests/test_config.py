@@ -14,17 +14,23 @@ from ..config import (
 )
 
 
-def test_default_phase_sequence_is_compute_metrics_only() -> None:
-	assert DEFAULT_ANALYSIS_PHASE_SEQUENCE == ("compute_metrics",)
+def test_default_phase_sequence_is_compute_metrics_then_unitmatch() -> None:
+	# Per unitmatch_phase_plan.md slice 1: the unitmatch phase joins the
+	# default analysis sequence, but defaults to enabled:false so it's a
+	# no-op until the user opts in via YAML.
+	assert DEFAULT_ANALYSIS_PHASE_SEQUENCE == ("compute_metrics", "unitmatch")
 
 
 def test_parse_defaults() -> None:
 	parsed = parse_analysis_stage_config(runtime_config=RuntimeConfig({"stages": {"analysis": {}}}))
 	assert isinstance(parsed, AnalysisStageConfig)
 	assert parsed.output_rel_root == "analysis_outputs"
-	assert parsed.phase_sequence == ("compute_metrics",)
+	assert parsed.phase_sequence == ("compute_metrics", "unitmatch")
 	assert parsed.compute_metrics_enabled is True
 	assert parsed.compute_metrics_resource_class is None
+	assert parsed.unitmatch_enabled is False
+	assert parsed.unitmatch_resource_class is None
+	assert parsed.unitmatch_rel_output_root == "unitmatch"
 	assert parsed.manifest_relpath == "manifest.json"
 	assert parsed.tables_relpath == "tables"
 	assert parsed.recon_output_rel_root == "recon_outputs"

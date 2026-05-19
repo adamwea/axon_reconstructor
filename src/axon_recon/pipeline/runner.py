@@ -1971,11 +1971,13 @@ _SPIKESORT_DIRECT_PHASE_LABELS: dict[str, str] = {
 
 _ANALYSIS_DIRECT_PHASE_LABELS: dict[str, str] = {
 	"analysis.compute_metrics": "compute_metrics",
+	"analysis.unitmatch": "unitmatch",
 }
 
 
 _ANALYSIS_RESOURCE_ATTR_BY_PHASE_LABEL: dict[str, str] = {
 	"compute_metrics": "compute_metrics_resource_class",
+	"unitmatch": "unitmatch_resource_class",
 }
 
 
@@ -3230,6 +3232,27 @@ def _run_analysis_compute_metrics_target(*, target: Any, stage_config: Any, unit
 	)
 
 
+def _run_analysis_unitmatch_target(*, target: Any, stage_config: Any, unit_workers: int) -> Any:
+	"""Slice 1 of unitmatch_phase_plan: scaffold runner that wraps the
+	per-target orchestrator. Returns a noop result so the analysis stage
+	can carry the phase in its default sequence without doing real
+	work. Subsequent slices replace the orchestrator's body."""
+
+	from .stages.analysis.orchestrators import run_analysis_unitmatch
+
+	_ = unit_workers
+	return run_analysis_unitmatch(
+		dataset_index=int(target.dataset_index),
+		dataset_id=str(getattr(target, "dataset_id", "") or "") or None,
+		h5_path=target.h5_path,
+		stream_id=target.stream_id,
+		mea_output_root=target.mea_output_root,
+		output_rel_root=_analysis_output_rel_root(stage_config),
+		stage_config=stage_config,
+		force_restart=bool(getattr(stage_config, "force_restart", False)),
+	)
+
+
 def _run_spikesort_sort_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
 	inputs = build_spikesort_inputs_for_target(
 		target=target,
@@ -3920,6 +3943,37 @@ def _run_analysis_phase_from_runtime(
 	)
 
 
+def run_analysis_unitmatch_from_runtime(
+	*,
+	config_path: str,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	"""Slice 1 of unitmatch_phase_plan: runtime entry point for the
+	analysis.unitmatch phase. Mirrors `run_analysis_compute_metrics_from_runtime`'s
+	plumbing so the analysis runner can dispatch it uniformly. The actual
+	orchestrator is a scaffold; slices 2-5 fill in the real work."""
+
+	return _run_analysis_phase_from_runtime(
+		config_path=config_path,
+		stage_name="analysis.unitmatch",
+		phase_label="unitmatch",
+		target_runner=_run_analysis_unitmatch_target,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		target_datasets_override=target_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		replot_override=replot_override,
+		task_allocation_override=task_allocation_override,
+	)
+
+
 def run_analysis_compute_metrics_from_runtime(
 	*,
 	config_path: str,
@@ -3978,6 +4032,20 @@ def run_analysis_from_runtime(
 		stage_name = f"analysis.{phase_label}"
 		if phase_label == "compute_metrics":
 			phase_result = run_analysis_compute_metrics_from_runtime(
+				config_path=config_path,
+				limit_segments_override=limit_segments_override,
+				limit_datasets_override=limit_datasets_override,
+				target_datasets_override=target_datasets_override,
+				limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+				force_restart_override=force_restart_override,
+				replot_override=replot_override,
+				task_allocation_override=task_allocation_override,
+			)
+		elif phase_label == "unitmatch":
+			# Slice 1 of unitmatch_phase_plan: scaffold. The phase is a
+			# no-op when disabled in YAML; even when enabled, the slice-1
+			# orchestrator returns a scaffold marker until slice 2+ ships.
+			phase_result = run_analysis_unitmatch_from_runtime(
 				config_path=config_path,
 				limit_segments_override=limit_segments_override,
 				limit_datasets_override=limit_datasets_override,

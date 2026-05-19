@@ -1855,12 +1855,22 @@ stages:
     output_rel_root: analysis_outputs
     phase_sequence:
       - compute_metrics
+      - unitmatch
     phases:
       compute_metrics:
         enabled: true
         # The phase only reads small JSON artifacts and writes a manifest, so it
         # piggybacks on the disk_cleanup budget (serial, 4 GB RAM).
         resource_class: disk_cleanup
+      # unitmatch_phase_plan slice 1: phase scaffolded but disabled. Subsequent
+      # slices ship group discovery → unitlink.match invocation → output
+      # landing → real-data smoke. Flip enabled: true once slice 5 lands and
+      # the reconstruct.kssynth phase has produced synth sorter_outputs for at
+      # least one chip-well group.
+      unitmatch:
+        enabled: false
+        resource_class: disk_cleanup
+        rel_output_root: unitmatch
 
   cleanup:
     # `wipe_src_scratch` moved here from preprocess in phase_roster_cleanup
