@@ -3966,3 +3966,5 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 (unitlink-5) | unitlink slice 5 [opus] | backends/classical.py — UMPy wrapper (soft-import + mock tests); 7 tests; commit bc66668
 (unitlink-7) | unitlink slice 7 [opus] | api.match orchestrator + CLI; v1-feature-complete; 6 tests; commit d92a6dc
 86672e2 | unitmatch_phase slice 1 [opus] | scaffold analysis.unitmatch phase (wired, disabled, noop); 5 new tests
+a18cb4b | unitmatch_phase slice 2 [opus] | core/unitmatch_groups.py — discover_chip_well_groups + resolve_session_inputs/resolve_group_session_inputs (raises UnitmatchSessionInputMissing with actionable suggestions); 10 new tests
+575e08b | unitmatch_phase slice 3 [opus] | orchestrator invokes unitlink.match once per (chip, well) group; group_dir lives at project-level output_root (NOT per-well stage dir); idempotent skip on subsequent group targets; 9 tests green
