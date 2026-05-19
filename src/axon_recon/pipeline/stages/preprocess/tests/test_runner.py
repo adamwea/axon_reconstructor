@@ -749,7 +749,7 @@ def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypa
     # spikesort in slice 8, and plot_raster_threshold defaults to disabled.
     assert any("Starting preprocess work for well=well001 phase_count=4 selected_phase=all" in message for message in messages)
     assert any(
-        "Preprocess phase worker allocation stage=preprocess phase=preprocess_segments well=well001 well_workers=2 n_jobs=12 n_jobs_source=derived phase_n_jobs=12"
+        "Preprocess phase worker allocation stage=preprocess phase=preprocess_segments well=well001 well_workers=2 n_jobs=12 n_jobs_source=derived phase_n_jobs=1"
         in message
         for message in messages
     )

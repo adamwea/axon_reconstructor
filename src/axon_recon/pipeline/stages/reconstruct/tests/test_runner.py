@@ -997,12 +997,16 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstr
 			{
 				"resources": {
 					"active_profile": "lab_server_safe",
-					"profiles": {"lab_server_safe": {"cpu_cores": 36, "ram_gb": 50}},
-					"phase_resource_classes": {
-						"template_build": {"cpu_cores": 5, "ram_gb": 8},
-						"axon_reconstruction": {"cpu_cores": 2, "ram_gb": 8},
-						"plot_unit": {"cpu_cores": 3, "ram_gb": 24, "plot_slots": 1},
-						"plot_report_grid": {"cpu_cores": 4, "ram_gb": 48, "plot_slots": 1},
+					"profiles": {
+						"lab_server_safe": {
+							"capacity": {"cpu_cores": 36, "ram_gb": 50},
+						},
+					},
+					"phase_budgets": {
+						"template_build": {"cpus_per_task": 5, "ram_gb": 8},
+						"axon_reconstruction": {"cpus_per_task": 2, "ram_gb": 8},
+						"plot_unit": {"cpus_per_task": 3, "ram_gb": 24, "plot_slots": 1},
+						"plot_report_grid": {"cpus_per_task": 4, "ram_gb": 48, "plot_slots": 1},
 					},
 				}
 			}
@@ -1055,21 +1059,21 @@ def test_reconstruct_phase_worker_allocation_uses_resource_class_cpu_for_downstr
 		)
 
 	assert template_workers == 5
-	assert template_source == "resource_class.cpu_cores"
+	assert template_source == "resource_class.cpus_per_task"
 	assert template_resource_class == "template_build"
 	assert template_inputs.n_jobs == 5
 	assert template_inputs.templates_inputs is not None
 	assert template_inputs.templates_inputs.n_jobs == 5
 	assert gtr_workers == 2
-	assert gtr_source == "resource_class.cpu_cores"
+	assert gtr_source == "resource_class.cpus_per_task"
 	assert gtr_resource_class == "axon_reconstruction"
 	assert gtr_inputs.n_jobs == 2
 	assert plot_workers == 3
-	assert plot_source == "resource_class.cpu_cores"
+	assert plot_source == "resource_class.cpus_per_task"
 	assert plot_resource_class == "plot_unit"
 	assert plot_inputs.n_jobs == 3
 	assert report_workers == 4
-	assert report_source == "resource_class.cpu_cores"
+	assert report_source == "resource_class.cpus_per_task"
 	assert report_resource_class == "plot_report_grid"
 	assert report_inputs.n_jobs == 4
 

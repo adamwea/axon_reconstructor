@@ -2775,9 +2775,11 @@ def test_load_templates_config_parses_plot_templates_v2_phase_block(tmp_path: Pa
 			f"""
 			data: {data_path}
 			resources:
-			  phase_resource_classes:
+			  phase_budgets:
 			    plot_unit:
-			      max_parallel: 1
+			      cpus_per_task: 1
+			      ram_gb: 4
+			      plot_slots: 1
 			stages:
 			  reconstruct:
 			    phase_sequence: [plot_templates_v2]
