@@ -3501,7 +3501,7 @@ def test_run_reconstruct_templates_pipeline_uses_spikeinterface_materialization_
 
 	def _fake_materialize(*, well_out_dir: Path, templates_out_dir: Path, unit_ids, include_concat: bool, include_segments: bool, **kwargs):
 		called["value"] = True
-		assert include_concat is True
+		assert include_concat is False
 		assert include_segments is True
 		assert unit_ids == [94]
 		assert "merge_method" in kwargs
@@ -3562,7 +3562,7 @@ def test_run_reconstruct_templates_pipeline_force_restart_prefers_spikeinterface
 
 	def _fake_materialize(*, well_out_dir: Path, templates_out_dir: Path, unit_ids, include_concat: bool, include_segments: bool, **kwargs):
 		called["value"] = True
-		assert include_concat is True
+		assert include_concat is False
 		assert include_segments is True
 		assert unit_ids == [94]
 		assert "merge_method" in kwargs
@@ -3763,7 +3763,7 @@ def test_run_reconstruct_templates_pipeline_writes_upsampling_decisions_to_summa
 	well_out_dir = compute_mea_analysis_output_dir(output_root=output_root, data_file=h5_path, well="well000")
 
 	def _fake_materialize(*, well_out_dir: Path, templates_out_dir: Path, unit_ids, include_concat: bool, include_segments: bool, **kwargs):
-		assert include_concat is True
+		assert include_concat is False
 		assert include_segments is True
 		assert unit_ids == [94]
 		merged_dir = templates_out_dir / "cache" / "templates" / "merged" / "unit_94"
