@@ -43,7 +43,10 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 - **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-9 + 11-13 + 14a-14b shipped (slice 10 plot_raster_threshold quality fix deferred per plan §3). Slice 14c still queued (blocker documented in open_questions: the monolithic per-target stage runner in preprocess/spikesort/reconstruct/analysis needs a refactoring decision before integration).
 - **Parallelism post-migration cleanup plan** (`plans/active/parallelism_post_migration_cleanup_plan.md`): slices 3 + 5 + 7 + 8 (sub-items A/B/C/D/E1/E2) shipped this iteration. Also `+` a production-code fix to `core/unit_plots.py` (invert_y_axis propagation) and a softening to `container_cli` on `--dry-run`. Pre-existing failures went from 21 → 5 (remaining 5 are all spikeinterface_extract — parallelism slice 9 scope). Slices 1, 2, 4, 6, 9, 10 still queued.
-- **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. `~/dev/pkgs/kssynth/` now exists locally — slice 1 of its plan landed (scaffold + stub `api.synthesize` + 2 tests + CI matrix; commit `7e236f3` in the kssynth repo). `~/dev/pkgs/unitlink/` also exists locally — slice 1 of its plan landed (scaffold + stub `api.match` + 2 tests + CI matrix; commit `81e4d3c` in the unitlink repo). User will push both to GitHub when ready. axon_recon analysis-stage `unitmatch` phase still TBD (slice 2+ of `unitmatch_phase_plan.md`).
+- **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`.
+  - `~/dev/pkgs/kssynth/` exists locally — slices 1 (scaffold) + 2 (`core/cluster_tsv_sync.py`, generalized from SLAy) landed. 13 tests green. Commits `7e236f3` + `e706771` in the kssynth repo.
+  - `~/dev/pkgs/unitlink/` exists locally — slice 1 (scaffold + stub `api.match`) landed. 2 tests green. Commit `81e4d3c` in the unitlink repo.
+  - Both packages still need user-initiated `git push` to GitHub. axon_recon analysis-stage `unitmatch` phase still TBD (slice 2+ of `unitmatch_phase_plan.md`).
 
 ## Locked decisions from 2026-05-18 pre-loop Q&A
 

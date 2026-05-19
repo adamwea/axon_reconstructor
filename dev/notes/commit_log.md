@@ -3953,3 +3953,4 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 (preflight) | tech_debt [opus] | soften container preflight output_root check when publish_outputs is false; tracker entry marked SHIPPED
 (kssynth-1) | kssynth slice 1 [opus] | scaffold sibling package at ~/dev/pkgs/kssynth/ (`git init`, no remote); 2 tests; commit 7e236f3 in kssynth repo
 (unitlink-1) | unitlink slice 1 [opus] | scaffold sibling package at ~/dev/pkgs/unitlink/ (`git init`, no remote); 2 tests; commit 81e4d3c in unitlink repo
+(kssynth-2) | kssynth slice 2 [opus] | core/cluster_tsv_sync.py — generalized `_sync_auxiliary_cluster_tsvs` from SLAy; 11 new tests; commit e706771 in kssynth repo
