@@ -1808,13 +1808,76 @@ def _register_image_download(
 		return dcc.send_bytes(image_bytes, f"{filename_stem}.{format}", type=mime)
 
 
+def _empty_dashboard_figure(*, message: str, sub_message: str | None = None) -> Any:
+	"""Slice 2 of dashboard_ui_refinement_plan: build an empty-state figure
+	that surfaces WHY the plot is empty instead of rendering a `_`-axis
+	blank.
+
+	Replaces the prior ``px.<plot>(pd.DataFrame({"_": []}), x="_")``
+	pattern that left users staring at an empty grid with no
+	explanation. The returned figure:
+
+	- Has no axes / gridlines (the underlying data is empty; axes carry
+	  no meaning).
+	- Centers a primary annotation explaining the empty state.
+	- Optionally adds a secondary smaller annotation for the column /
+	  metric name (helps the user immediately see which selection is
+	  the problem).
+
+	Use this everywhere the dashboard plot builders previously returned
+	``px.<plot>(pd.DataFrame({"_": []}), …)``.
+	"""
+
+	fig = px.scatter(pd.DataFrame({"_": []}), x="_", y="_")
+	fig.update_layout(
+		xaxis={"visible": False, "showgrid": False, "zeroline": False, "showticklabels": False},
+		yaxis={"visible": False, "showgrid": False, "zeroline": False, "showticklabels": False},
+		annotations=[
+			{
+				"text": message,
+				"xref": "paper",
+				"yref": "paper",
+				"x": 0.5,
+				"y": 0.55 if sub_message else 0.5,
+				"showarrow": False,
+				"font": {"size": 16, "color": "#666666"},
+				"align": "center",
+			},
+			*([
+				{
+					"text": sub_message,
+					"xref": "paper",
+					"yref": "paper",
+					"x": 0.5,
+					"y": 0.42,
+					"showarrow": False,
+					"font": {"size": 12, "color": "#999999"},
+					"align": "center",
+				}
+			] if sub_message else []),
+		],
+	)
+	return fig
+
+
 def _build_histogram(df: pd.DataFrame, *, x_column: Any, color_column: Any) -> Any:
 	"""Compose a Plotly histogram figure; empty df yields an empty figure."""
-	if df is None or df.empty or not x_column:
-		return px.histogram(pd.DataFrame({"_": []}), x="_")
+	if df is None or df.empty:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="No rows match the active filters.",
+		)
+	if not x_column:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="Pick an X-axis column to plot.",
+		)
 	x = str(x_column)
 	if x not in df.columns:
-		return px.histogram(pd.DataFrame({"_": []}), x="_")
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message=f"Column {x!r} is not present in any selected recording's output.",
+		)
 	color = None
 	if color_column and color_column != _HISTOGRAM_COLOR_DEFAULT and str(color_column) in df.columns:
 		color = str(color_column)
@@ -1892,16 +1955,34 @@ def build_box_plot(
 	level, narrow the filter to one primary value and switch the secondary
 	to be the primary instead.
 	"""
-	if df is None or df.empty or not value_col or not group_col:
-		return px.box(pd.DataFrame({"_": []}), y="_")
+	if df is None or df.empty:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="No rows match the active filters.",
+		)
+	if not value_col or not group_col:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="Pick a value column and a group column to plot.",
+		)
 	value = str(value_col)
 	group = str(group_col)
 	if value not in df.columns or group not in df.columns:
-		return px.box(pd.DataFrame({"_": []}), y="_")
+		missing = [
+			c for c in (value, group)
+			if c not in df.columns
+		]
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message=f"Column(s) {missing!r} not present in any selected recording's output.",
+		)
 	if exclude_nulls:
 		df = df.dropna(subset=[value])
 		if df.empty:
-			return px.box(pd.DataFrame({"_": []}), y="_")
+			return _empty_dashboard_figure(
+				message="No data available",
+				sub_message=f"Every row in column {value!r} is NaN under the active filters.",
+			)
 	if log_transform:
 		# Drop non-positive values before log; plotly will use the transformed
 		# column as `value` so the axis label conveys the transform.
@@ -1909,7 +1990,13 @@ def build_box_plot(
 		df[value] = pd.to_numeric(df[value], errors="coerce")
 		df = df[df[value] > 0]
 		if df.empty:
-			return px.box(pd.DataFrame({"_": []}), y="_")
+			return _empty_dashboard_figure(
+				message="No data available",
+				sub_message=(
+					f"Log transform requires positive values; no rows in column "
+					f"{value!r} pass that filter under the active selection."
+				),
+			)
 		import numpy as _np
 		df["__log_" + value] = _np.log10(df[value])
 		value = "__log_" + value
@@ -2082,12 +2169,24 @@ def build_scatter(
 	Empty / missing-column inputs return an empty Plotly figure rather than
 	raising, so the Dash callback can render something on every update.
 	"""
-	if df is None or df.empty or not x_col or not y_col:
-		return px.scatter(pd.DataFrame({"_": []}), x="_", y="_")
+	if df is None or df.empty:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="No rows match the active filters.",
+		)
+	if not x_col or not y_col:
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message="Pick X and Y columns to plot.",
+		)
 	x = str(x_col)
 	y = str(y_col)
 	if x not in df.columns or y not in df.columns:
-		return px.scatter(pd.DataFrame({"_": []}), x="_", y="_")
+		missing = [c for c in (x, y) if c not in df.columns]
+		return _empty_dashboard_figure(
+			message="No data available",
+			sub_message=f"Column(s) {missing!r} not present in any selected recording's output.",
+		)
 	color = None
 	if color_col and color_col != _SCATTER_COLOR_NONE and str(color_col) in df.columns:
 		color = str(color_col)

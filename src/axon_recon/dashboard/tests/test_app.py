@@ -307,6 +307,71 @@ def test_build_scatter_missing_columns_returns_empty_figure() -> None:
 	assert fig is not None
 
 
+# --- Slice 2 of dashboard_ui_refinement_plan: empty-state UX --------------
+
+
+def _empty_state_annotation_texts(fig: Any) -> list[str]:
+	return [str(getattr(ann, "text", "")) for ann in fig.layout.annotations]
+
+
+def test_empty_histogram_renders_no_data_message() -> None:
+	from ..app import _build_histogram
+
+	fig = _build_histogram(pd.DataFrame(), x_column="anything", color_column=None)
+	texts = _empty_state_annotation_texts(fig)
+	assert any("No data available" in t for t in texts)
+	# Empty-state figure hides axes (no point in showing them).
+	assert fig.layout.xaxis.visible is False
+	assert fig.layout.yaxis.visible is False
+
+
+def test_empty_histogram_with_missing_column_surfaces_column_name() -> None:
+	from ..app import _build_histogram
+
+	df = pd.DataFrame({"present": [1.0, 2.0]})
+	fig = _build_histogram(df, x_column="absent_col", color_column=None)
+	texts = _empty_state_annotation_texts(fig)
+	# The column name shows up in the sub-message so the user knows
+	# WHY the plot is empty without inspecting filters.
+	assert any("absent_col" in t for t in texts)
+
+
+def test_empty_box_plot_renders_no_data_message() -> None:
+	fig = build_box_plot(pd.DataFrame(), value_col="x", group_col="g")
+	texts = _empty_state_annotation_texts(fig)
+	assert any("No data available" in t for t in texts)
+
+
+def test_empty_box_plot_missing_columns_lists_missing_names() -> None:
+	df = pd.DataFrame({"present": [1.0, 2.0]})
+	fig = build_box_plot(df, value_col="absent_value", group_col="absent_group")
+	texts = _empty_state_annotation_texts(fig)
+	# Both missing names should appear in the sub-message.
+	assert any("absent_value" in t and "absent_group" in t for t in texts)
+
+
+def test_empty_scatter_renders_no_data_message() -> None:
+	from ..app import build_scatter
+
+	fig = build_scatter(pd.DataFrame(), x_col="x", y_col="y")
+	texts = _empty_state_annotation_texts(fig)
+	assert any("No data available" in t for t in texts)
+
+
+def test_empty_state_no_axes_visible() -> None:
+	# Verify axes are hidden across all three plot types' empty states
+	# so the user doesn't see a confusing `_`-axis blank.
+	from ..app import _build_histogram, build_scatter
+
+	for fig in (
+		_build_histogram(pd.DataFrame(), x_column="x", color_column=None),
+		build_box_plot(pd.DataFrame(), value_col="x", group_col="g"),
+		build_scatter(pd.DataFrame(), x_col="x", y_col="y"),
+	):
+		assert fig.layout.xaxis.visible is False, "x-axis must be hidden in empty state"
+		assert fig.layout.yaxis.visible is False, "y-axis must be hidden in empty state"
+
+
 def test_build_box_plot_points_mode_off_keeps_outliers_only() -> None:
 	df = _two_group_units_df()
 	fig = build_box_plot(
