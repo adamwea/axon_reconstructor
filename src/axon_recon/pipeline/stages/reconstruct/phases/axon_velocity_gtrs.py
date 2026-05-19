@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import with_checkpoint_marker
 from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.execution.progress import (
     add_current_progress_total,
@@ -19,41 +20,46 @@ def run_reconstruct_axon_velocity_gtrs_phase(inputs: ReconstructionInputs) -> di
     env = reconstruct_runner._prepare_reconstruct_phase_environment(
         inputs=inputs, clear_output_root=True
     )
-    reconstruct_runner.LOGGER.info(
-        "reconstruct.axon_velocity_gtrs phase start: well_out_dir=%s reconstruction_out_dir=%s units=%d applied_debug_limits=%s",
-        str(env.well_out_dir),
-        str(env.reconstruction_out_dir),
-        len(env.unit_ids),
-        reconstruct_runner._reconstruct_applied_debug_limits(inputs),
-    )
-    unit_results, failed_units_summary_json = _run_reconstruct_axon_velocity_gtrs_phase_impl(
-        inputs=inputs, env=env
-    )
     summary_json = (
         env.reconstruction_out_dir
         / Path(str(inputs.phases.axon_velocity_gtrs.summary_json_relpath)).expanduser()
     )
-    summary = reconstruct_runner._write_reconstruct_phase_summary(
+    with with_checkpoint_marker(
+        summary_json,
         phase_name="axon_velocity_gtrs",
-        summary_json=summary_json,
-        inputs=inputs,
-        well_out_dir=env.well_out_dir,
-        reconstruction_out_dir=env.reconstruction_out_dir,
-        unit_results=unit_results,
-        failed_units_summary_json=failed_units_summary_json,
-        preserve_stage_reports=env.preserve_stage_reports,
-    )
-    reconstruct_runner.LOGGER.info(
-        "reconstruct.axon_velocity_gtrs wrote summary output: %s",
-        str(summary_json),
-    )
-    reconstruct_runner.LOGGER.info(
-        "reconstruct.axon_velocity_gtrs run stats: units_total=%d units_ok=%d units_error=%d",
-        int(summary.get("unit_count", 0)),
-        int(summary.get("units_ok", 0)),
-        int(summary.get("units_error", 0)),
-    )
-    return summary
+        stage_name="reconstruct",
+    ):
+        reconstruct_runner.LOGGER.info(
+            "reconstruct.axon_velocity_gtrs phase start: well_out_dir=%s reconstruction_out_dir=%s units=%d applied_debug_limits=%s",
+            str(env.well_out_dir),
+            str(env.reconstruction_out_dir),
+            len(env.unit_ids),
+            reconstruct_runner._reconstruct_applied_debug_limits(inputs),
+        )
+        unit_results, failed_units_summary_json = _run_reconstruct_axon_velocity_gtrs_phase_impl(
+            inputs=inputs, env=env
+        )
+        summary = reconstruct_runner._write_reconstruct_phase_summary(
+            phase_name="axon_velocity_gtrs",
+            summary_json=summary_json,
+            inputs=inputs,
+            well_out_dir=env.well_out_dir,
+            reconstruction_out_dir=env.reconstruction_out_dir,
+            unit_results=unit_results,
+            failed_units_summary_json=failed_units_summary_json,
+            preserve_stage_reports=env.preserve_stage_reports,
+        )
+        reconstruct_runner.LOGGER.info(
+            "reconstruct.axon_velocity_gtrs wrote summary output: %s",
+            str(summary_json),
+        )
+        reconstruct_runner.LOGGER.info(
+            "reconstruct.axon_velocity_gtrs run stats: units_total=%d units_ok=%d units_error=%d",
+            int(summary.get("unit_count", 0)),
+            int(summary.get("units_ok", 0)),
+            int(summary.get("units_error", 0)),
+        )
+        return summary
 
 
 def _as_positive_int_or_none(value: Any) -> int | None:

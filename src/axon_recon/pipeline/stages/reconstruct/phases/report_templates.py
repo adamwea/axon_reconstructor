@@ -4,6 +4,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import with_checkpoint_marker
 from axon_recon.pipeline.stages.reconstruct.templates import runner as templates_runner
 from axon_recon.pipeline.stages.reconstruct.templates.models.inputs import TemplatesInputs
 
@@ -25,22 +26,45 @@ def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) ->
     well_out_dir, _, templates_out_dir, _ = templates_runner._resolve_templates_phase_environment(
         inputs
     )
-    if get_no_plot_override() is True:
-        summary_path = templates_out_dir / str(inputs.phases.report_templates.summary_json_relpath)
-        summary_path.parent.mkdir(parents=True, exist_ok=True)
-        payload: dict[str, Any] = {
-            "phase": "report_templates",
-            "status": "skipped",
-            "reason": "plots_disabled",
-            "templates_out_dir": str(templates_out_dir),
-            "well_out_dir": str(well_out_dir),
-        }
-        templates_runner.write_json(summary_path, payload)
-        payload["summary_json"] = str(summary_path)
-        templates_runner.LOGGER.info(
-            "templates.report_templates: skipped (reason=plots_disabled, --no-plot override active)"
+    summary_json_path = templates_out_dir / str(inputs.phases.report_templates.summary_json_relpath)
+    with with_checkpoint_marker(
+        summary_json_path,
+        phase_name="report_templates",
+        stage_name="reconstruct",
+    ):
+        if get_no_plot_override() is True:
+            summary_path = summary_json_path
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            payload: dict[str, Any] = {
+                "phase": "report_templates",
+                "status": "skipped",
+                "reason": "plots_disabled",
+                "templates_out_dir": str(templates_out_dir),
+                "well_out_dir": str(well_out_dir),
+            }
+            templates_runner.write_json(summary_path, payload)
+            payload["summary_json"] = str(summary_path)
+            templates_runner.LOGGER.info(
+                "templates.report_templates: skipped (reason=plots_disabled, --no-plot override active)"
+            )
+            return payload
+        return _run_reconstruct_templates_report_templates_phase_body(
+            inputs=inputs,
+            phase_started=phase_started,
+            well_out_dir=well_out_dir,
+            templates_out_dir=templates_out_dir,
+            summary_json_path=summary_json_path,
         )
-        return payload
+
+
+def _run_reconstruct_templates_report_templates_phase_body(
+    *,
+    inputs: TemplatesInputs,
+    phase_started: float,
+    well_out_dir: Path,
+    templates_out_dir: Path,
+    summary_json_path: Path,
+) -> dict[str, Any]:
     source_output_key, source_phase_name = _resolve_report_templates_source(inputs)
     unit_ids = (
         list(inputs.unit_ids)

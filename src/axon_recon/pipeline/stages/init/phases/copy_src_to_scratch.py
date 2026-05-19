@@ -25,6 +25,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ....checkpoint import with_checkpoint_marker
 from ....output_paths import compute_mea_analysis_output_dir
 from ..core.copy_src_to_scratch import run_copy_src_to_scratch_core
 from ..models.inputs import InitInputs
@@ -88,51 +89,59 @@ def run_init_copy_src_to_scratch_phase(inputs: InitInputs) -> dict[str, Any]:
 	`select_execution_targets`'s `materialize_scratch_inputs=True` path.
 	"""
 
-	_validate_copy_phase_requirements(inputs)
-
-	source_h5_path = Path(inputs.source_h5_path or inputs.h5_path)
-	core_payload = run_copy_src_to_scratch_core(
-		h5_path=inputs.h5_path,
-		source_h5_path=source_h5_path,
-		stream_id=str(inputs.stream_id),
-		copied_to_scratch=bool(inputs.copied_to_scratch),
-		requires_use_scratch_root=bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
-	)
-
+	# Compute the summary_json path BEFORE doing any phase work so the
+	# in_progress marker lands at the canonical location regardless of
+	# whether the phase succeeds, fails, or hard-crashes.
 	summary_json_path = _resolve_summary_json_path(inputs)
-	init_out_dir = _resolve_init_out_dir(inputs)
-	payload: dict[str, Any] = {
-		"phase": "copy_src_to_scratch",
-		"status": "ok",
-		"well_out_dir": str(init_out_dir.parent),
-		"init_out_dir": str(init_out_dir),
-		"completed_at": _utc_now_iso(),
-		"inputs": {
-			"h5_path": str(inputs.h5_path),
-			"source_h5_path": str(source_h5_path),
-			"stream_id": str(inputs.stream_id),
-			"copied_to_scratch": bool(inputs.copied_to_scratch),
-			"requires_use_scratch_root": bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
-		},
-		"outputs": {
-			"source_h5_path": str(source_h5_path),
-			"resolved_h5_path": str(inputs.h5_path),
-		},
-	}
-	payload.update(
-		{
-			"source_h5_path": core_payload["source_h5_path"],
-			"resolved_h5_path": core_payload["resolved_h5_path"],
-			"copied_to_scratch": core_payload["copied_to_scratch"],
-			"requires_use_scratch_root": core_payload["requires_use_scratch_root"],
+	with with_checkpoint_marker(
+		summary_json_path,
+		phase_name="copy_src_to_scratch",
+		stage_name="init",
+	):
+		_validate_copy_phase_requirements(inputs)
+
+		source_h5_path = Path(inputs.source_h5_path or inputs.h5_path)
+		core_payload = run_copy_src_to_scratch_core(
+			h5_path=inputs.h5_path,
+			source_h5_path=source_h5_path,
+			stream_id=str(inputs.stream_id),
+			copied_to_scratch=bool(inputs.copied_to_scratch),
+			requires_use_scratch_root=bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
+		)
+
+		init_out_dir = _resolve_init_out_dir(inputs)
+		payload: dict[str, Any] = {
+			"phase": "copy_src_to_scratch",
+			"status": "ok",
+			"well_out_dir": str(init_out_dir.parent),
+			"init_out_dir": str(init_out_dir),
+			"completed_at": _utc_now_iso(),
+			"inputs": {
+				"h5_path": str(inputs.h5_path),
+				"source_h5_path": str(source_h5_path),
+				"stream_id": str(inputs.stream_id),
+				"copied_to_scratch": bool(inputs.copied_to_scratch),
+				"requires_use_scratch_root": bool(inputs.phases.copy_src_to_scratch.requires_use_scratch_root),
+			},
+			"outputs": {
+				"source_h5_path": str(source_h5_path),
+				"resolved_h5_path": str(inputs.h5_path),
+			},
 		}
-	)
-	_write_json(summary_json_path, _json_ready(payload))
-	payload["summary_json"] = str(summary_json_path)
-	LOGGER.info(
-		"init copy_src_to_scratch phase complete stream_id=%s copied_to_scratch=%s summary_json=%s",
-		str(inputs.stream_id),
-		bool(inputs.copied_to_scratch),
-		str(summary_json_path),
-	)
-	return payload
+		payload.update(
+			{
+				"source_h5_path": core_payload["source_h5_path"],
+				"resolved_h5_path": core_payload["resolved_h5_path"],
+				"copied_to_scratch": core_payload["copied_to_scratch"],
+				"requires_use_scratch_root": core_payload["requires_use_scratch_root"],
+			}
+		)
+		_write_json(summary_json_path, _json_ready(payload))
+		payload["summary_json"] = str(summary_json_path)
+		LOGGER.info(
+			"init copy_src_to_scratch phase complete stream_id=%s copied_to_scratch=%s summary_json=%s",
+			str(inputs.stream_id),
+			bool(inputs.copied_to_scratch),
+			str(summary_json_path),
+		)
+		return payload

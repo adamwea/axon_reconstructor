@@ -10,6 +10,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import with_checkpoint_marker
 from axon_recon.pipeline.execution import install_linux_parent_death_signal
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
@@ -1239,31 +1240,39 @@ def run_reconstruct_templates_build_templates_phase(inputs: TemplatesInputs) -> 
 
     # 1. Resolve the build_templates target paths and source payload cache location.
     context = _resolve_build_templates_context(inputs)
-    _log_build_templates_start(inputs=inputs, context=context)
+    summary_json_path = context.templates_out_dir / str(
+        inputs.phases.build_templates.summary_json_relpath
+    )
+    with with_checkpoint_marker(
+        summary_json_path,
+        phase_name="build_templates",
+        stage_name="reconstruct",
+    ):
+        _log_build_templates_start(inputs=inputs, context=context)
 
-    # 2. build_templates only consumes partial payloads written by the
-    #    extract_partial_templates phase. It MUST NOT reopen segment analyzers.
-    payload_status = _payload_root_status(context.payload_root)
-    if payload_status != "ready":
-        raise FileNotFoundError(
-            "templates.build_templates requires partial payloads to be present at "
-            f"{context.payload_root} (status={payload_status}). Run "
-            "templates.extract_partial_templates before templates.build_templates."
+        # 2. build_templates only consumes partial payloads written by the
+        #    extract_partial_templates phase. It MUST NOT reopen segment analyzers.
+        payload_status = _payload_root_status(context.payload_root)
+        if payload_status != "ready":
+            raise FileNotFoundError(
+                "templates.build_templates requires partial payloads to be present at "
+                f"{context.payload_root} (status={payload_status}). Run "
+                "templates.extract_partial_templates before templates.build_templates."
+            )
+
+        LOGGER.info(
+            "templates.build_templates using existing partial payloads: payload_root=%s",
+            str(context.payload_root),
         )
+        summary = _build_templates_from_existing_payloads(inputs=inputs, context=context)
 
-    LOGGER.info(
-        "templates.build_templates using existing partial payloads: payload_root=%s",
-        str(context.payload_root),
-    )
-    summary = _build_templates_from_existing_payloads(inputs=inputs, context=context)
-
-    # 3. Persist the phase summary after the core builder has written per-unit outputs.
-    return _write_build_templates_summary(
-        inputs=inputs,
-        context=context,
-        summary=summary,
-        phase_started=phase_started,
-    )
+        # 3. Persist the phase summary after the core builder has written per-unit outputs.
+        return _write_build_templates_summary(
+            inputs=inputs,
+            context=context,
+            summary=summary,
+            phase_started=phase_started,
+        )
 
 
 __all__ = ["run_reconstruct_templates_build_templates_phase"]

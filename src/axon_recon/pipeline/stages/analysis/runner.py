@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import with_checkpoint_marker
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 
 from .core.labels_io import (
@@ -348,96 +349,104 @@ def run_analysis_compute_metrics_stage(
 		relpath=manifest_relpath,
 	)
 
-	enabled = bool(getattr(stage_config, "compute_metrics_enabled", True))
-	identity = _identity_for_target(
-		dataset_index=int(dataset_index),
-		stream_id=str(stream_id),
-		stage_config=stage_config,
-	)
-	resolved_dataset_id = dataset_id if dataset_id is not None else identity.get("dataset_id")
-
-	tables_relpath = str(getattr(stage_config, "tables_relpath", "tables") or "tables")
-	tables_dir = _resolve_under_analysis_output_root(
-		well_out_dir=well_out_dir,
-		output_rel_root=output_rel_root,
-		relpath=tables_relpath,
-	)
-	units_parquet_path = tables_dir / "units.parquet"
-	well_summary_parquet_path = tables_dir / "well_summary.parquet"
-
-	tables_section: dict[str, Any] = {}
-	unit_count = 0
-	if enabled:
-		recon_output_rel_root = str(
-			getattr(stage_config, "recon_output_rel_root", "recon_outputs") or "recon_outputs"
+	# Lay down the in_progress marker BEFORE any phase work. The final
+	# manifest write below overwrites this on success; on uncaught
+	# exception the context manager overwrites with status=error.
+	with with_checkpoint_marker(
+		manifest_path,
+		phase_name="compute_metrics",
+		stage_name="analysis",
+	):
+		enabled = bool(getattr(stage_config, "compute_metrics_enabled", True))
+		identity = _identity_for_target(
+			dataset_index=int(dataset_index),
+			stream_id=str(stream_id),
+			stage_config=stage_config,
 		)
-		recon_outputs_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath=recon_output_rel_root)
-		spikesort_outputs_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath="spikesort_outputs")
+		resolved_dataset_id = dataset_id if dataset_id is not None else identity.get("dataset_id")
 
-		bombcell_labels = read_bombcell_labels(spikesort_outputs_dir)
-		spike_counts = read_per_cluster_spike_counts(spikesort_outputs_dir)
-
-		identity_cols = _build_identity_cols(
-			identity=identity,
-			stream_id=stream_id,
-			resolved_dataset_id=resolved_dataset_id,
-		)
-		rows: list[dict[str, Any]] = []
-		for unit_dir in iter_unit_dirs(recon_outputs_dir):
-			rows.append(
-				_row_for_unit(
-					unit_dir=unit_dir,
-					identity_cols=identity_cols,
-					bombcell_labels=bombcell_labels,
-					spike_counts=spike_counts,
-				)
-			)
-		unit_count, units_df = _write_units_parquet(rows=rows, parquet_path=units_parquet_path)
-		tables_section["units"] = f"{tables_relpath}/units.parquet"
-
-		well_summary_identity = {
-			column: identity_cols.get(column)
-			for column in _WELL_SUMMARY_IDENTITY_COLUMNS
-		}
-		_write_well_summary_parquet(
-			units_df=units_df,
-			identity_cols=well_summary_identity,
-			parquet_path=well_summary_parquet_path,
+		tables_relpath = str(getattr(stage_config, "tables_relpath", "tables") or "tables")
+		tables_dir = _resolve_under_analysis_output_root(
 			well_out_dir=well_out_dir,
+			output_rel_root=output_rel_root,
+			relpath=tables_relpath,
 		)
-		tables_section["well_summary"] = f"{tables_relpath}/well_summary.parquet"
+		units_parquet_path = tables_dir / "units.parquet"
+		well_summary_parquet_path = tables_dir / "well_summary.parquet"
 
-	manifest_payload: dict[str, Any] = {
-		"artifact_type": "axon_recon_well_analysis",
-		"schema_version": "axon_analysis_v1",
-		"pipeline_version": str(getattr(stage_config, "pipeline_version", "unknown")),
-		"project": identity.get("project"),
-		"recording_date": identity.get("recording_date"),
-		"chip_id": identity.get("chip_id"),
-		"scan_type": identity.get("scan_type"),
-		"run_id": identity.get("run_id"),
-		"well_id": str(stream_id),
-		"dataset_id": resolved_dataset_id,
-		"DIV": identity.get("DIV"),
-		"well_attributes": identity.get("well_attributes", {}),
-		"written_at": datetime.now(timezone.utc).isoformat(),
-		"tables": tables_section,
-		"unit_count": int(unit_count),
-		"status": "ok" if enabled else "skipped",
-		"reason": None if enabled else "compute_metrics_disabled",
-		"force_restart": bool(force_restart),
-	}
+		tables_section: dict[str, Any] = {}
+		unit_count = 0
+		if enabled:
+			recon_output_rel_root = str(
+				getattr(stage_config, "recon_output_rel_root", "recon_outputs") or "recon_outputs"
+			)
+			recon_outputs_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath=recon_output_rel_root)
+			spikesort_outputs_dir = _resolve_under_well(well_out_dir=well_out_dir, relpath="spikesort_outputs")
 
-	_write_json(manifest_path, manifest_payload)
+			bombcell_labels = read_bombcell_labels(spikesort_outputs_dir)
+			spike_counts = read_per_cluster_spike_counts(spikesort_outputs_dir)
 
-	outputs = {"manifest_json": str(manifest_path)}
-	if "units" in tables_section:
-		outputs["units_parquet"] = str(units_parquet_path)
-	if "well_summary" in tables_section:
-		outputs["well_summary_parquet"] = str(well_summary_parquet_path)
-	return AnalysisResult(
-		well_out_dir=well_out_dir,
-		analysis_out_dir=stage_output_root_dir,
-		manifest_json=manifest_path,
-		outputs=outputs,
-	)
+			identity_cols = _build_identity_cols(
+				identity=identity,
+				stream_id=stream_id,
+				resolved_dataset_id=resolved_dataset_id,
+			)
+			rows: list[dict[str, Any]] = []
+			for unit_dir in iter_unit_dirs(recon_outputs_dir):
+				rows.append(
+					_row_for_unit(
+						unit_dir=unit_dir,
+						identity_cols=identity_cols,
+						bombcell_labels=bombcell_labels,
+						spike_counts=spike_counts,
+					)
+				)
+			unit_count, units_df = _write_units_parquet(rows=rows, parquet_path=units_parquet_path)
+			tables_section["units"] = f"{tables_relpath}/units.parquet"
+
+			well_summary_identity = {
+				column: identity_cols.get(column)
+				for column in _WELL_SUMMARY_IDENTITY_COLUMNS
+			}
+			_write_well_summary_parquet(
+				units_df=units_df,
+				identity_cols=well_summary_identity,
+				parquet_path=well_summary_parquet_path,
+				well_out_dir=well_out_dir,
+			)
+			tables_section["well_summary"] = f"{tables_relpath}/well_summary.parquet"
+
+		manifest_payload: dict[str, Any] = {
+			"artifact_type": "axon_recon_well_analysis",
+			"schema_version": "axon_analysis_v1",
+			"pipeline_version": str(getattr(stage_config, "pipeline_version", "unknown")),
+			"project": identity.get("project"),
+			"recording_date": identity.get("recording_date"),
+			"chip_id": identity.get("chip_id"),
+			"scan_type": identity.get("scan_type"),
+			"run_id": identity.get("run_id"),
+			"well_id": str(stream_id),
+			"dataset_id": resolved_dataset_id,
+			"DIV": identity.get("DIV"),
+			"well_attributes": identity.get("well_attributes", {}),
+			"written_at": datetime.now(timezone.utc).isoformat(),
+			"tables": tables_section,
+			"unit_count": int(unit_count),
+			"status": "ok" if enabled else "skipped",
+			"reason": None if enabled else "compute_metrics_disabled",
+			"force_restart": bool(force_restart),
+		}
+
+		_write_json(manifest_path, manifest_payload)
+
+		outputs = {"manifest_json": str(manifest_path)}
+		if "units" in tables_section:
+			outputs["units_parquet"] = str(units_parquet_path)
+		if "well_summary" in tables_section:
+			outputs["well_summary_parquet"] = str(well_summary_parquet_path)
+		return AnalysisResult(
+			well_out_dir=well_out_dir,
+			analysis_out_dir=stage_output_root_dir,
+			manifest_json=manifest_path,
+			outputs=outputs,
+		)

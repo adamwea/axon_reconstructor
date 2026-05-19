@@ -18,6 +18,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import with_checkpoint_marker
 from axon_recon.pipeline.cpu_allocation import current_phase_budget, resolve_inner_worker_count
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
 from axon_recon.pipeline.pipeline_logging import compute_pipeline_log_file, setup_pipeline_logger
@@ -2327,6 +2328,14 @@ def _run_preprocess_phase_sequence(
 				resource_key_context=phase_resource_key_context,
 			)
 		)
+		# Defer the in_progress marker write until AFTER the resume-payload
+		# check inside the try block: writing it earlier would overwrite the
+		# previous run's status=ok summary that the resume logic depends on.
+		phase_summary_json_path = paths.preprocess_out_dir / Path(
+			str(_summary_relpath_for_phase(inputs, phase_name))
+		).expanduser()
+		phase_marker_cm: Any = None
+		marker_active = False
 		phase_t0 = time.perf_counter()
 		resource_monitor = None
 		resource_gate = _resource_gate_payload(None)
@@ -2403,6 +2412,19 @@ def _run_preprocess_phase_sequence(
 						(": " if resume_artifacts else ""),
 						str(resume_artifacts),
 					)
+				if payload is None:
+					# Resume miss: the phase will actually do work below. Lay down
+					# the in_progress marker NOW so a hard crash during the core
+					# call leaves an identifiable in_progress on disk. Done AFTER
+					# the resume check so we don't clobber the prior run's ok
+					# summary that resume relies on.
+					phase_marker_cm = with_checkpoint_marker(
+						phase_summary_json_path,
+						phase_name=str(phase_name),
+						stage_name="preprocess",
+					)
+					phase_marker_cm.__enter__()
+					marker_active = True
 				if payload is None and phase_name == "save_rec_metadata":
 					metadata_h5_path, source_h5_path, requested_metadata_source, metadata_source = _resolve_metadata_source_selection(inputs)
 					if (
@@ -2613,6 +2635,11 @@ def _run_preprocess_phase_sequence(
 						)
 				if blank_line_after_phase:
 					emit_pipeline_console_blank_line()
+			# Clean exit: the phase wrote its real summary above. Release the
+			# marker context (if one was opened) without triggering the error path.
+			if marker_active:
+				phase_marker_cm.__exit__(None, None, None)
+				marker_active = False
 		except Exception as exc:
 			resource_usage = None if resource_monitor is None else resource_monitor.stop()
 			resource_monitor = None
@@ -2668,6 +2695,11 @@ def _run_preprocess_phase_sequence(
 					)
 			if blank_line_after_phase:
 				emit_pipeline_console_blank_line()
+			# Drive the marker context manager's exception path so it overwrites
+			# the marker with status=error + traceback before we re-raise.
+			if marker_active:
+				phase_marker_cm.__exit__(type(exc), exc, exc.__traceback__)
+				marker_active = False
 			raise
 		finally:
 			_phase_log_context.__exit__(None, None, None)

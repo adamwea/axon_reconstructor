@@ -20,6 +20,8 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import with_checkpoint_marker
+
 from .build_templates import (
     BuildTemplatesContext,
     _apply_build_templates_unit_label_filter,
@@ -170,80 +172,86 @@ def run_reconstruct_templates_extract_partial_templates_phase(
 
     # 1. Resolve build/extract paths and source payload cache location.
     context = _resolve_build_templates_context(inputs)
-    _log_extract_partial_templates_start(inputs=inputs, context=context)
+    summary_json_path = context.templates_out_dir / PARTIAL_SUMMARY_RELPATH
+    with with_checkpoint_marker(
+        summary_json_path,
+        phase_name="extract_partial_templates",
+        stage_name="reconstruct",
+    ):
+        _log_extract_partial_templates_start(inputs=inputs, context=context)
 
-    # 2. Apply force-restart cleanup for source payloads (this is the artifact
-    #    set this phase owns).
-    _clear_payload_root_for_force_restart(inputs=inputs, context=context)
-    payload_status = _payload_root_status(context.payload_root)
+        # 2. Apply force-restart cleanup for source payloads (this is the artifact
+        #    set this phase owns).
+        _clear_payload_root_for_force_restart(inputs=inputs, context=context)
+        payload_status = _payload_root_status(context.payload_root)
 
-    # 3. Discover cached analyzer sources. If there are none, the phase cannot
-    #    materialize partials; surface a clear error.
-    analyzer_well_out_dir, analyzer_cache_dir, source_names = _discover_cached_analyzer_sources(
-        inputs=inputs,
-        context=context,
-    )
-    if analyzer_cache_dir is None or not source_names:
-        raise FileNotFoundError(
-            "No cached templates analyzers found for extract_partial_templates. "
-            f"checked analyzer_cache_dir={analyzer_cache_dir}; run templates.analyzers "
-            "before templates.extract_partial_templates."
+        # 3. Discover cached analyzer sources. If there are none, the phase cannot
+        #    materialize partials; surface a clear error.
+        analyzer_well_out_dir, analyzer_cache_dir, source_names = _discover_cached_analyzer_sources(
+            inputs=inputs,
+            context=context,
+        )
+        if analyzer_cache_dir is None or not source_names:
+            raise FileNotFoundError(
+                "No cached templates analyzers found for extract_partial_templates. "
+                f"checked analyzer_cache_dir={analyzer_cache_dir}; run templates.analyzers "
+                "before templates.extract_partial_templates."
+            )
+
+        lazy_load_analyzers = bool(
+            getattr(inputs.phases.build_templates, "lazy_load_analyzers", False)
+        )
+        LOGGER.info(
+            "templates.extract_partial_templates loading cached analyzers: analyzer_well_out_dir=%s analyzer_cache_dir=%s source_count=%d lazy_load_analyzers=%s payload_status=%s",
+            str(analyzer_well_out_dir),
+            str(analyzer_cache_dir),
+            int(len(source_names)),
+            bool(lazy_load_analyzers),
+            str(payload_status),
         )
 
-    lazy_load_analyzers = bool(
-        getattr(inputs.phases.build_templates, "lazy_load_analyzers", False)
-    )
-    LOGGER.info(
-        "templates.extract_partial_templates loading cached analyzers: analyzer_well_out_dir=%s analyzer_cache_dir=%s source_count=%d lazy_load_analyzers=%s payload_status=%s",
-        str(analyzer_well_out_dir),
-        str(analyzer_cache_dir),
-        int(len(source_names)),
-        bool(lazy_load_analyzers),
-        str(payload_status),
-    )
+        source_names = [str(source_name) for source_name in source_names]
+        unit_ids, source_unit_ids_by_source = _resolve_unit_ids_for_extract(
+            inputs=inputs,
+            context=context,
+            analyzer_well_out_dir=analyzer_well_out_dir,
+            analyzer_cache_dir=analyzer_cache_dir,
+            source_names=source_names,
+        )
 
-    source_names = [str(source_name) for source_name in source_names]
-    unit_ids, source_unit_ids_by_source = _resolve_unit_ids_for_extract(
-        inputs=inputs,
-        context=context,
-        analyzer_well_out_dir=analyzer_well_out_dir,
-        analyzer_cache_dir=analyzer_cache_dir,
-        source_names=source_names,
-    )
+        materialized_unit_ids, streamed_sources_summary = _materialize_partials(
+            inputs=inputs,
+            context=context,
+            analyzer_well_out_dir=analyzer_well_out_dir,
+            analyzer_cache_dir=analyzer_cache_dir,
+            source_names=source_names,
+            unit_ids=unit_ids,
+            source_unit_ids_by_source=source_unit_ids_by_source,
+            lazy_load_analyzers=lazy_load_analyzers,
+        )
 
-    materialized_unit_ids, streamed_sources_summary = _materialize_partials(
-        inputs=inputs,
-        context=context,
-        analyzer_well_out_dir=analyzer_well_out_dir,
-        analyzer_cache_dir=analyzer_cache_dir,
-        source_names=source_names,
-        unit_ids=unit_ids,
-        source_unit_ids_by_source=source_unit_ids_by_source,
-        lazy_load_analyzers=lazy_load_analyzers,
-    )
+        summary: dict[str, Any] = {
+            "phase": "extract_partial_templates",
+            "stream_id": str(inputs.stream_id),
+            "well_out_dir": str(context.well_out_dir),
+            "templates_out_dir": str(context.templates_out_dir),
+            "payload_root": str(context.payload_root),
+            "payload_output_rel_root": str(context.payload_output_rel_root),
+            "source_payload_well_out_dir": str(analyzer_well_out_dir),
+            "analyzer_cache_dir": str(analyzer_cache_dir),
+            "lazy_load_analyzers": bool(lazy_load_analyzers),
+            "source_names": [str(name) for name in source_names],
+            "source_count": int(len(source_names)),
+            "requested_units": list(materialized_unit_ids),
+            "source_payload_sources": streamed_sources_summary,
+        }
 
-    summary: dict[str, Any] = {
-        "phase": "extract_partial_templates",
-        "stream_id": str(inputs.stream_id),
-        "well_out_dir": str(context.well_out_dir),
-        "templates_out_dir": str(context.templates_out_dir),
-        "payload_root": str(context.payload_root),
-        "payload_output_rel_root": str(context.payload_output_rel_root),
-        "source_payload_well_out_dir": str(analyzer_well_out_dir),
-        "analyzer_cache_dir": str(analyzer_cache_dir),
-        "lazy_load_analyzers": bool(lazy_load_analyzers),
-        "source_names": [str(name) for name in source_names],
-        "source_count": int(len(source_names)),
-        "requested_units": list(materialized_unit_ids),
-        "source_payload_sources": streamed_sources_summary,
-    }
-
-    return _write_partial_summary(
-        inputs=inputs,
-        context=context,
-        summary=summary,
-        phase_started=phase_started,
-    )
+        return _write_partial_summary(
+            inputs=inputs,
+            context=context,
+            summary=summary,
+            phase_started=phase_started,
+        )
 
 
 __all__ = [

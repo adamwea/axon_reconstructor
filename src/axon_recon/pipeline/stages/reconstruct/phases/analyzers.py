@@ -7,6 +7,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import with_checkpoint_marker
 from axon_recon.pipeline.stages.reconstruct.templates import runner as templates_runner
 from axon_recon.pipeline.stages.reconstruct.templates.integrations.spikeinterface_extract import (
     discover_cached_spikeinterface_analyzer_source_names,
@@ -338,6 +339,33 @@ def run_reconstruct_templates_analyzers_phase(
     well_out_dir, alternate_well_out_dirs, templates_out_dir, analyzer_cache_dir = (
         templates_runner._resolve_templates_phase_environment(inputs)
     )
+    summary_json_path = templates_out_dir / str(inputs.phases.analyzers.summary_json_relpath)
+    with with_checkpoint_marker(
+        summary_json_path,
+        phase_name=("analyzers" if source_scope is None else f"analyzers.{source_scope}"),
+        stage_name="reconstruct",
+    ):
+        return _run_reconstruct_templates_analyzers_phase_body(
+            inputs=inputs,
+            source_scope=source_scope,
+            phase_started=phase_started,
+            well_out_dir=well_out_dir,
+            alternate_well_out_dirs=alternate_well_out_dirs,
+            templates_out_dir=templates_out_dir,
+            analyzer_cache_dir=analyzer_cache_dir,
+        )
+
+
+def _run_reconstruct_templates_analyzers_phase_body(
+    *,
+    inputs: TemplatesInputs,
+    source_scope: str | None,
+    phase_started: float,
+    well_out_dir: Path,
+    alternate_well_out_dirs: list[Path],
+    templates_out_dir: Path,
+    analyzer_cache_dir: Path | None,
+) -> dict[str, Any]:
     include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
     include_segments = bool(inputs.include_segments) and bool(
         inputs.phases.analyzers.segments.enabled

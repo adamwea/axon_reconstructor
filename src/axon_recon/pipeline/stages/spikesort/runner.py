@@ -214,6 +214,29 @@ def _prepare_matplotlib_for_headless_rendering() -> None:
 		return
 
 
+def _write_marker(summary_json: Path, *, phase_name: str) -> None:
+	"""Write an in_progress marker at ``summary_json`` for the given spikesort phase.
+
+	Called at the top of each ``run_spikesort_<phase>_stage`` function once
+	the summary_json path is known. The function's own final summary write
+	overwrites this marker on completion; a hard crash leaves the marker
+	on disk as ``status: in_progress`` so auto-restart can catch it.
+	"""
+	try:
+		from axon_recon.pipeline.checkpoint import write_in_progress_marker
+
+		write_in_progress_marker(
+			Path(summary_json),
+			phase_name=str(phase_name),
+			stage_name="spikesort",
+		)
+	except Exception:
+		# Marker write failures must not derail the phase. The worst case is
+		# that auto-restart can't tell this phase crashed mid-run, which is
+		# the pre-slice-13 behavior anyway.
+		LOGGER.debug("Failed to write spikesort in_progress marker", exc_info=True)
+
+
 def _write_json(path: Path, payload: dict) -> None:
 	path.parent.mkdir(parents=True, exist_ok=True)
 	path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -3374,6 +3397,7 @@ def run_spikesort_concat_binary_stage(
 		stage_config=stage_config,
 	)
 	summary_json = paths["summary_json"]
+	_write_marker(summary_json, phase_name="concat_binary")
 
 	if not bool(getattr(stage_config, "concat_binary_enabled", False)):
 		payload = {
@@ -3543,6 +3567,7 @@ def run_spikesort_cleanup_concat_binary_stage(
 		output_rel_root=output_rel_root,
 		relpath=str(getattr(stage_config, "cleanup_concat_binary_summary_json_relpath", "cache/concat_binary_cleanup_summary.json")),
 	)
+	_write_marker(summary_json, phase_name="cleanup_concat_binary")
 	target_dir = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=output_rel_root,
@@ -3704,6 +3729,7 @@ def run_spikesort_plot_concat_traces_stage(
 		phase="plot_concat_traces",
 	)
 	summary_json = paths["summary_json"]
+	_write_marker(summary_json, phase_name="plot_concat_traces")
 	_ = force_restart  # plot phases are idempotent on the inputs they read; force-restart re-runs the plot regardless.
 
 	if not bool(getattr(stage_config, "plot_concat_traces_enabled", False)):
@@ -3846,6 +3872,7 @@ def run_spikesort_plot_concat_channel_layout_stage(
 		phase="plot_concat_channel_layout",
 	)
 	summary_json = paths["summary_json"]
+	_write_marker(summary_json, phase_name="plot_concat_channel_layout")
 	_ = force_restart
 
 	if not bool(getattr(stage_config, "plot_concat_channel_layout_enabled", False)):
@@ -3968,6 +3995,7 @@ def run_spikesort_cleanup_analyzers_stage(
 			)
 		),
 	)
+	_write_marker(summary_json, phase_name="cleanup_analyzers")
 	target_dir = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=output_rel_root,
@@ -4053,6 +4081,7 @@ def run_spikesort_snapshot_sorter_output_stage(
 		relpath=snapshot_relpath,
 	)
 	summary_json = (stage_output_root_dir / "snapshot_sorter_output_summary.json").resolve()
+	_write_marker(summary_json, phase_name="snapshot_sorter_output")
 
 	if not bool(getattr(stage_config, "snapshot_sorter_output_enabled", False)):
 		payload = {
@@ -4153,6 +4182,7 @@ def run_spikesort_restore_sorter_output_stage(
 	)
 	canonical_sorter_output_dir = (stage_output_root_dir / "sorter_output").resolve()
 	summary_json = (stage_output_root_dir / "restore_sorter_output_summary.json").resolve()
+	_write_marker(summary_json, phase_name="restore_sorter_output")
 
 	_log_phase_step_start(
 		"Spikesort restore_sorter_output step start",
@@ -4223,6 +4253,7 @@ def run_spikesort_concat_analyzer_stage(
 		relpath=analyzer_relpath,
 	)
 	summary_json = (stage_output_root_dir / "concat_analyzer_summary.json").resolve()
+	_write_marker(summary_json, phase_name="concat_analyzer")
 
 	if not bool(getattr(stage_config, "concat_analyzer_enabled", False)):
 		payload = {

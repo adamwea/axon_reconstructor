@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from axon_recon.pipeline.checkpoint import with_checkpoint_marker
 from axon_recon.pipeline.shared.grid_sorting import normalize_grid_sort_by
 from axon_recon.pipeline.stages.reconstruct import runner as reconstruct_runner
 from axon_recon.pipeline.stages.reconstruct.models.inputs import ReconstructionInputs
@@ -19,38 +20,43 @@ def run_reconstruct_report_recon_grid_phase(inputs: ReconstructionInputs) -> dic
         env.reconstruction_out_dir
         / Path(str(inputs.phases.report_recon_grid.summary_json_relpath)).expanduser()
     )
-    if get_no_plot_override() is True:
-        return reconstruct_runner.reconstruct_phase_plots_disabled_skip(
-            inputs=inputs, phase_name="report_recon_grid", summary_json=summary_json
-        )
-    unit_results = reconstruct_runner._load_reconstruct_unit_results(
-        reconstruction_out_dir=env.reconstruction_out_dir,
-        inputs=inputs,
-        unit_ids=env.unit_ids,
-    )
-    stage_outputs = _run_reconstruct_report_recon_grid_phase_impl(
-        inputs=inputs,
-        env=env,
-        unit_results=unit_results,
-        stage_outputs=dict(env.existing_stage_outputs),
-    )
-    return reconstruct_runner._write_reconstruct_phase_summary(
+    with with_checkpoint_marker(
+        summary_json,
         phase_name="report_recon_grid",
-        summary_json=summary_json,
-        inputs=inputs,
-        well_out_dir=env.well_out_dir,
-        reconstruction_out_dir=env.reconstruction_out_dir,
-        unit_results=unit_results,
-        stage_outputs=stage_outputs,
-        failed_units_summary_json=reconstruct_runner._current_failed_units_summary_json(
-            inputs=inputs,
+        stage_name="reconstruct",
+    ):
+        if get_no_plot_override() is True:
+            return reconstruct_runner.reconstruct_phase_plots_disabled_skip(
+                inputs=inputs, phase_name="report_recon_grid", summary_json=summary_json
+            )
+        unit_results = reconstruct_runner._load_reconstruct_unit_results(
             reconstruction_out_dir=env.reconstruction_out_dir,
-        ),
-        preserve_stage_reports=env.preserve_stage_reports,
-        extra_fields={
-            "report_sort_by": normalize_grid_sort_by(inputs.report_sort_by, default="unit_id"),
-        },
-    )
+            inputs=inputs,
+            unit_ids=env.unit_ids,
+        )
+        stage_outputs = _run_reconstruct_report_recon_grid_phase_impl(
+            inputs=inputs,
+            env=env,
+            unit_results=unit_results,
+            stage_outputs=dict(env.existing_stage_outputs),
+        )
+        return reconstruct_runner._write_reconstruct_phase_summary(
+            phase_name="report_recon_grid",
+            summary_json=summary_json,
+            inputs=inputs,
+            well_out_dir=env.well_out_dir,
+            reconstruction_out_dir=env.reconstruction_out_dir,
+            unit_results=unit_results,
+            stage_outputs=stage_outputs,
+            failed_units_summary_json=reconstruct_runner._current_failed_units_summary_json(
+                inputs=inputs,
+                reconstruction_out_dir=env.reconstruction_out_dir,
+            ),
+            preserve_stage_reports=env.preserve_stage_reports,
+            extra_fields={
+                "report_sort_by": normalize_grid_sort_by(inputs.report_sort_by, default="unit_id"),
+            },
+        )
 
 
 def _run_reconstruct_report_recon_grid_phase_impl(

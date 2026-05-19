@@ -22,6 +22,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ....checkpoint import with_checkpoint_marker
 from ....output_paths import compute_mea_analysis_output_dir
 from ..core.wipe_src_scratch import run_wipe_src_scratch_core
 from ..models.inputs import CleanupInputs
@@ -93,65 +94,73 @@ def run_cleanup_wipe_src_scratch_phase(inputs: CleanupInputs) -> dict[str, Any]:
 	contract).
 	"""
 
-	_validate_wipe_phase_requirements(inputs)
-
-	source_h5_path = Path(inputs.source_h5_path or inputs.h5_path)
-	core_payload = run_wipe_src_scratch_core(
-		h5_path=Path(inputs.h5_path),
-		source_h5_path=source_h5_path,
-		copied_to_scratch=bool(inputs.copied_to_scratch),
-		dry_run=bool(inputs.phases.wipe_src_scratch.dry_run),
-		requires_use_scratch_root=bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
-		# Single-target invocation: no shared-user refcounting on this side.
-		active_shared_users_remaining=0,
-	)
-
+	# Compute the summary_json path BEFORE doing any phase work so the
+	# in_progress marker lands at the canonical location regardless of
+	# whether the phase succeeds, fails, or hard-crashes.
 	summary_json_path = _resolve_summary_json_path(inputs)
-	cleanup_out_dir = _resolve_cleanup_out_dir(inputs)
-	payload: dict[str, Any] = {
-		"phase": "wipe_src_scratch",
-		"status": str(core_payload.get("status", "ok")),
-		"well_out_dir": str(cleanup_out_dir.parent),
-		"cleanup_out_dir": str(cleanup_out_dir),
-		"completed_at": _utc_now_iso(),
-		"inputs": {
-			"h5_path": str(inputs.h5_path),
-			"source_h5_path": str(source_h5_path),
-			"stream_id": str(inputs.stream_id),
-			"copied_to_scratch": bool(inputs.copied_to_scratch),
-			"dry_run": bool(inputs.phases.wipe_src_scratch.dry_run),
-			"requires_use_scratch_root": bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
-		},
-		"outputs": {
-			"source_h5_path": str(source_h5_path),
-			"resolved_h5_path": str(inputs.h5_path),
-		},
-	}
-	# Surface the core payload's removed/would_remove/missing lists at the top
-	# level so consumers don't have to dig into a nested dict (matches the old
-	# preprocess-side marker shape).
-	for key in (
-		"source_h5_path",
-		"resolved_h5_path",
-		"copied_to_scratch",
-		"dry_run",
-		"requires_use_scratch_root",
-		"active_shared_users_remaining",
-		"removed_paths",
-		"would_remove_paths",
-		"missing_paths",
-		"reason",
+	with with_checkpoint_marker(
+		summary_json_path,
+		phase_name="wipe_src_scratch",
+		stage_name="cleanup",
 	):
-		if key in core_payload:
-			payload[key] = core_payload[key]
-	_write_json(summary_json_path, _json_ready(payload))
-	payload["summary_json"] = str(summary_json_path)
-	LOGGER.info(
-		"cleanup wipe_src_scratch phase complete stream_id=%s copied_to_scratch=%s dry_run=%s status=%s summary_json=%s",
-		str(inputs.stream_id),
-		bool(inputs.copied_to_scratch),
-		bool(inputs.phases.wipe_src_scratch.dry_run),
-		str(payload["status"]),
-		str(summary_json_path),
-	)
-	return payload
+		_validate_wipe_phase_requirements(inputs)
+
+		source_h5_path = Path(inputs.source_h5_path or inputs.h5_path)
+		core_payload = run_wipe_src_scratch_core(
+			h5_path=Path(inputs.h5_path),
+			source_h5_path=source_h5_path,
+			copied_to_scratch=bool(inputs.copied_to_scratch),
+			dry_run=bool(inputs.phases.wipe_src_scratch.dry_run),
+			requires_use_scratch_root=bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
+			# Single-target invocation: no shared-user refcounting on this side.
+			active_shared_users_remaining=0,
+		)
+
+		cleanup_out_dir = _resolve_cleanup_out_dir(inputs)
+		payload: dict[str, Any] = {
+			"phase": "wipe_src_scratch",
+			"status": str(core_payload.get("status", "ok")),
+			"well_out_dir": str(cleanup_out_dir.parent),
+			"cleanup_out_dir": str(cleanup_out_dir),
+			"completed_at": _utc_now_iso(),
+			"inputs": {
+				"h5_path": str(inputs.h5_path),
+				"source_h5_path": str(source_h5_path),
+				"stream_id": str(inputs.stream_id),
+				"copied_to_scratch": bool(inputs.copied_to_scratch),
+				"dry_run": bool(inputs.phases.wipe_src_scratch.dry_run),
+				"requires_use_scratch_root": bool(inputs.phases.wipe_src_scratch.requires_use_scratch_root),
+			},
+			"outputs": {
+				"source_h5_path": str(source_h5_path),
+				"resolved_h5_path": str(inputs.h5_path),
+			},
+		}
+		# Surface the core payload's removed/would_remove/missing lists at the top
+		# level so consumers don't have to dig into a nested dict (matches the old
+		# preprocess-side marker shape).
+		for key in (
+			"source_h5_path",
+			"resolved_h5_path",
+			"copied_to_scratch",
+			"dry_run",
+			"requires_use_scratch_root",
+			"active_shared_users_remaining",
+			"removed_paths",
+			"would_remove_paths",
+			"missing_paths",
+			"reason",
+		):
+			if key in core_payload:
+				payload[key] = core_payload[key]
+		_write_json(summary_json_path, _json_ready(payload))
+		payload["summary_json"] = str(summary_json_path)
+		LOGGER.info(
+			"cleanup wipe_src_scratch phase complete stream_id=%s copied_to_scratch=%s dry_run=%s status=%s summary_json=%s",
+			str(inputs.stream_id),
+			bool(inputs.copied_to_scratch),
+			bool(inputs.phases.wipe_src_scratch.dry_run),
+			str(payload["status"]),
+			str(summary_json_path),
+		)
+		return payload
