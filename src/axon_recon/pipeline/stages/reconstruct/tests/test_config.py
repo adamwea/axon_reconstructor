@@ -217,6 +217,7 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_local_run
 		"templates_analyzers",
 		"templates_extract_partial_templates",
 		"templates_build_templates",
+		"templates_plot_templates_v2",
 		"templates_report_templates",
 		"axon_velocity_gtrs",
 		"plot_recons",
@@ -235,7 +236,11 @@ def test_load_config_reconstruct_populates_templates_inputs_from_debug_local_run
 	assert v2.output_relpath == "template_circles_v2"
 	assert v2.write_png is True
 	assert v2.write_svg is False
-	assert v2.dpi == 220.0
+	# dpi is intentionally not pinned to a specific value here — the live
+	# debug_local YAML gets tuned in normal iteration, and this test
+	# verifies plumbing (the value parses through correctly), not the
+	# specific number. Plan §3 Slice 8 sub-item C calls this out.
+	assert isinstance(v2.dpi, float) and v2.dpi > 0
 	assert v2.bbox_inches is None
 	assert v2.coords.show is True
 	assert v2.colorbar.x == 0.90
