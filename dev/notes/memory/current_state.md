@@ -105,6 +105,8 @@ Tier 5 (chip away anytime): parallelism_post_migration_cleanup_plan, spikesort/r
 
 - **`plans/active/env_install_unification_plan.md`** (Tier 5, chip-away) — 8 slices to unify the install story onto pyproject.toml extras + `tools/setup_env.sh --editable-siblings`. **TIMING CONSTRAINT**: should land BEFORE the next shifter rebuild — otherwise the rebuild reapplies the old per-sibling-ARG mechanism and slice 6 of this plan throws it away two weeks later. If a near-term shifter rebuild is needed (e.g. to close the UMPy + mat73 gap), prefer holding the rebuild until plan slice 6 ships. Conversely, if Tier 1 work demands a rebuild urgently (kssynth slice 9 integration is the natural pressure point), prioritize at least plan slices 1-3 + 6 first.
 
+- **`plans/active/analysis_propagation_video_plan.md`** (Tier 5, chip-away) — 9 slices to re-implement axon_velocity's branch-propagation video / GIF generation as a new analysis-stage phase (`propagation_video` or similar; name decided in slice 2). Expensive per-unit work, opt-in via YAML + targeted-on-demand via per-unit `--targets` triplet form. Slice 1 does git archeology to find the old recon-stage impl (may not exist; fine to wrap current `axon_velocity` API cleanly). Slice 8 produces the first real-data video and adds a HARD-gate diagnostic to `memory/diagnostics_to_review.md` for user approval — a natural end-of-day deliverable for some future loop run. NOT blocking anything else.
+
 ## Environment state
 
 - Working on Perlmutter (NERSC). Logged in as `adammwea`.
