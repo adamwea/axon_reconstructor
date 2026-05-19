@@ -3969,3 +3969,4 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 a18cb4b | unitmatch_phase slice 2 [opus] | core/unitmatch_groups.py — discover_chip_well_groups + resolve_session_inputs/resolve_group_session_inputs (raises UnitmatchSessionInputMissing with actionable suggestions); 10 new tests
 575e08b | unitmatch_phase slice 3 [opus] | orchestrator invokes unitlink.match once per (chip, well) group; group_dir lives at project-level output_root (NOT per-well stage dir); idempotent skip on subsequent group targets; 9 tests green
 7c8aeff | resolutions [opus] | 4 overnight blockers resolved: UMPy+mat73 installed (real submodules verified); slice 14c picks approach A + tracker for B; max_spikes=None test-wins semantic; GH remotes hold
+e9d3e4e | guardrail [opus] | add env_parity.md — conda env <-> shifter capabilities parity (Kilosort+CUDA & NERSC/HPC/SLURM carve-outs); flags UMPy+mat73 gap under USER INJECTIONS
