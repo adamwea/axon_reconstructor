@@ -1,8 +1,7 @@
 # Dashboard UI refinement plan
 
-> **Status (2026-05-19)**: 7 of 9 slices SHIPPED. Remaining: slice 6
-> (box↔bar toggle — slice-4 PlotConfig now in place), slice 7
-> (tertiary grouping — needs UX decision).
+> **Status (2026-05-19)**: 8 of 9 slices SHIPPED. Only slice 7
+> (tertiary grouping — needs UX decision) remains.
 >
 > Shipped commits:
 > - Slice 1 audit: `76333d3` (`dev/notes/refs/dashboard_audit.md`)
@@ -11,13 +10,20 @@
 > - Slice 4 PlotConfig scaffold: `3fe87cb`
 >   (`src/axon_recon/dashboard/plots/__init__.py`)
 > - Slice 5 feature parity backfill: `8c72abf`
+> - Slice 6 box↔bar toggle (render path): `fc3c45f`
+>   (`build_bar_plot` + `aggregate_by_group`)
 > - Slice 8 style parity (`dashboard/style.py`): `28e1ff3`
 > - Slice 9 usage docs (partial): `74ea39a`
 >   (`dev/notes/refs/dashboard_usage.md`)
 >
-> **NEXT** (slice 6): consume PlotConfig.mode = "bar" branch in
-> build_box_plot (or extract into plots/box.py + plots/bar.py).
-> Aggregate-by-group + error-bar config already in PlotConfig defaults.
+> **NEXT** (slice 7): tertiary grouping. UX decision still open:
+> faceted small-multiples vs nested hierarchical X-axis. User input
+> needed before implementation can proceed.
+>
+> **UI wiring follow-up** (post-slice-6): app.py's Dash callback layer
+> doesn't yet expose a `mode: box | bar` dropdown — the new
+> `build_bar_plot` is callable but not yet user-toggleable. That
+> callback wiring is the natural close-out commit alongside slice 7.
 
 ## Motivation
 
