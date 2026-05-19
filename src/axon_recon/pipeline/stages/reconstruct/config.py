@@ -655,7 +655,6 @@ class ReconstructionStageConfig:
 	require_full_channels_templates: bool
 	force_restart: bool
 	replot: bool
-	max_plotting_concurrency: int | None
 	axon_velocity_params: dict[str, Any]
 
 
@@ -880,14 +879,6 @@ def parse_reconstruction_stage_config(
 	axon_velocity_gtrs_unit_batch_size = _parse_optional_positive_int(
 		axon_velocity_gtrs_resources_cfg.get("unit_batch_size", axon_velocity_gtrs_cfg.get("unit_batch_size", None))
 	)
-	ignored_max_plotting_concurrency = axon_velocity_gtrs_resources_cfg.get("max_plotting_concurrency", None)
-	if ignored_max_plotting_concurrency is None:
-		ignored_max_plotting_concurrency = stage_resources_cfg.get("max_plotting_concurrency", None)
-	if ignored_max_plotting_concurrency is not None:
-		LOGGER.warning(
-			"Ignoring deprecated reconstruct max_plotting_concurrency setting. Plotting concurrency now follows the phase worker budget."
-		)
-	max_plotting_concurrency = None
 	amplitude_map_cfg = _get_reconstruct_amplitude_map_block(runtime_config)
 	phase_amplitude_map_cfg = (
 		phase_plot_outputs_cfg.get("amplitude_map", {})
@@ -1539,7 +1530,6 @@ def parse_reconstruction_stage_config(
 		require_full_channels_templates=True,
 		force_restart=force_restart,
 		replot=replot,
-		max_plotting_concurrency=max_plotting_concurrency,
 		axon_velocity_params=dict(av_cfg),
 	)
 
@@ -1579,7 +1569,6 @@ def build_reconstruction_inputs_for_target(
 		force_restart=stage_config.force_restart,
 		replot=stage_config.replot,
 		n_jobs=max(1, int(unit_workers)),
-		max_plotting_concurrency=stage_config.max_plotting_concurrency,
 		axon_velocity_params=dict(stage_config.axon_velocity_params),
 		probe_geometry=probe_geometry,
 	)
@@ -1661,7 +1650,6 @@ def load_reconstruction_inputs_from_runtime(
 		force_restart=stage_cfg.force_restart,
 		replot=stage_cfg.replot,
 		n_jobs=1,
-		max_plotting_concurrency=stage_cfg.max_plotting_concurrency,
 		axon_velocity_params=stage_cfg.axon_velocity_params,
 		probe_geometry=probe_geometry,
 	)

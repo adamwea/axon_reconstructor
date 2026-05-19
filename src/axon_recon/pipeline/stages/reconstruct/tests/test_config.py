@@ -36,8 +36,6 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 			    failed_units_summary_relpath: reports/failed_units.json
 			    report_sort_by: template density
 			    overwrite_report_outputs_on_unit_rerun: true
-			    resources:
-			      max_plotting_concurrency: 2
 			    debug_prints: true
 			    phase_sequence: [axon_velocity_gtrs, plot_recons, report_recons, report_recon_grid, report_summaries]
 			    debug_mode:
@@ -134,7 +132,6 @@ def test_load_config_reads_runtime_and_data(tmp_path: Path) -> None:
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path), unit_id_override=94)
 	assert inputs.stream_id == "well001"
 	assert inputs.debug_prints is True
-	assert inputs.max_plotting_concurrency is None
 	assert inputs.phase_sequence == ("axon_velocity_gtrs", "plot_recons", "report_recons", "report_recon_grid", "report_summaries")
 	assert inputs.output_rel_root == "recon_outputs"
 	assert inputs.report_sort_by == "template_density"
@@ -753,7 +750,6 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_stage_defaults
 			        enable: false
 			        summary_json_relpath: context/gtrs_phase.json
 			        resources:
-			          max_plotting_concurrency: 3
 			          unit_procs: 3
 			          unit_batch_size: 11
 			        outputs:
@@ -816,7 +812,6 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_stage_defaults
 
 	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
 	assert inputs.phases.axon_velocity_gtrs.enabled is False
-	assert inputs.max_plotting_concurrency is None
 	assert inputs.phases.axon_velocity_gtrs.summary_json_relpath == "context/gtrs_phase.json"
 	assert inputs.phases.axon_velocity_gtrs.unit_procs == 3
 	assert inputs.phases.axon_velocity_gtrs.unit_batch_size == 11

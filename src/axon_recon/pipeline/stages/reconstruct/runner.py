@@ -4,7 +4,7 @@ import concurrent.futures
 import logging
 import shutil
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -1492,9 +1492,21 @@ def _reconstruct_inputs_for_phase_workers(
 	phase_name: str,
 ) -> tuple[ReconstructionInputs, int, str, str | None]:
 	workers, source, resource_class = _reconstruct_phase_worker_allocation(inputs, phase_name)
-	phase_inputs = replace(inputs, n_jobs=int(workers))
+	# Preserve object identity when no change is required (worker count is
+	# already correct AND templates_inputs doesn't need touching). Tests that
+	# assert `inputs is reconstruct_inputs` rely on this — they monkeypatch
+	# the phase runner and expect the same object reference flowing through.
+	phase_inputs = inputs
+	if int(workers) != int(inputs.n_jobs):
+		phase_inputs = replace(phase_inputs, n_jobs=int(workers))
 	if _normalize_reconstruct_stage_phase_name(phase_name).startswith("templates_") and inputs.templates_inputs is not None:
-		phase_inputs = replace(phase_inputs, templates_inputs=replace(inputs.templates_inputs, n_jobs=int(workers)))
+		# Tests sometimes scaffold templates_inputs as a SimpleNamespace; production
+		# code path holds a real TemplatesInputs dataclass. Only `replace()` when
+		# the dataclass invariant holds; otherwise leave templates_inputs intact.
+		templates_inputs = inputs.templates_inputs
+		if is_dataclass(templates_inputs) and int(workers) != int(getattr(templates_inputs, "n_jobs", workers)):
+			templates_inputs = replace(templates_inputs, n_jobs=int(workers))
+			phase_inputs = replace(phase_inputs, templates_inputs=templates_inputs)
 	return phase_inputs, int(workers), str(source), resource_class
 
 
