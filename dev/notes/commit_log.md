@@ -3972,3 +3972,4 @@ a18cb4b | unitmatch_phase slice 2 [opus] | core/unitmatch_groups.py — discover
 e9d3e4e | guardrail [opus] | add env_parity.md — conda env <-> shifter capabilities parity (Kilosort+CUDA & NERSC/HPC/SLURM carve-outs); flags UMPy+mat73 gap under USER INJECTIONS
 196d9df | guardrail [opus] | env_parity covers three-artifact contract: environment.yml + bootstrap_editable_deps.sh + Dockerfile; book tracker for missing bootstrap script; tighten UMPy+mat73 gap injection
 f73168f | plan+amend [opus] | plans/active/env_install_unification_plan.md — pyproject.toml extras as single SoT + tools/setup_env.sh --editable-siblings flag + gitignored deps/; amends env_parity guardrail (target vs current shape) + USER INJECTIONS + supersedes bootstrap_editable_deps.sh tracker entry
+(tier-line) | memory [opus] | place env_install_unification_plan in Tier 5 / chip-away with TIMING CONSTRAINT: must land before next shifter rebuild
