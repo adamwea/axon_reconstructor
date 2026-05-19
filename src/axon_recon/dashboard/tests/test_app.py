@@ -372,6 +372,104 @@ def test_empty_state_no_axes_visible() -> None:
 		assert fig.layout.yaxis.visible is False, "y-axis must be hidden in empty state"
 
 
+# --- Slice 5 of dashboard_ui_refinement_plan: feature parity backfill -------
+
+
+def _wide_df_for_parity() -> pd.DataFrame:
+	return pd.DataFrame(
+		{
+			"x": [1.0, 10.0, 100.0, 1000.0, 0.0, -1.0],
+			"y": [2.0, 20.0, 200.0, 2000.0, 0.0, -2.0],
+			"facet_a": ["wt", "wt", "ko", "ko", "wt", "ko"],
+			"facet_b": ["m1", "m2", "m1", "m2", "m1", "m2"],
+		}
+	)
+
+
+def test_histogram_log_transform_drops_nonpositive_rows() -> None:
+	from ..app import _build_histogram
+
+	df = _wide_df_for_parity()
+	fig = _build_histogram(df, x_column="x", color_column=None, log_transform=True)
+	# x-axis is now the log10 column. The 4 positive rows (1, 10, 100, 1000)
+	# survive; the 0 and -1 rows drop.
+	xs = list(fig.data[0].x)
+	assert len(xs) == 4
+	# log10(1)=0, log10(10)=1, log10(100)=2, log10(1000)=3.
+	assert min(xs) == 0.0
+	assert max(xs) == 3.0
+
+
+def test_histogram_log_transform_all_nonpositive_yields_empty_state() -> None:
+	from ..app import _build_histogram
+
+	df = pd.DataFrame({"x": [0.0, -1.0, -10.0]})
+	fig = _build_histogram(df, x_column="x", color_column=None, log_transform=True)
+	texts = _empty_state_annotation_texts(fig)
+	assert any("Log transform requires positive values" in t for t in texts)
+
+
+def test_histogram_facet_col_when_column_exists() -> None:
+	from ..app import _build_histogram
+
+	df = _wide_df_for_parity()
+	fig = _build_histogram(df, x_column="x", color_column=None, facet_col="facet_a")
+	# Faceted figure has multiple subplots — plotly exposes them as a
+	# product of xaxis/xaxis2/etc. attributes on the layout.
+	layout = fig.layout
+	axis_names = [k for k in dir(layout) if k.startswith("xaxis")]
+	assert len(axis_names) >= 2, "facet_col should produce >1 x-axis"
+
+
+def test_histogram_facet_col_unknown_is_ignored() -> None:
+	from ..app import _build_histogram
+
+	df = _wide_df_for_parity()
+	fig = _build_histogram(df, x_column="x", color_column=None, facet_col="not_present")
+	# Falls back to a single axis (no facet applied for unknown column).
+	# Asserting it didn't raise + produced a valid figure is enough.
+	assert fig is not None
+
+
+def test_scatter_log_x_drops_nonpositive_x_rows() -> None:
+	from ..app import build_scatter
+
+	df = _wide_df_for_parity()
+	fig = build_scatter(df, x_col="x", y_col="y", log_x=True)
+	xs = list(fig.data[0].x)
+	assert len(xs) == 4  # 4 positive-x rows
+
+
+def test_scatter_log_y_drops_nonpositive_y_rows() -> None:
+	from ..app import build_scatter
+
+	df = _wide_df_for_parity()
+	fig = build_scatter(df, x_col="x", y_col="y", log_y=True)
+	ys = list(fig.data[0].y)
+	assert len(ys) == 4  # 4 positive-y rows
+
+
+def test_scatter_log_x_all_nonpositive_yields_empty_state() -> None:
+	from ..app import build_scatter
+
+	df = pd.DataFrame({"x": [0.0, -1.0], "y": [1.0, 2.0]})
+	fig = build_scatter(df, x_col="x", y_col="y", log_x=True)
+	texts = _empty_state_annotation_texts(fig)
+	assert any("Log X transform" in t for t in texts)
+
+
+def test_scatter_log_both_axes() -> None:
+	from ..app import build_scatter
+
+	df = _wide_df_for_parity()
+	fig = build_scatter(df, x_col="x", y_col="y", log_x=True, log_y=True)
+	xs = list(fig.data[0].x)
+	ys = list(fig.data[0].y)
+	# Only rows positive on BOTH axes survive: (1,2), (10,20), (100,200), (1000,2000)
+	assert len(xs) == 4
+	assert len(ys) == 4
+
+
 def test_build_box_plot_points_mode_off_keeps_outliers_only() -> None:
 	df = _two_group_units_df()
 	fig = build_box_plot(

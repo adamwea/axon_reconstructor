@@ -1862,8 +1862,23 @@ def _empty_dashboard_figure(*, message: str, sub_message: str | None = None) -> 
 	return fig
 
 
-def _build_histogram(df: pd.DataFrame, *, x_column: Any, color_column: Any) -> Any:
-	"""Compose a Plotly histogram figure; empty df yields an empty figure."""
+def _build_histogram(
+	df: pd.DataFrame,
+	*,
+	x_column: Any,
+	color_column: Any,
+	log_transform: bool = False,
+	facet_col: Any = None,
+	facet_row: Any = None,
+) -> Any:
+	"""Compose a Plotly histogram figure; empty df yields an empty figure.
+
+	Slice 5 of dashboard_ui_refinement_plan: feature parity with box plot
+	+ scatter. Adds ``log_transform`` (drops non-positive rows of the
+	x-axis column before plotting, mirrors box plot's existing knob) and
+	``facet_col`` / ``facet_row`` (parity with scatter's faceting).
+	"""
+
 	if df is None or df.empty:
 		return _empty_dashboard_figure(
 			message="No data available",
@@ -1883,12 +1898,38 @@ def _build_histogram(df: pd.DataFrame, *, x_column: Any, color_column: Any) -> A
 	color = None
 	if color_column and color_column != _HISTOGRAM_COLOR_DEFAULT and str(color_column) in df.columns:
 		color = str(color_column)
+	# Optional facet axes — only honored when the named column exists in
+	# the frame. None / sentinel "none" / missing column → no faceting.
+	fc = None
+	if facet_col and str(facet_col).lower() != "none" and str(facet_col) in df.columns:
+		fc = str(facet_col)
+	fr = None
+	if facet_row and str(facet_row).lower() != "none" and str(facet_row) in df.columns:
+		fr = str(facet_row)
+	if log_transform:
+		df = df.copy()
+		df[x] = pd.to_numeric(df[x], errors="coerce")
+		df = df[df[x] > 0]
+		if df.empty:
+			return _empty_dashboard_figure(
+				message="No data available",
+				sub_message=(
+					f"Log transform requires positive values; no rows in column "
+					f"{x!r} pass that filter under the active selection."
+				),
+			)
+		import numpy as _np
+
+		df["__log_" + x] = _np.log10(df[x])
+		x = "__log_" + x
 	fig = px.histogram(
 		df,
 		x=x,
 		color=color,
 		barmode="overlay" if color else "relative",
 		color_discrete_sequence=list(CATEGORICAL_PALETTE),
+		facet_col=fc,
+		facet_row=fr,
 	)
 	return apply_dashboard_style(fig)
 
@@ -2168,14 +2209,21 @@ def build_scatter(
 	facet_col: Any = _FACET_NONE,
 	facet_row: Any = _FACET_NONE,
 	jitter: bool = False,
+	log_x: bool = False,
+	log_y: bool = False,
 ) -> Any:
-	"""Plotly scatter figure with optional color + facet + jitter support.
+	"""Plotly scatter figure with optional color + facet + jitter + log
+	transform support.
 
 	When `jitter` is True, numeric x and/or y columns get small Gaussian
 	noise added (stdev scaled to 1% of the per-column range, min 1e-6).
 	Categorical axes are left untouched — plotly already stacks string
 	categories on integer positions and we don't want to silently change
 	their dtype.
+
+	Slice 5 of dashboard_ui_refinement_plan: `log_x` / `log_y` parity
+	with box plot's log_transform knob. Drops non-positive rows of the
+	corresponding axis before plotting (log10 is undefined for <= 0).
 
 	Empty / missing-column inputs return an empty Plotly figure rather than
 	raising, so the Dash callback can render something on every update.
@@ -2207,6 +2255,38 @@ def build_scatter(
 	fr = None
 	if facet_row and facet_row != _FACET_NONE and str(facet_row) in df.columns:
 		fr = str(facet_row)
+	# Optional log transforms — drop non-positive rows of each axis,
+	# then add log10 columns and replot using those.
+	if log_x or log_y:
+		df = df.copy()
+		import numpy as _np
+
+		if log_x:
+			df[x] = pd.to_numeric(df[x], errors="coerce")
+			df = df[df[x] > 0]
+			if df.empty:
+				return _empty_dashboard_figure(
+					message="No data available",
+					sub_message=(
+						f"Log X transform requires positive values; no rows in column "
+						f"{x!r} pass that filter under the active selection."
+					),
+				)
+			df["__log_x_" + x] = _np.log10(df[x])
+			x = "__log_x_" + x
+		if log_y:
+			df[y] = pd.to_numeric(df[y], errors="coerce")
+			df = df[df[y] > 0]
+			if df.empty:
+				return _empty_dashboard_figure(
+					message="No data available",
+					sub_message=(
+						f"Log Y transform requires positive values; no rows in column "
+						f"{y!r} pass that filter under the active selection."
+					),
+				)
+			df["__log_y_" + y] = _np.log10(df[y])
+			y = "__log_y_" + y
 	plot_df = _apply_scatter_jitter(df, x_col=x, y_col=y) if jitter else df
 	fig = px.scatter(
 		plot_df,
