@@ -3961,3 +3961,7 @@ b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + clea
 (kssynth-7) | kssynth slice 7 [opus] | io/ks_folder_writer.py + api.synthesize orchestration + CLI; v1-feature-complete; 8 tests; commit d97036b
 (unitlink-2) | unitlink slice 2 [opus] | core/sorter_output_reader.py — lazy KS-folder loader; 11 tests; commit fe18c77
 (unitlink-3) | unitlink slice 3 [opus] | core/union_grid.py — cross-session channel grid (parallel to kssynth's); 9 tests; commit 9e99bf2
+(unitlink-4) | unitlink slice 4 [opus] | core/two_halves.py — UMPy-shaped per-unit half-waveforms; 9 tests; commit ee4adc3
+(unitlink-6) | unitlink slice 6 [opus] | io/output_writer.py — MatchResult + write_outputs; 9 tests; commit b85dd63
+(unitlink-5) | unitlink slice 5 [opus] | backends/classical.py — UMPy wrapper (soft-import + mock tests); 7 tests; commit bc66668
+(unitlink-7) | unitlink slice 7 [opus] | api.match orchestrator + CLI; v1-feature-complete; 6 tests; commit d92a6dc
