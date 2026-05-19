@@ -564,8 +564,12 @@ stages:
     #- summarize_sort
     - snapshot_sorter_output
     - concat_analyzer
+    # phase_roster_cleanup_plan slice 9: bombcell_label + merge_SLAy
+    # disabled in the default spikesort sequence. Long-term home is the
+    # recon stage post-kssynth migration. Re-enable by uncommenting +
+    # flipping the per-phase `enabled` flag.
     #- bombcell_label
-    - merge_SLAy
+    #- merge_SLAy
     #- bombcell_label_pass2
     - cleanup_concat_binary
     - cleanup_analyzers
@@ -767,8 +771,9 @@ stages:
         #   templates: {}
         #   noise_levels: {}
 
-      # TODO Claude: Just disable this phase for now. As we've discussed in our plans, we're migrating this basic idea to recon stage to be done with
-      # merged templates if possible, still it's a useful phase to be done potentialy. So just disable and remove it from the default sequence for now, but we can re-enable and iterate on it in the future as needed.
+      # bombcell_label is disabled in the default sequence (slice 9). Long-term
+      # home is the recon stage on merged templates, post-kssynth migration.
+      # Re-enable here for ad-hoc spikesort-stage iteration.
       bombcell_label:
         # Slice 3: bombcell_label now consumes the canonical analyzer built by
         # spikesort.concat_analyzer (slice 2) and honors dry_run. The phase no
@@ -898,8 +903,9 @@ stages:
             enabled: true
             relpath: bombcell_label_summary.json
 
-      # TODO Claude: Just disable this phase. As we've discussed in our plans, we're migrating this basic idea to recon stage to be done with
-      # merged templates if possible, still it's a useful phase to be done potentialy. So just disable and remove it from the default sequence for now, but we can re-enable and iterate on it in the future as needed.
+      # merge_SLAy is disabled in the default sequence (slice 9). Long-term
+      # home is the recon stage on merged templates, post-kssynth migration.
+      # Re-enable here for ad-hoc spikesort-stage iteration.
       merge_SLAy:
 
         # ---------------------------------------------------------------------
@@ -914,7 +920,7 @@ stages:
         #                  regenerate only the plots.
         # The CLI override beats any YAML setting below.
         # ---------------------------------------------------------------------
-        enabled: true
+        enabled: false
         #resource_class: spikeinterface_analyzer_concat
         resource_class: merge_SLAy
         rel_output_root: merge_SLAy

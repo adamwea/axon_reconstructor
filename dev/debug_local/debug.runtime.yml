@@ -449,8 +449,12 @@ stages:
     #- summarize_sort
     - snapshot_sorter_output
     - concat_analyzer
-    - bombcell_label
-    - merge_SLAy
+    # phase_roster_cleanup_plan slice 9: bombcell_label + merge_SLAy
+    # disabled in the default spikesort sequence. Long-term home is the
+    # recon stage post-kssynth migration. Re-enable by uncommenting +
+    # flipping the per-phase `enabled` flag.
+    #- bombcell_label
+    #- merge_SLAy
     #- bombcell_label_pass2
     - cleanup_concat_binary
     - cleanup_analyzers
@@ -603,12 +607,15 @@ stages:
         #   templates: {}
         #   noise_levels: {}
 
+      # bombcell_label is disabled in the default sequence (slice 9). Long-term
+      # home is the recon stage on merged templates, post-kssynth migration.
+      # Re-enable here for ad-hoc spikesort-stage iteration.
       bombcell_label:
-        # Slice 3: bombcell_label now consumes the canonical analyzer built by
-        # spikesort.concat_analyzer (slice 2) and honors dry_run. The phase no
+        # bombcell_label now consumes the canonical analyzer built by
+        # spikesort.concat_analyzer and honors dry_run. The phase no
         # longer caches sorter_output or builds its own analyzer; run
         # spikesort.concat_analyzer first.
-        enabled: true
+        enabled: false
         #resource_class: spikeinterface_analyzer_concat
         resource_class: bombcell_label
         # outputs live under <well>/<spikesort_output_root>/<merge_units.rel_output_root>/<relpath>
@@ -642,9 +649,12 @@ stages:
             enabled: true
             relpath: bombcell_label_summary.json
 
+      # merge_SLAy is disabled in the default sequence (slice 9). Long-term
+      # home is the recon stage on merged templates, post-kssynth migration.
+      # Re-enable here for ad-hoc spikesort-stage iteration.
       merge_SLAy:
 
-        enabled: true
+        enabled: false
         #resource_class: spikeinterface_analyzer_concat
         resource_class: merge_SLAy
         rel_output_root: merge_SLAy
