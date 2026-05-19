@@ -1,22 +1,23 @@
 # Dashboard UI refinement plan
 
-> **Status (2026-05-19)**: 6 of 9 slices SHIPPED. Remaining are the
-> heavier-touch slices: 4 (shared plot abstraction refactor), 6
-> (box↔bar toggle — needs slice 4), 7 (tertiary grouping — needs UX
-> decision).
+> **Status (2026-05-19)**: 7 of 9 slices SHIPPED. Remaining: slice 6
+> (box↔bar toggle — slice-4 PlotConfig now in place), slice 7
+> (tertiary grouping — needs UX decision).
 >
 > Shipped commits:
 > - Slice 1 audit: `76333d3` (`dev/notes/refs/dashboard_audit.md`)
 > - Slice 2 empty-state UX: `5ee230b`
 > - Slice 3 discover_available: `0682fc0`
+> - Slice 4 PlotConfig scaffold: `3fe87cb`
+>   (`src/axon_recon/dashboard/plots/__init__.py`)
 > - Slice 5 feature parity backfill: `8c72abf`
 > - Slice 8 style parity (`dashboard/style.py`): `28e1ff3`
 > - Slice 9 usage docs (partial): `74ea39a`
 >   (`dev/notes/refs/dashboard_usage.md`)
 >
-> **NEXT** (slice 4): Refactor `app.py`'s 2200-line surface into a
-> `PlotConfig` dataclass + per-plot-type modules under
-> `dashboard/plots/`. Major refactor — earns its own focused session.
+> **NEXT** (slice 6): consume PlotConfig.mode = "bar" branch in
+> build_box_plot (or extract into plots/box.py + plots/bar.py).
+> Aggregate-by-group + error-bar config already in PlotConfig defaults.
 
 ## Motivation
 
