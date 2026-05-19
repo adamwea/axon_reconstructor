@@ -44,3 +44,6 @@ axon_recon_overlay/
 
 # Claude Code harness state (per-checkout, not source)
 .claude/
+
+# Symlinked plot assets for dev/notes/chip_layout_grid.html (lazy local browse only)
+dev/notes/_chip_grid_assets/
