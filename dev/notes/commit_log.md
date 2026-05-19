@@ -3932,3 +3932,4 @@ d5def7c | slice 2a [opus] | delete legacy prepare_raw_binaries phase from prepro
 8af5c2a | slice 2b [opus] | delete legacy report_preprocessing phase from preprocess stage
 6ea904b | slice 2c [opus] | delete legacy cleanup_preprocessing_outputs phase from preprocess stage
 cd35d48 | slice 3 [opus]  | rename generate_gtrs phase to axon_velocity_gtrs across YAML, src, tests
+43e0621 | slice 4 [opus]  | scaffold init stage (disabled, empty phase_sequence); wires cli/runner/status/yaml; 6 init tests
