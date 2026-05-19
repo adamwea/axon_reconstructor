@@ -41,7 +41,7 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 ## In-flight
 
-- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-9 + slice 11 shipped (slice 10 plot_raster_threshold quality fix deferred per plan §3). Slices 12-14 still queued. Next up: slice 12 — add `--output-root` CLI flag (overrides `data_config.output_root` for iteration runs; analog of slice 5's `--scratch-output`).
+- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-9 + 11-12 shipped (slice 10 plot_raster_threshold quality fix deferred per plan §3). Slices 13-14 still queued. Next up: slice 13 — checkpoint status enum + `in_progress` marker mechanic (introduces a new `pipeline/checkpoint.py` helper module + per-phase stub-summary writes).
 - **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. New sibling packages (`~/dev/pkgs/kssynth/`, `~/dev/pkgs/unitlink/`) don't exist yet. axon_recon analysis-stage `unitmatch` phase doesn't exist yet.
 
 ## Locked decisions from 2026-05-18 pre-loop Q&A
