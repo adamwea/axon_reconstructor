@@ -41,7 +41,8 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 ## In-flight
 
-- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-9 + 11-13 + 14a-14b shipped (slice 10 plot_raster_threshold quality fix deferred per plan §3). Slice 14c still queued. Next up: slice 14c — extend auto-restart-from-first-broken to preprocess/spikesort/reconstruct/analysis full-stage runners (init + cleanup already integrated in 14b).
+- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-9 + 11-13 + 14a-14b shipped (slice 10 plot_raster_threshold quality fix deferred per plan §3). Slice 14c still queued (blocker documented in open_questions: the monolithic per-target stage runner in preprocess/spikesort/reconstruct/analysis needs a refactoring decision before integration).
+- **Parallelism post-migration cleanup plan** (`plans/active/parallelism_post_migration_cleanup_plan.md`): slices 3 + 7 shipped this iteration (legacy keyed_resource_limits shim deleted; templates_inputs replace() bug fixed and max_plotting_concurrency field retired). Slices 1-2, 4-6, 8-10 still queued.
 - **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. New sibling packages (`~/dev/pkgs/kssynth/`, `~/dev/pkgs/unitlink/`) don't exist yet. axon_recon analysis-stage `unitmatch` phase doesn't exist yet.
 
 ## Locked decisions from 2026-05-18 pre-loop Q&A

@@ -3944,3 +3944,5 @@ cec709b | slice 8 [opus]  | move plot_concat_traces + plot_concat_channel_layout
 dbc138f | slice 13 [opus] | checkpoint module + in_progress markers across 17 phase target runners; 31 new tests; smoke OK
 d4758eb | slice 14a [opus]| find_first_broken_phase helper added to checkpoint module; 9 new tests
 b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + cleanup full-stage runners
+6675044 | parallelism slice 3 [opus] | drop dead _legacy_keyed_resource_limits shim
+7a277d6 | parallelism slice 7 [opus] | fix templates_inputs replace() bug + retire max_plotting_concurrency field; 3 pre-existing failures resolved
