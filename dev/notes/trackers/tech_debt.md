@@ -20,6 +20,14 @@ broken behavior) and `roadmap.md` (which is new ambitions).
 
 ## Open entries
 
+### Phase-level auto-restart granularity in monolithic stage runners
+- **Status**: open (deferred from phase_roster_cleanup slice 14c — target-level skip approach A shipped instead)
+- **Tags**: refactor, contract-tightening, parallelism
+- **Where**: `pipeline/runner.py:run_<stage>_from_runtime` for preprocess, spikesort, reconstruct, analysis (each calls a monolithic per-target stage runner that executes the entire phase_sequence as one block)
+- **Why it's debt**: Slice 14c shipped approach (A) — target-level skip: at `run_<stage>_from_runtime`, walk each target's summaries and skip targets where every phase succeeded. This handles the most common re-invocation case (everything done → no-op) but loses the full auto-restart-from-first-broken semantic for these four stages: when SOME phases are broken, the monolithic stage runner re-runs the WHOLE phase_sequence rather than only from the broken phase forward. For init + cleanup (per-phase dispatch loops), the full semantic is in effect via slice 14b. The discrepancy is contained and not user-visible today, but it's a soft spot in the auto-restart guardrail.
+- **Suggested cleanup**: Approach (B) from `open_questions.md` slice-14c entry — refactor each monolithic per-target stage runner to accept a `skip_phases_before_index` parameter (or equivalent), and instrument each existing phase dispatch with a pre-check. Then thread `find_first_broken_phase` into `run_<stage>_from_runtime` and pass the resolved index downward. Touch size: M (per stage). Requires per-stage smoke tests to confirm phase-level skipping behaves identically to slice 14b's pattern for init + cleanup.
+- **See also**: `dev/notes/memory/open_questions.md` slice-14c entry; `phase_roster_cleanup_plan.md` slices 14a/14b/14c; `guardrails/force_restart.md`
+
 ### Remove `debug_mode` YAML blocks across all stages
 - **Status**: open
 - **Tags**: obsolete-config, duplicate-logic, repo-footprint
