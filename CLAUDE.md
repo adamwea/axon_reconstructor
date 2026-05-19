@@ -6,7 +6,7 @@
 
 1. Read this file.
 2. Read `dev/notes/guardrails/README.md` and the topic files it lists. Treat these as locked contracts unless the user explicitly asks for a guardrail change.
-3. Read `dev/notes/memory/current_state.md` to absorb what's shipped, what's in-flight, what's queued.
+3. Read `dev/notes/memory/current_state.md` to absorb what's shipped, what's in-flight, what's queued. **The §"⚡ USER INJECTIONS" section at the top is authoritative — apply those directives at the earliest applicable slice before falling back to plan tier order. Promote resolved injections to guardrails / slice protocol / plans, then delete the entry.**
 4. Read `dev/notes/memory/open_questions.md` for pending decisions.
 5. Glance at `dev/notes/plans/active/` to know what plans exist; read the one you're working on cover-to-cover before starting a slice from it.
 

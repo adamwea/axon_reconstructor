@@ -2,6 +2,16 @@
 
 Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old facts get deleted, not commented out.
 
+## ⚡ USER INJECTIONS
+
+User-authored directives that override plan / tier order until satisfied. Read FIRST each iteration. Apply at the earliest applicable slice; when reliably internalized, promote the rule to a guardrail / CLAUDE.md slice protocol / plan and delete the entry here.
+
+### Active
+
+- **[2026-05-18] YAML hygiene as you go**: Every slice that touches phase code, CLI flags, config schema, or phase wiring must update `dev/debug_NERSC/debug.runtime.yml` AND `dev/debug_NERSC/debug.data.yml` so they stay an accurate mechanical source of truth for what the pipeline runs. The future default `runtime.yml` will derive from `debug.runtime.yml`, so stale entries propagate forward. Remove dead phase blocks, dead `resource_class` entries, dead CLI flag defaults; add new keys for new phases/flags; clear `# TODO Claude:` annotations once their target is resolved.
+  - **Audit pass on the next iteration (before starting the next slice)**: confirm the six already-deleted phases (`reports`, `plot_templates` v1, `per_unit_processing`, `prepare_raw_binaries`, `report_preprocessing`, `cleanup_preprocessing_outputs`) are gone from `phases:` / `phase_sequence:` / any `resource_class:` references in both YAMLs. Same for any lingering `--force-replot` references. Commit the YAML cleanup on its own with subject like `claude: YAML cleanup — reconcile debug.runtime.yml with slices 1-2`.
+  - **Promote when stable**: once this is reliably part of every slice for two+ tiers, promote the rule to the CLAUDE.md slice protocol (alongside "run tests") and delete this entry.
+
 ## Shipped this week (2026-05-12 → 2026-05-18)
 
 ### axon_recon repo
