@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from axon_recon.pipeline.checkpoint import (
+	find_first_broken_phase,
 	is_stale,
 	read_checkpoint_status,
 	with_checkpoint_marker,
@@ -294,3 +295,121 @@ def test_is_stale_honors_extra_mtime(tmp_path: Path) -> None:
 	assert is_stale(summary_path, extra_mtime=summary_mtime + 10.0) is True
 	# extra_mtime in the past → not stale.
 	assert is_stale(summary_path, extra_mtime=summary_mtime - 10.0) is False
+
+
+# ----------------------------------------------------------------------------
+# find_first_broken_phase
+# ----------------------------------------------------------------------------
+
+
+def _write_status(path: Path, status: str) -> None:
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.write_text(json.dumps({"status": status, "phase": path.stem}), encoding="utf-8")
+
+
+def test_find_first_broken_phase_returns_none_when_all_ok(tmp_path: Path) -> None:
+	"""Every phase ok → stage is a no-op for this target."""
+	paths = {
+		f"phase_{i}": tmp_path / f"phase_{i}.json"
+		for i in range(3)
+	}
+	for path in paths.values():
+		_write_status(path, "ok")
+	assert find_first_broken_phase(("phase_0", "phase_1", "phase_2"), paths) is None
+
+
+def test_find_first_broken_phase_returns_first_missing(tmp_path: Path) -> None:
+	"""First phase with no summary on disk → that's the restart point."""
+	paths = {
+		"phase_0": tmp_path / "phase_0.json",
+		"phase_1": tmp_path / "phase_1.json",
+		"phase_2": tmp_path / "phase_2.json",
+	}
+	_write_status(paths["phase_0"], "ok")
+	# phase_1 deliberately not written → "missing"
+	_write_status(paths["phase_2"], "ok")
+	result = find_first_broken_phase(("phase_0", "phase_1", "phase_2"), paths)
+	assert result == (1, "missing")
+
+
+def test_find_first_broken_phase_returns_first_in_progress(tmp_path: Path) -> None:
+	"""in_progress means a phase crashed mid-run → restart from there."""
+	paths = {
+		"phase_0": tmp_path / "phase_0.json",
+		"phase_1": tmp_path / "phase_1.json",
+		"phase_2": tmp_path / "phase_2.json",
+	}
+	_write_status(paths["phase_0"], "ok")
+	_write_status(paths["phase_1"], "in_progress")
+	_write_status(paths["phase_2"], "ok")
+	assert find_first_broken_phase(("phase_0", "phase_1", "phase_2"), paths) == (1, "in_progress")
+
+
+def test_find_first_broken_phase_returns_first_error(tmp_path: Path) -> None:
+	"""error status triggers restart at that phase."""
+	paths = {
+		"phase_0": tmp_path / "phase_0.json",
+		"phase_1": tmp_path / "phase_1.json",
+	}
+	_write_status(paths["phase_0"], "ok")
+	_write_status(paths["phase_1"], "error")
+	assert find_first_broken_phase(("phase_0", "phase_1"), paths) == (1, "error")
+
+
+def test_find_first_broken_phase_legitimate_skip_does_not_trigger_restart(tmp_path: Path) -> None:
+	"""A YAML-disabled phase whose summary is missing/skipped is healthy."""
+	paths = {
+		"phase_0": tmp_path / "phase_0.json",
+		"phase_1": tmp_path / "phase_1.json",
+		"phase_2": tmp_path / "phase_2.json",
+	}
+	_write_status(paths["phase_0"], "ok")
+	# phase_1 is intentionally disabled in YAML → missing summary is fine
+	_write_status(paths["phase_2"], "ok")
+	result = find_first_broken_phase(
+		("phase_0", "phase_1", "phase_2"),
+		paths,
+		yaml_skipped_phases={"phase_1"},
+	)
+	assert result is None
+
+
+def test_find_first_broken_phase_legitimate_skip_with_error_still_restarts(tmp_path: Path) -> None:
+	"""A YAML-skipped phase with an ERROR summary is still broken — the
+	legitimate-skip override only applies to missing/skipped statuses, not
+	to a crashed run that left an error marker behind."""
+	paths = {
+		"phase_0": tmp_path / "phase_0.json",
+		"phase_1": tmp_path / "phase_1.json",
+	}
+	_write_status(paths["phase_0"], "ok")
+	_write_status(paths["phase_1"], "error")
+	result = find_first_broken_phase(
+		("phase_0", "phase_1"),
+		paths,
+		yaml_skipped_phases={"phase_1"},
+	)
+	assert result == (1, "error")
+
+
+def test_find_first_broken_phase_returns_zero_when_first_phase_broken(tmp_path: Path) -> None:
+	"""Index 0 is a legitimate restart point — None is reserved for 'all ok'."""
+	paths = {
+		"phase_0": tmp_path / "phase_0.json",
+	}
+	_write_status(paths["phase_0"], "in_progress")
+	result = find_first_broken_phase(("phase_0",), paths)
+	assert result is not None and result[0] == 0
+	assert result[1] == "in_progress"
+
+
+def test_find_first_broken_phase_empty_sequence(tmp_path: Path) -> None:
+	"""Empty phase_sequence → trivially nothing to restart."""
+	assert find_first_broken_phase((), {}) is None
+
+
+def test_find_first_broken_phase_missing_path_in_dict_is_missing(tmp_path: Path) -> None:
+	"""A phase absent from summary_json_paths is treated as missing → restart."""
+	# No paths supplied at all.
+	result = find_first_broken_phase(("phase_0",), {})
+	assert result == (0, "missing")

@@ -306,8 +306,52 @@ def is_stale(
 	return False
 
 
+def find_first_broken_phase(
+	phase_sequence: tuple[str, ...] | list[str],
+	summary_json_paths: dict[str, Path],
+	*,
+	yaml_skipped_phases: frozenset[str] | set[str] | None = None,
+) -> tuple[int, CheckpointStatus] | None:
+	"""Locate the first phase in a sequence that needs to run.
+
+	Walks ``phase_sequence`` in order. For each phase:
+	  - Reads its checkpoint status via ``read_checkpoint_status``.
+	  - If the status is ``ok``, the phase is healthy → keep walking.
+	  - If the phase appears in ``yaml_skipped_phases`` AND its status is
+	    ``missing`` or ``skipped``, treat the skip as legitimate (the YAML
+	    intentionally disables this phase) → keep walking.
+	  - Otherwise the phase needs to run. Return its (index, status).
+
+	Returns ``None`` when every phase is healthy (or legitimately skipped),
+	meaning the stage is a no-op for the target. Slice 14 callers treat a
+	non-None return as "force-restart this phase + everything downstream",
+	leaving the earlier phases alone.
+
+	``summary_json_paths`` maps phase_name → path; phases absent from the
+	dict are treated as ``missing`` (always trigger restart). The
+	``yaml_skipped_phases`` argument lets callers express "these phases
+	have ``enabled: false`` in the YAML; don't restart on their behalf".
+	"""
+	yaml_skips = frozenset(yaml_skipped_phases or ())
+	for index, phase_name in enumerate(phase_sequence):
+		summary_path = summary_json_paths.get(str(phase_name))
+		if summary_path is None:
+			status: CheckpointStatus = "missing"
+		else:
+			status = read_checkpoint_status(summary_path)
+		if status == "ok":
+			continue
+		if phase_name in yaml_skips and status in ("missing", "skipped"):
+			# YAML disabled this phase; the absence of a summary is
+			# intentional, not a sign of broken state.
+			continue
+		return (index, status)
+	return None
+
+
 __all__ = [
 	"CheckpointStatus",
+	"find_first_broken_phase",
 	"is_stale",
 	"read_checkpoint_status",
 	"with_checkpoint_marker",
