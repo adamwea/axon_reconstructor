@@ -31,7 +31,7 @@ Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old
 
 ## In-flight
 
-- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slice 1 (legacy reconstruct phase deletions) shipped. Slices 2-14 still queued. Next up: slice 2 — preprocess pure deletions (`prepare_raw_binaries`, `report_preprocessing`, `cleanup_preprocessing_outputs`).
+- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1 (legacy reconstruct phase deletions), 2 (preprocess pure deletions), and 3 (`generate_gtrs` → `axon_velocity_gtrs` rename) shipped. Slices 4-14 still queued. Next up: slice 4 — scaffold the `init` stage (empty phase_sequence + empty phases dict initially).
 - **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. New sibling packages (`~/dev/pkgs/kssynth/`, `~/dev/pkgs/unitlink/`) don't exist yet. axon_recon analysis-stage `unitmatch` phase doesn't exist yet.
 
 ## Locked decisions from 2026-05-18 pre-loop Q&A

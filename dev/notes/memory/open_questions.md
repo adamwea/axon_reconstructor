@@ -30,8 +30,9 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
   - `test_write_unit_circle_recon_plot_branches_only_scope_uses_raw_and_remaps` — pre-existing.
   - 5× `test_spikeinterface_extract.py` — separate spikeinterface API drift.
   - 2× `test_runner` upsampling/spikeinterface fallback tests — pre-existing.
+  - `test_run_preprocess_stage_logs_phase_start_per_well` — surfaced after slice 2 deletions; verified pre-existing via `git stash` before slice 3 lands. Test enumerates the preprocess `phase_sequence` and likely still expects the deleted `prepare_raw_binaries` / `report_preprocessing` / `cleanup_preprocessing_outputs` entries somewhere; refresh in the same triage slice.
 
-  Resolution: not blocking phase_roster_cleanup slices 2-14, but worth a dedicated cleanup slice after the destructive cleanups settle.
+  Resolution: not blocking phase_roster_cleanup slices 4-14, but worth a dedicated cleanup slice after the destructive cleanups settle.
 
 ## Resolved 2026-05-18 (kept here briefly for context; delete on next prune)
 
