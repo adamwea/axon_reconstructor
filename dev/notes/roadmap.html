@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>axon_recon development roadmap</title>
+  <style>
+    :root {
+      --bg: #fafafa;
+      --card: #ffffff;
+      --text: #1f2328;
+      --muted: #6e7681;
+      --border: #d0d7de;
+      --accent: #0969da;
+      --shipped: #1a7f37;
+      --shipped-bg: #dcffe4;
+      --inflight: #0969da;
+      --inflight-bg: #ddf4ff;
+      --queued: #6e7681;
+      --queued-bg: #eaeef2;
+      --gated: #9a6700;
+      --gated-bg: #fff8c5;
+      --implication-bg: #f6f8fa;
+      --implication-border: #0969da;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 32px 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      line-height: 1.5;
+      color: var(--text);
+      background: var(--bg);
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+    }
+    header {
+      margin-bottom: 32px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      margin: 0 0 8px 0;
+      font-size: 28px;
+      font-weight: 600;
+    }
+    h2 {
+      margin: 0 0 8px 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 14px;
+      margin: 0;
+    }
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 16px 0 32px 0;
+      padding: 12px 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .legend .legend-label {
+      font-size: 13px;
+      color: var(--muted);
+      margin-right: 8px;
+      font-weight: 600;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.2px;
+    }
+    .badge.shipped { color: var(--shipped); background: var(--shipped-bg); }
+    .badge.inflight { color: var(--inflight); background: var(--inflight-bg); }
+    .badge.queued { color: var(--queued); background: var(--queued-bg); }
+    .badge.gated { color: var(--gated); background: var(--gated-bg); }
+    .era {
+      margin-bottom: 24px;
+      padding: 20px 24px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .era-header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .era-status {
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .era > p {
+      margin: 8px 0 16px 0;
+      color: var(--text);
+    }
+    ul.items {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 16px 0;
+    }
+    ul.items li {
+      padding: 8px 0;
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    ul.items li:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+    ul.items .item-text {
+      flex: 1;
+    }
+    ul.items .item-title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    ul.items .item-desc {
+      font-size: 13px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .implications {
+      margin: 0;
+      padding: 12px 16px;
+      background: var(--implication-bg);
+      border-left: 3px solid var(--implication-border);
+      border-radius: 0 4px 4px 0;
+    }
+    .implications strong {
+      display: block;
+      font-size: 13px;
+      letter-spacing: 0.4px;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+    .implications p {
+      margin: 0;
+      font-size: 14px;
+    }
+    .summary {
+      margin-bottom: 24px;
+      padding: 16px 20px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .summary h2 { margin-bottom: 12px; }
+    .summary p { margin: 4px 0; font-size: 14px; }
+    .gate-note {
+      display: inline-block;
+      margin-top: 8px;
+      padding: 6px 10px;
+      font-size: 13px;
+      color: var(--gated);
+      background: var(--gated-bg);
+      border-radius: 4px;
+    }
+    footer {
+      margin-top: 32px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 12px;
+      color: var(--muted);
+    }
+    code {
+      background: var(--implication-bg);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 0.9em;
+      font-family: ui-monospace, "SF Mono", Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>axon_recon development roadmap</h1>
+    <p class="meta">High-level snapshot · 2026-05-19 · branch <code>loop/cleanup-and-new-packages</code></p>
+  </header>
+
+  <div class="legend">
+    <span class="legend-label">Status</span>
+    <span class="badge shipped">shipped</span>
+    <span class="badge inflight">in flight</span>
+    <span class="badge queued">queued</span>
+    <span class="badge gated">gated</span>
+  </div>
+
+  <div class="summary">
+    <h2>Where we are right now</h2>
+    <p>The pipeline finished a multi-day cleanup sweep (Era 1) and shipped two new sibling packages (Era 2). The current focus is wiring those packages back into axon_recon for the first real end-to-end run (Era 3). Once that integration ships, four queued plans (Era 4–6) become unblocked.</p>
+    <p>An autonomous loop is currently executing slices through these eras; user input is reserved for the few hard gates flagged in plans.</p>
+  </div>
+
+  <!-- Era 1 -->
+  <section class="era">
+    <div class="era-header">
+      <h2>Era 1 — Foundation cleanup</h2>
+      <span class="era-status">mostly <span class="badge shipped">shipped</span></span>
+    </div>
+    <p>The pipeline had accumulated legacy phases, duplicate config knobs, and a brittle force-restart contract. This era is a top-to-bottom cleanup: delete dead phases, rename ambiguous work for clarity, split off <code>init</code> + <code>cleanup</code> stages, standardize the parallelism story, and rebuild the auto-restart machinery so re-runs skip already-completed targets rather than blindly re-running.</p>
+    <ul class="items">
+      <li>
+        <span class="badge shipped">shipped</span>
+        <div class="item-text">
+          <div class="item-title">Phase roster cleanup</div>
+          <div class="item-desc">14 slices, 12 shipped. Deletes 6 legacy phases, renames <code>generate_gtrs</code> → <code>axon_velocity_gtrs</code>, introduces <code>init</code> + <code>cleanup</code> stages, deletes <code>--force-replot</code> in favor of <code>--replot</code>, adds <code>--output-root</code> + in-progress checkpoint markers + target-level auto-restart skip across all four monolithic stage runners.</div>
+        </div>
+      </li>
+      <li>
+        <span class="badge shipped">shipped</span>
+        <div class="item-text">
+          <div class="item-title">Parallelism rationalization</div>
+          <div class="item-desc">Collapsed nested <code>resources.profiles</code>, fixed n_jobs resolver fallback, retired <code>max_plotting_concurrency</code>, standardized log lines, migrated stale test fixtures, resolved 16 of 21 pre-existing test failures.</div>
+        </div>
+      </li>
+      <li>
+        <span class="badge shipped">shipped</span>
+        <div class="item-text">
+          <div class="item-title">Auto-restart machinery</div>
+          <div class="item-desc">Checkpoint module + <code>find_first_broken_phase</code> + per-stage <code>target_all_<i>X</i>_phases_succeeded</code> helpers. Re-running an interrupted job skips finished targets instead of redoing work.</div>
+        </div>
+      </li>
+    </ul>
+    <aside class="implications">
+      <strong>Implications</strong>
+      <p>Runtime resume behavior is now robust — re-running an interrupted job doesn't redo finished work. The CLI flag surface is stable and documented. Test suite is much cleaner. The pipeline is navigable enough that integration and new-phase work can begin in earnest.</p>
+    </aside>
+  </section>
+
+  <!-- Era 2 -->
+  <section class="era">
+    <div class="era-header">
+      <h2>Era 2 — Sibling-package extraction</h2>
+      <span class="era-status"><span class="badge shipped">shipped</span></span>
+    </div>
+    <p>Two algorithm cores that previously lived inside axon_recon get extracted into standalone SpikeInterface-compliant Python packages. They sit alongside axon_recon, not inside it.</p>
+    <ul class="items">
+      <li>
+        <span class="badge shipped">shipped</span>
+        <div class="item-text">
+          <div class="item-title">kssynth — Kilosort sorter_output synthesizer</div>
+          <div class="item-desc">Writes valid Kilosort folders (spike_clusters.npy, cluster_*.tsv, templates.npy, RawWaveforms) from arbitrary template + waveform sources. 58 tests. v1 feature-complete.</div>
+        </div>
+      </li>
+      <li>
+        <span class="badge shipped">shipped</span>
+        <div class="item-text">
+          <div class="item-title">unitlink — cross-session unit matching</div>
+          <div class="item-desc">Wraps UnitMatchPy (with optional DeepUnitMatch v2 path) for matching units across recordings on the same chip. Two-halves shape, classical Naive Bayes spine, soft-import + mock-tested classical backend (now real-call after slice-5 redo). 53 tests.</div>
+        </div>
+      </li>
+    </ul>
+    <aside class="implications">
+      <strong>Implications</strong>
+      <p>Algorithms decoupled from pipeline plumbing → reusable outside axon_recon. SI-compliant interfaces mean other SpikeInterface users could adopt them. Both packages still local-only (no GH remotes) per the "validate before publishing" policy — push happens after the first successful end-to-end smoke through axon_recon.</p>
+    </aside>
+  </section>
+
+  <!-- Era 3 -->
+  <section class="era">
+    <div class="era-header">
+      <h2>Era 3 — Integration</h2>
+      <span class="era-status"><span class="badge inflight">in flight</span></span>
+    </div>
+    <p>Wire the new sibling packages back into axon_recon. The new abstractions start producing real results on real data here.</p>
+    <ul class="items">
+      <li>
+        <span class="badge queued">queued</span>
+        <div class="item-text">
+          <div class="item-title">kssynth slice 9 — recon-stage integration</div>
+          <div class="item-desc">Recon stage uses kssynth to emit post-merge units as a SI-compliant sorter_output folder downstream consumers can read.</div>
+        </div>
+      </li>
+      <li>
+        <span class="badge inflight">in flight</span>
+        <div class="item-text">
+          <div class="item-title">unitmatch_phase slices 4–5 — analysis-stage cross-DIV matching</div>
+          <div class="item-desc">Analysis-stage <code>unitmatch</code> phase invokes <code>unitlink.match()</code> once per (chip, well) group across DIVs. Slices 1–4 shipped (scaffold, group discovery, orchestrator, <code>--targets chip-well:&lt;chip&gt;:&lt;well&gt;</code>). Slice 5 enables the phase and runs the first login-node smoke.</div>
+        </div>
+      </li>
+    </ul>
+    <aside class="implications">
+      <strong>Implications</strong>
+      <p>This is the era's deliverable: the first end-to-end run of the new pipeline through real data, the first cross-session match tables, and the kickoff trigger for several queued plans (chip-layout, propagation-video, Radivojevic). Until this ships, the queued Era 4–6 plans wait.</p>
+      <div class="gate-note">⚑ Hard gate: slice 5 produces the first real-data match output for user review in <code>memory/diagnostics_to_review.md</code>.</div>
+    </aside>
+  </section>
+
+  <!-- Era 4 -->
+  <section class="era">
+    <div class="era-header">
+      <h2>Era 4 — Install + environment infrastructure</h2>
+      <span class="era-status"><span class="badge inflight">in flight</span> (slice 1 done, 2–8 <span class="badge queued">queued</span>)</span>
+    </div>
+    <p>Today the install story is split across three artifacts that drift independently: <code>environment.yml</code>, the Dockerfile, and a referenced-but-never-written bootstrap script. Era 4 unifies it — <code>pyproject.toml</code> extras become the single source of truth for pip deps; <code>environment.yml</code> shrinks to conda-only; one flag-driven <code>tools/setup_env.sh</code> handles both production and editable-sibling install paths; the Dockerfile becomes shorter via <code>pip install -e .[full]</code>. Underpinned by a new <code>env_parity</code> guardrail that locks conda↔shifter capability parity.</p>
+    <ul class="items">
+      <li>
+        <span class="badge inflight">in flight</span>
+        <div class="item-text">
+          <div class="item-title">env_install_unification_plan (8 slices)</div>
+          <div class="item-desc">Slice 1 audit done. Slices 2–8: migrate pip deps into pyproject extras, shrink environment.yml, write <code>tools/install_dev_siblings.{sh,py}</code> + <code>tools/setup_env.sh</code> with <code>--editable-siblings</code> flag, migrate Dockerfile to <code>pip install -e .[full]</code>.</div>
+        </div>
+      </li>
+      <li>
+        <span class="badge shipped">shipped</span>
+        <div class="item-text">
+          <div class="item-title">env_parity guardrail</div>
+          <div class="item-desc">Locks conda env ≡ shifter image capabilities, except Kilosort+CUDA stack and NERSC/HPC/SLURM plumbing (carve-outs). Any new conda dep mirrors into the relevant Dockerfile ARG (or surfaces a "rebuild needed" injection).</div>
+        </div>
+      </li>
+    </ul>
+    <aside class="implications">
+      <strong>Implications</strong>
+      <p>Contributors can clone + run one command to get a working dev env. Shifter rebuilds become reproducible from the same source of truth. Sibling editable installs become flag-toggled rather than separate manual steps. <strong>Timing constraint:</strong> should land before the next shifter rebuild — otherwise the rebuild reapplies the old per-sibling-ARG mechanism that slice 6 of this plan will throw away two weeks later.</p>
+    </aside>
+  </section>
+
+  <!-- Era 5 -->
+  <section class="era">
+    <div class="era-header">
+      <h2>Era 5 — Visualization &amp; analysis enhancement</h2>
+      <span class="era-status"><span class="badge gated">gated</span> (post-Era 3)</span>
+    </div>
+    <p>Once unitlink match tables exist, visualizations can become globally aware of unit identity across sessions on the same chip. Two new plans capture this. Both gate on Era 3 shipping because they need real match tables for the color-consistency story.</p>
+    <ul class="items">
+      <li>
+        <span class="badge gated">gated</span>
+        <div class="item-text">
+          <div class="item-title">chip_layout_phase_split_plan (8 slices, 2 user gates)</div>
+          <div class="item-desc">Moves <code>plot_full_chip_layout</code> from recon stage to analysis stage AND splits into two phases: <strong>Phase A</strong> (white-bg multi-session timeline grid, color-coded reconstructions for tracking changes over time) + <strong>Phase B</strong> (black-bg detailed per-session with electrode overlay + signal-strength-weighted RGB blending where electrodes overlap). Cross-session color helper introduced in slice 3 is reused by the propagation-video work.</div>
+        </div>
+      </li>
+      <li>
+        <span class="badge gated">gated</span>
+        <div class="item-text">
+          <div class="item-title">analysis_propagation_video_plan (9 slices, 1 hard-gate)</div>
+          <div class="item-desc">Per-unit branch-propagation video / GIF generation via axon_velocity, as a new analysis-stage phase. Targeted on-demand (one video ≈ N minutes of compute, so opt-in via YAML + per-unit <code>--targets</code> triplet). Slice 1 does git archeology to surface an older recon-stage impl; fallback is clean wrap of axon_velocity's API.</div>
+        </div>
+      </li>
+    </ul>
+    <aside class="implications">
+      <strong>Implications</strong>
+      <p>Visual outputs become tools for tracking development over time on the same chip — same unit gets the same color across recordings. Per-unit deep-dive plots (with electrode-overlay color blending) become available. Timeline grids and propagation videos eventually serve as primary scientific outputs of repeated-recording experiments.</p>
+      <div class="gate-note">⚑ Hard gates: first real-data render of each new visualization requires user approval before downstream slices ship.</div>
+    </aside>
+  </section>
+
+  <!-- Era 6 -->
+  <section class="era">
+    <div class="era-header">
+      <h2>Era 6 — Alternative reconstruction algorithm (R&amp;D)</h2>
+      <span class="era-status"><span class="badge gated">gated</span> (post-Era 3)</span>
+    </div>
+    <p>Re-implement Radivojevic et al. 2023's reconstruction algorithm as a sibling package + new recon-stage phase, with a side-by-side comparison phase in analysis. The published code reportedly isn't public, so the plan starts with exhaustive literature reading + a search for any GitHub / Zenodo / supplementary code before committing to a clean-room reimplementation.</p>
+    <ul class="items">
+      <li>
+        <span class="badge gated">gated</span>
+        <div class="item-text">
+          <div class="item-title">radivojevic_recon_algo_plan (9 slices, 5 user gates)</div>
+          <div class="item-desc">Sibling package at <code>~/dev/pkgs/radivojevic2023_recon_algo/</code> (user pre-populated <code>literature/</code> with eLife 86512 + related papers). Slice 1 is research-only; slices 2–9 sequence behind user gate approvals. High back-and-forth plan — paper-identity confirmation, algorithm-summary review, input-compatibility decisions, real-data correctness review, attribution review.</div>
+        </div>
+      </li>
+    </ul>
+    <aside class="implications">
+      <strong>Implications</strong>
+      <p>Scientific comparison between two reconstruction approaches. Potentially uncovers shortcomings in the current axon_velocity-based pipeline. Attribution is explicit — package shipping requires citation + a <code>DIVERGENCES.md</code> documenting every place the implementation departs from the paper. If input requirements differ from <code>axon_velocity_gtrs</code>, additional plan injections may be needed for prerequisite phases in earlier stages.</p>
+      <div class="gate-note">⚑ Hard gate: first real-data Radivojevic output side-by-side vs <code>axon_velocity_gtrs</code> requires user approval before any downstream slices ship.</div>
+    </aside>
+  </section>
+
+  <footer>
+    <p>Source-of-truth artifacts: <code>dev/notes/memory/current_state.md</code> · <code>dev/notes/plans/active/</code> · <code>dev/notes/guardrails/</code> · <code>dev/notes/commit_log.md</code>. This page is a high-level snapshot; consult those files for slice-level detail.</p>
+  </footer>
+</main>
+</body>
+</html>
