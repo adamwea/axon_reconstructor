@@ -178,6 +178,39 @@ def get_scratch_output_override() -> Path | None:
 	return _SCRATCH_OUTPUT_OVERRIDE
 
 
+# Process-wide --output-root override. When set, replaces the data config's
+# `output_root` for the duration of the invocation. Lets iteration runs
+# redirect stage outputs to a disposable dev_outputs/ tree without mutating
+# the reference data config — Claude (or any user) writes into
+# `<override>/...` while the YAML stays clean. Symmetric with the
+# --scratch-output override above.
+_OUTPUT_ROOT_OVERRIDE: Path | None = None
+
+
+def set_output_root_override(value: str | Path | None) -> None:
+	"""Set the process-wide `--output-root` override.
+
+	When non-None, this Path replaces data_config.output_root inside
+	`select_execution_targets`. Pass None / empty string to clear.
+	Typically called once by the CLI's `main()` entry point.
+	"""
+
+	global _OUTPUT_ROOT_OVERRIDE
+	if value is None:
+		_OUTPUT_ROOT_OVERRIDE = None
+		return
+	token = str(value).strip()
+	if not token:
+		_OUTPUT_ROOT_OVERRIDE = None
+		return
+	_OUTPUT_ROOT_OVERRIDE = Path(token).expanduser().resolve()
+
+
+def get_output_root_override() -> Path | None:
+	"""Return the current process-wide output-root override, or None."""
+	return _OUTPUT_ROOT_OVERRIDE
+
+
 def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
 	LOGGER.warning(
 		"Legacy scratch input keys detected for %s; scratch_input_root/use_scratch_input_root are deprecated. "
@@ -419,6 +452,12 @@ def select_execution_targets(
 			target_wells_set = set(normalized)
 
 	output_root_raw = bundle.data_config.get("output_root", None)
+	# `--output-root` overrides the YAML's output_root for the invocation.
+	# Iteration runs use this to redirect outputs into dev_outputs/ trees
+	# without mutating the reference data config.
+	output_root_override = get_output_root_override()
+	if output_root_override is not None:
+		output_root_raw = str(output_root_override)
 	if not output_root_raw:
 		raise ValueError("Data config missing output_root")
 	output_root = _normalize_config_input_path(output_root_raw, base_dir=bundle.data_config_path.parent)

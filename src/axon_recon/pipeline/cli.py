@@ -646,6 +646,16 @@ def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
 		),
 	)
 	parser.add_argument(
+		"--output-root",
+		default=None,
+		dest="output_root",
+		help=(
+			"Override data_config.output_root for this invocation. Use for iteration "
+			"runs that should redirect stage outputs to a disposable tree (e.g. "
+			"dev_outputs/<plan_slice>/) without editing the reference data config."
+		),
+	)
+	parser.add_argument(
 		"--limit-wells",
 		type=_parse_positive_int,
 		default=None,
@@ -1289,6 +1299,7 @@ def main(argv: list[str] | None = None) -> int:
 	# don't need to plumb override parameters through every runner helper.
 	from .config import (
 		set_no_plot_override,
+		set_output_root_override,
 		set_scratch_output_override,
 		set_target_pairs_override,
 		set_target_wells_override,
@@ -1315,6 +1326,12 @@ def main(argv: list[str] | None = None) -> int:
 	if scratch_output_override:
 		set_scratch_output_override(scratch_output_override)
 
+	# Same pattern for --output-root: redirect stage outputs to an iteration
+	# tree without mutating the reference data_config.output_root.
+	output_root_override = getattr(args, "output_root", None)
+	if output_root_override:
+		set_output_root_override(output_root_override)
+
 	handler = getattr(args, "handler", None)
 	if handler is None:
 		parser.print_help()
@@ -1339,6 +1356,7 @@ def main(argv: list[str] | None = None) -> int:
 		set_target_pairs_override(None)
 		set_no_plot_override(None)
 		set_scratch_output_override(None)
+		set_output_root_override(None)
 		try:
 			from .resource_usage import configure_phase_tuning_monitoring
 

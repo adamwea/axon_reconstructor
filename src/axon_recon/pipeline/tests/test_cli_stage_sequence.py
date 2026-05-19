@@ -1030,3 +1030,64 @@ def test_scratch_output_flag_default_leaves_override_unset(monkeypatch, tmp_path
 
 	assert rc == 0
 	assert override_seen == [None]
+
+
+def test_output_root_flag_sets_and_clears_override(monkeypatch, tmp_path: Path) -> None:
+	"""--output-root sets the process-wide override during a stage run and clears it afterwards."""
+
+	from axon_recon.pipeline import config as pipeline_config
+
+	runtime_cfg = tmp_path / "runtime.yml"
+	_write_runtime_cfg(runtime_cfg)
+
+	output_override = tmp_path / "iter_outputs"
+	captured_override_during_handler: list[Path | None] = []
+
+	def _capture_handler(args):
+		captured_override_during_handler.append(pipeline_config.get_output_root_override())
+		return 0
+
+	monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _capture_handler)
+
+	pipeline_config.set_output_root_override(None)
+	assert pipeline_config.get_output_root_override() is None
+
+	rc = pipeline_cli.main(
+		[
+			"stages",
+			"preprocess",
+			"--config",
+			str(runtime_cfg),
+			"--output-root",
+			str(output_override),
+		]
+	)
+
+	assert rc == 0
+	assert len(captured_override_during_handler) == 1
+	assert captured_override_during_handler[0] == output_override.resolve()
+	# finally-block reset clears the override so the next invocation isn't poisoned.
+	assert pipeline_config.get_output_root_override() is None
+
+
+def test_output_root_flag_default_leaves_override_unset(monkeypatch, tmp_path: Path) -> None:
+	"""When --output-root is omitted, the override stays None throughout the run."""
+
+	from axon_recon.pipeline import config as pipeline_config
+
+	runtime_cfg = tmp_path / "runtime.yml"
+	_write_runtime_cfg(runtime_cfg)
+
+	override_seen: list[Path | None] = []
+
+	def _capture_handler(args):
+		override_seen.append(pipeline_config.get_output_root_override())
+		return 0
+
+	monkeypatch.setitem(pipeline_cli._STAGE_HANDLERS, "preprocess", _capture_handler)
+	pipeline_config.set_output_root_override(None)
+
+	rc = pipeline_cli.main(["stages", "preprocess", "--config", str(runtime_cfg)])
+
+	assert rc == 0
+	assert override_seen == [None]
