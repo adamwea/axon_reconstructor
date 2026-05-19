@@ -25,24 +25,74 @@ Useful development references:
 
 ## Environment setup
 
-Create the base conda env first:
+Three documented install paths, in order of recommendation:
+
+### 1. Shifter container (recommended for production / cluster runs)
+
+The shipped shifter image bakes the full pipeline + every pip dep + the
+Kilosort CUDA stack. Pull / load per the cluster's shifter docs; no
+local pip installs required.
+
+### 2. `./tools/setup_env.sh` (recommended for new contributors)
+
+One-command developer install. Creates the conda env, installs
+axon_recon with the `[dev,full]` extras (production-grade dep set
+including UnitMatchPy from its public upstream), and (optionally)
+re-installs siblings editable from local clones for active hacking.
+
+```bash
+# Fresh user: clone + setup
+git clone <axon_recon-repo-url>
+cd axon_recon
+./tools/setup_env.sh                          # standard dev install
+./tools/setup_env.sh --editable-siblings      # + editable siblings
+                                              #   from $HOME/dev/pkgs/
+./tools/setup_env.sh --editable-siblings \
+  --from-local /custom/path/to/sibling/clones  # override sibling search dir
+```
+
+The `--editable-siblings` flag uses `tools/install_dev_siblings.sh` to
+re-install UnitMatchPy + SLAy in editable mode (overriding the
+git-URL versions that `[full]` installs by default). Missing siblings
+get cloned on demand into a gitignored `deps/` directory.
+
+### 3. `conda env create -f environment.yml` (manual, for advanced users)
+
+Same outcome as path 2 but skips `setup_env.sh`'s convenience wrapping:
 
 ```bash
 conda env create -f environment.yml
 conda activate axon_recon
 ```
 
-Sibling editable dependencies usually live next to this checkout and are installed separately:
+`environment.yml`'s `pip: - -e .[dev,full]` line pulls everything from
+`pyproject.toml`'s `[dev]` + `[full]` extras — the single source of
+truth for pip deps. The conda layer keeps the scientific stack (numpy,
+h5py, scipy, spikeinterface, …) on conda-forge for binary-friendly
+builds.
 
-- `axon_velocity` from `adamwea/axon_velocity` on `main`
-- `UnitMatch` from `adamwea/UnitMatch` on `enable_hdmea`
-- `SLAy` from `adamwea/SLAy` on `main`
-- `MEA_Analysis` from `roybens/MEA_Analysis` on `aw_dev`
+### Sibling registry
 
-Run tests with:
+The pipeline depends on these external siblings:
+
+- **`axon_velocity`** (PyPI: `axon_velocity==0.1.2`) — installed by `[full]`.
+- **`UnitMatchPy`** — sibling of the parent `EnnyvanBeest/UnitMatch`
+  repo, installed by `[full]` as a git URL pin
+  (`git+https://github.com/EnnyvanBeest/UnitMatch.git#subdirectory=UnitMatchPy`).
+- **`SLAy`** (`saikoukunt/SLAy`) — Dockerfile-uninstalled today; will
+  be added to `[full]` once its install story is finalized. Editable
+  install path: `./tools/install_dev_siblings.sh --siblings SLAy`.
+- **`kssynth`**, **`unitlink`** — local-only sibling packages used by
+  the (in-progress) cross-DIV unitmatch integration. GH remotes pending;
+  use local editable installs from `~/dev/pkgs/{kssynth,unitlink}/`.
+- **`MEA_Analysis`** (`roybens/MEA_Analysis` on `aw_dev`) — supporting
+  utilities, manual editable install when needed.
+
+## Running tests
 
 ```bash
-python -m pytest
+python -m pytest                      # full default test scope
+python -m pytest tools/tests/         # tooling smoke tests (out of default scope)
 ```
 
 AI coding agents have been used during development, mostly GPT-5.2-Codex and GPT-5.3-Codex.
