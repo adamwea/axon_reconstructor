@@ -107,6 +107,8 @@ Tier 5 (chip away anytime): parallelism_post_migration_cleanup_plan, spikesort/r
 
 - **`plans/active/analysis_propagation_video_plan.md`** (Tier 5, chip-away) — 9 slices to re-implement axon_velocity's branch-propagation video / GIF generation as a new analysis-stage phase (`propagation_video` or similar; name decided in slice 2). Expensive per-unit work, opt-in via YAML + targeted-on-demand via per-unit `--targets` triplet form. Slice 1 does git archeology to find the old recon-stage impl (may not exist; fine to wrap current `axon_velocity` API cleanly). Slice 8 produces the first real-data video and adds a HARD-gate diagnostic to `memory/diagnostics_to_review.md` for user approval — a natural end-of-day deliverable for some future loop run. NOT blocking anything else.
 
+- **`plans/active/radivojevic_recon_algo_plan.md`** (Tier 4, gated, kickoff-after-integration) — 9 slices to reverse-engineer + clean-room re-implement Radivojevic 2023's reconstruction algorithm as a sibling package at `~/dev/pkgs/radivojevic2023_recon_algo/` (already scaffolded with user-provided literature/) plus a new `radivojevic_recon` phase in the recon stage. Alternative / comparison to `axon_velocity_gtrs`. **Kick-off trigger**: kssynth slice 9 AND unitmatch_phase slice 5 BOTH shipped (= first real end-to-end smoke through the new sibling packages). Slice 1 is research-only — read pre-populated PDFs (elife-86512 likely the target paper) + WebSearch/WebFetch for public code + produce algorithm-summary doc + user-gate. 5 USER GATEs total (slices 1, 3, 4, 6, 9) — high back-and-forth plan.
+
 ## Environment state
 
 - Working on Perlmutter (NERSC). Logged in as `adammwea`.
