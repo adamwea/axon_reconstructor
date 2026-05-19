@@ -5,11 +5,13 @@ channels:
 dependencies:
   - python=3.11
   - pip
+  # Developer convenience (no PyPI equivalent or pure-conda)
   - ipykernel
   - nodejs
-  # Dev/test tooling
-  - pytest
-  - ruff
+  # Scientific stack — keep on conda for binary-friendly builds.
+  # Version pins mirrored to pyproject.toml's [full] extra; conda
+  # installs first so the pip step below sees these already satisfied
+  # and is a no-op for them.
   - numpy
   - h5py
   - tqdm
@@ -26,11 +28,9 @@ dependencies:
   - kaleido
   - openpyxl
   - scipy
-  # - torch
   - pyyaml
-  # Keep sibling editable repos out of the base env spec.
-  # Install them after env creation with tools/bootstrap_editable_deps.sh.
+  # Everything else (pip-only deps + sibling editables + dev tooling)
+  # lives in `pyproject.toml`'s [dev] + [full] extras. Single source of
+  # truth per env_install_unification_plan slice 2.
   - pip:
-      - docker
-      - pypdf
-      - -e .[dev]
+      - -e .[dev,full]
