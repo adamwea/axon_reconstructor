@@ -243,11 +243,11 @@ def _cleanup_spikesort_outputs_for_force_restart(*, stage_output_root_dir: Path,
 	# the sequence — its stale labels otherwise contaminate downstream
 	# status reporting and any phase that probes the well dir for existing
 	# artifacts). The `cache/` dir is intentionally NOT wiped here because
-	# bootstrap_concat_binary has already run by the time the sort phase
+	# concat_binary has already run by the time the sort phase
 	# invokes this cleanup, and the binary recording it materialized in
-	# cache/bootstrap_concat_binary/recording/ is what sort is about to read.
-	# bootstrap manages its own force_restart cleanup via
-	# bootstrap_concat_binary_overwrite_on_force_restart.
+	# cache/concat_binary/recording/ is what sort is about to read.
+	# concat_binary manages its own force_restart cleanup via
+	# concat_binary_overwrite_on_force_restart.
 	cleanup_names: set[str] = {
 		"sorter_output",
 		"sorter_output_snapshot",
@@ -3243,7 +3243,7 @@ def _load_preprocessed_recording_from_dir(*, si_module: Any, recording_dir: Path
 		return si_module.load_extractor(recording_dir)
 
 
-def _resolve_bootstrap_concat_binary_paths(
+def _resolve_concat_binary_paths(
 	*,
 	well_out_dir: Path,
 	stage_output_root_dir: Path,
@@ -3252,29 +3252,29 @@ def _resolve_bootstrap_concat_binary_paths(
 	cache_root_dir = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs"),
-		relpath=str(getattr(stage_config, "bootstrap_concat_binary_cache_relpath", "cache/bootstrap_concat_binary")),
+		relpath=str(getattr(stage_config, "concat_binary_cache_relpath", "cache/concat_binary")),
 	)
 	recording_dir = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs"),
-		relpath=str(getattr(stage_config, "bootstrap_concat_binary_recording_relpath", "cache/bootstrap_concat_binary/recording")),
+		relpath=str(getattr(stage_config, "concat_binary_recording_relpath", "cache/concat_binary/recording")),
 	)
 	concat_manifest_path = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs"),
-		relpath=str(getattr(stage_config, "bootstrap_concat_binary_manifest_relpath", "cache/bootstrap_concat_binary/concat_segments_manifest.json")),
+		relpath=str(getattr(stage_config, "concat_binary_manifest_relpath", "cache/concat_binary/concat_segments_manifest.json")),
 	)
 	summary_json = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs"),
-		relpath=str(getattr(stage_config, "bootstrap_concat_binary_summary_json_relpath", "cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json")),
+		relpath=str(getattr(stage_config, "concat_binary_summary_json_relpath", "cache/concat_binary/concat_binary_summary.json")),
 	)
 	segment_manifest_path = _resolve_under_well(
 		well_out_dir=well_out_dir,
 		relpath=str(
 			getattr(
 				stage_config,
-				"bootstrap_concat_binary_source_segment_manifest_relpath",
+				"concat_binary_source_segment_manifest_relpath",
 				"preprocess_outputs/preprocessed_segments/manifest.json",
 			)
 		),
@@ -3340,16 +3340,16 @@ def _spikesort_applied_debug_limits_from_inputs(inputs: SpikesortInputs) -> dict
 	}
 
 
-def _bootstrap_concat_binary_limit_segments_per_well(stage_config: Any) -> int | None:
+def _concat_binary_limit_segments_per_well(stage_config: Any) -> int | None:
 	phase_limit = _positive_int_or_none(
-		getattr(stage_config, "bootstrap_concat_binary_debug_limit_segments_per_well", None)
+		getattr(stage_config, "concat_binary_debug_limit_segments_per_well", None)
 	)
 	if phase_limit is not None:
 		return phase_limit
 	return _positive_int_or_none(getattr(stage_config, "debug_limit_segments_per_well", None))
 
 
-def run_spikesort_bootstrap_concat_binary_stage(
+def run_spikesort_concat_binary_stage(
 	*,
 	h5_path: Path,
 	stream_id: str,
@@ -3368,17 +3368,17 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		relpath=(str(output_rel_root).strip() or "spikesort_outputs"),
 	)
 	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
-	paths = _resolve_bootstrap_concat_binary_paths(
+	paths = _resolve_concat_binary_paths(
 		well_out_dir=well_out_dir,
 		stage_output_root_dir=stage_output_root_dir,
 		stage_config=stage_config,
 	)
 	summary_json = paths["summary_json"]
 
-	if not bool(getattr(stage_config, "bootstrap_concat_binary_enabled", False)):
+	if not bool(getattr(stage_config, "concat_binary_enabled", False)):
 		payload = {
 			"status": "skipped",
-			"reason": "bootstrap_concat_binary_disabled",
+			"reason": "concat_binary_disabled",
 			"well_out_dir": str(well_out_dir),
 			"stage_output_root_dir": str(stage_output_root_dir),
 			"applied_debug_limits": _spikesort_applied_debug_limits_from_stage_config(stage_config),
@@ -3393,40 +3393,40 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		)
 
 	from axon_recon.pipeline.stages.preprocess.core.artifacts import load_common_electrodes
-	from axon_recon.pipeline.stages.preprocess.core.concat_segments import run_concat_segments_core
-	from axon_recon.pipeline.stages.preprocess.core.save_concatenated_recording import (
+	from axon_recon.pipeline.stages.spikesort.core.concat_binary import run_concat_binary_core
+	from axon_recon.pipeline.stages.spikesort.core.save_concatenated_recording import (
 		run_save_concatenated_recording_core,
 	)
 	from axon_recon.pipeline.stages.spikesort.core.debug_outputs import (
 		suppress_spikesort_external_debug_output,
 	)
 
-	overwrite_saved_recording = bool(getattr(stage_config, "bootstrap_concat_binary_overwrite_existing", False))
-	if bool(force_restart) and bool(getattr(stage_config, "bootstrap_concat_binary_overwrite_on_force_restart", True)):
+	overwrite_saved_recording = bool(getattr(stage_config, "concat_binary_overwrite_existing", False))
+	if bool(force_restart) and bool(getattr(stage_config, "concat_binary_overwrite_on_force_restart", True)):
 		overwrite_saved_recording = True
-	n_jobs_raw = getattr(stage_config, "bootstrap_concat_binary_n_jobs", None)
+	n_jobs_raw = getattr(stage_config, "concat_binary_n_jobs", None)
 	if n_jobs_raw is None:
 		n_jobs_raw = getattr(stage_config, "n_jobs", None)
-	_bcb_budget = current_phase_budget("spikesort", "bootstrap_concat_binary")
+	_cb_budget = current_phase_budget("spikesort", "concat_binary")
 	n_jobs = resolve_inner_worker_count(
 		nested_shape="si_njobs",
-		phase_cpus_per_task=getattr(_bcb_budget, "cpus_per_task", None) if _bcb_budget else None,
+		phase_cpus_per_task=getattr(_cb_budget, "cpus_per_task", None) if _cb_budget else None,
 		yaml_n_jobs_override=int(n_jobs_raw) if n_jobs_raw is not None else None,
 		work_item_count=None,
 	)
-	limit_segments_per_well = _bootstrap_concat_binary_limit_segments_per_well(stage_config)
+	limit_segments_per_well = _concat_binary_limit_segments_per_well(stage_config)
 	applied_debug_limits = _spikesort_applied_debug_limits_from_stage_config(
 		stage_config,
 		limit_segments_per_well=limit_segments_per_well,
 	)
 	chunk_duration = (
-		getattr(stage_config, "bootstrap_concat_binary_chunk_duration", None)
+		getattr(stage_config, "concat_binary_chunk_duration", None)
 		or getattr(stage_config, "chunk_duration", None)
 		or "1s"
 	)
 
 	_log_phase_step_start(
-		"Spikesort bootstrap concat binary step start",
+		"Spikesort concat binary step start",
 		stream_id=str(stream_id),
 		segment_manifest_path=paths["segment_manifest_path"],
 		recording_dir=paths["recording_dir"],
@@ -3440,7 +3440,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		relpath=str(
 			getattr(
 				stage_config,
-				"bootstrap_concat_binary_source_common_electrodes_relpath",
+				"concat_binary_source_common_electrodes_relpath",
 				"preprocess_outputs/common_electrodes.npy",
 			)
 		),
@@ -3450,10 +3450,10 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		common_electrodes_for_concat = load_common_electrodes(common_electrodes_path)
 	except FileNotFoundError:
 		LOGGER.info(
-			"Spikesort bootstrap_concat_binary: common-electrode artifact not found at %s; concat will use each segment's full channel set",
+			"Spikesort concat_binary: common-electrode artifact not found at %s; concat will use each segment's full channel set",
 			str(common_electrodes_path),
 		)
-	payload = run_concat_segments_core(
+	payload = run_concat_binary_core(
 		stream_id=str(stream_id),
 		segment_manifest_path=paths["segment_manifest_path"],
 		recording_dir=paths["recording_dir"],
@@ -3462,7 +3462,7 @@ def run_spikesort_bootstrap_concat_binary_stage(
 		output_mode="binary",
 		n_jobs=n_jobs,
 		chunk_duration=str(chunk_duration),
-		progress_bar=bool(getattr(stage_config, "bootstrap_concat_binary_progress_bar", True)),
+		progress_bar=bool(getattr(stage_config, "concat_binary_progress_bar", True)),
 		logger=LOGGER,
 		run_save_concatenated_recording_core=run_save_concatenated_recording_core,
 		common_electrodes=common_electrodes_for_concat,
@@ -3476,18 +3476,18 @@ def run_spikesort_bootstrap_concat_binary_stage(
 	]
 	if not binary_candidates:
 		raise RuntimeError(
-			"bootstrap_concat_binary did not produce a materialized binary recording: "
+			"concat_binary did not produce a materialized binary recording: "
 			f"recording_dir={paths['recording_dir']} reused_existing={payload.get('reused_existing', False)}. "
 			"Rerun with --force-restart or set overwrite_existing=true."
 		)
 	outputs = {
 		"summary_json": str(summary_json),
-		"bootstrap_concat_binary.recording_dir": str(paths["recording_dir"]),
-		"bootstrap_concat_binary.concat_manifest_path": str(paths["concat_manifest_path"]),
-		"bootstrap_concat_binary.cache_root_dir": str(paths["cache_root_dir"]),
+		"concat_binary.recording_dir": str(paths["recording_dir"]),
+		"concat_binary.concat_manifest_path": str(paths["concat_manifest_path"]),
+		"concat_binary.cache_root_dir": str(paths["cache_root_dir"]),
 	}
 	if "recording_json_path" in payload:
-		outputs["bootstrap_concat_binary.recording_json_path"] = str(payload["recording_json_path"])
+		outputs["concat_binary.recording_json_path"] = str(payload["recording_json_path"])
 	_write_json(
 		summary_json,
 		{
@@ -3541,12 +3541,12 @@ def run_spikesort_cleanup_concat_binary_stage(
 	summary_json = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=output_rel_root,
-		relpath=str(getattr(stage_config, "cleanup_concat_binary_summary_json_relpath", "cache/bootstrap_concat_binary_cleanup_summary.json")),
+		relpath=str(getattr(stage_config, "cleanup_concat_binary_summary_json_relpath", "cache/concat_binary_cleanup_summary.json")),
 	)
 	target_dir = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=output_rel_root,
-		relpath=str(getattr(stage_config, "cleanup_concat_binary_relpath", "cache/bootstrap_concat_binary")),
+		relpath=str(getattr(stage_config, "cleanup_concat_binary_relpath", "cache/concat_binary")),
 	)
 	removed_paths: list[str] = []
 	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)) and target_dir.exists():

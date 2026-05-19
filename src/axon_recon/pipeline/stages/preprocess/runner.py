@@ -48,20 +48,17 @@ from .core import (
 	load_saved_recording,
 	load_segment_manifest,
 	read_json,
-	run_concat_segments_core,
 	run_plot_concat_channel_layout_core,
 	run_plot_concat_traces_core,
 	run_plot_raster_threshold_core,
 	run_plot_segment_traces_core,
 	run_preprocess_segments_core,
-	run_save_concatenated_recording_core,
 	run_save_rec_metadata_core,
 	run_save_segment_recordings_core,
 )
 
 from .models.inputs import (
 	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
-	PreprocessConcatSegmentsPhaseConfig,
 	PreprocessInputs,
 	PreprocessPlotConcatChannelLayoutPhaseConfig,
 	PreprocessPlotConcatTracesPhaseConfig,
@@ -583,10 +580,6 @@ def _coalesce_config_value(*values: Any) -> Any:
 	return None
 
 
-def _is_concat_segments_phase(selected_phase: str | None) -> bool:
-	return selected_phase == "concat_segments"
-
-
 def _apply_plot_input_fallback(
 	*,
 	phase_plot: PreprocessPlotConfig,
@@ -735,12 +728,6 @@ def _resolve_effective_plot_config(inputs: PreprocessInputs, *, selected_phase: 
 		primary = segment_layout_plot
 		secondary = segment_plot
 		layouts = bool(segment_layout_plot.layouts)
-		segment_traces = False
-		concat_trace = False
-	elif _is_concat_segments_phase(selected_phase):
-		primary = concat_plot
-		secondary = concat_layout_plot
-		layouts = False
 		segment_traces = False
 		concat_trace = False
 	elif selected_phase == "plot_concat_traces":
@@ -898,14 +885,22 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 		well_out_dir=well_out_dir,
 		preprocess_out_dir=preprocess_out_dir,
 		legacy_out_dir=preprocess_out_dir,
+		# After phase_roster_cleanup_plan slice 7 the preprocess stage no longer
+		# materializes a concatenated recording — `spikesort.concat_binary` owns
+		# that step. The two preprocess plot_concat_* phases (queued for slice 8
+		# to move under spikesort) still rely on these path fields to find a
+		# pre-existing concat recording when manually enabled; the defaults below
+		# preserve the prior preprocess-stage location so any historical artifact
+		# remains discoverable, but a real consumer will need to point these at
+		# `<well>/spikesort_outputs/cache/concat_binary/...` once slice 8 lands.
 		recording_dir=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
-			raw=inputs.phases.concat_segments.rel_output_root,
+			raw=None,
 			default="concatenated_recording",
 		),
 		concat_manifest_path=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
-			raw=inputs.phases.concat_segments.manifest_relpath,
+			raw=None,
 			default="context/concat_segments_manifest.json",
 		),
 		common_electrodes_path=_resolve_preprocess_path_from_root(
@@ -980,7 +975,7 @@ def _resolve_preprocess_phase_n_jobs(
 	phase_name: str,
 	phase_plot_cfg: PreprocessPlotConfig,
 ) -> int:
-	_si_njobs_phases = {"preprocess_segments", "concat_segments"}
+	_si_njobs_phases = {"preprocess_segments"}
 	if phase_name in _si_njobs_phases:
 		_budget = current_phase_budget("preprocess", phase_name)
 		return resolve_inner_worker_count(
@@ -1777,8 +1772,6 @@ def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
 		return bool(inputs.phases.plot_segment_traces.enabled)
 	if phase_name == "plot_segment_channel_layouts":
 		return bool(inputs.phases.plot_segment_channel_layouts.enabled)
-	if phase_name == "concat_segments":
-		return bool(inputs.phases.concat_segments.enabled) and bool(inputs.save_concat_recording)
 	if phase_name == "plot_concat_traces":
 		return bool(inputs.phases.plot_concat_traces.enabled)
 	if phase_name == "plot_concat_channel_layout":
@@ -1791,8 +1784,6 @@ def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
 def _disabled_phase_skip_reason(inputs: PreprocessInputs, phase_name: str) -> str:
 	if phase_name == "preprocess_segments" and not bool(inputs.save_segment_recordings):
 		return "preprocess_segments disabled because save_segment_recordings is false"
-	if phase_name == "concat_segments" and not bool(inputs.save_concat_recording):
-		return "concat_segments disabled because save_concat_recording is false"
 	return "phase disabled in preprocess config"
 
 
@@ -1805,8 +1796,6 @@ def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str
 		return str(inputs.phases.plot_segment_traces.summary_json_relpath)
 	if phase_name == "plot_segment_channel_layouts":
 		return str(inputs.phases.plot_segment_channel_layouts.summary_json_relpath)
-	if phase_name == "concat_segments":
-		return str(inputs.phases.concat_segments.summary_json_relpath)
 	if phase_name == "plot_concat_traces":
 		return str(inputs.phases.plot_concat_traces.summary_json_relpath)
 	if phase_name == "plot_concat_channel_layout":
@@ -1825,8 +1814,6 @@ def _resource_class_for_phase(inputs: PreprocessInputs, phase_name: str) -> str 
 		return inputs.phases.plot_segment_traces.resource_class
 	if phase_name == "plot_segment_channel_layouts":
 		return inputs.phases.plot_segment_channel_layouts.resource_class
-	if phase_name == "concat_segments":
-		return inputs.phases.concat_segments.resource_class
 	if phase_name == "plot_concat_traces":
 		return inputs.phases.plot_concat_traces.resource_class
 	if phase_name == "plot_concat_channel_layout":
@@ -1864,12 +1851,6 @@ def _summary_outputs_for_phase(
 	if phase_name == "plot_segment_channel_layouts":
 		return {
 			"plot_output_dir": outputs.get("plot_output_dir", str(paths.preprocess_out_dir)),
-		}
-	if phase_name == "concat_segments":
-		return {
-			"concatenated_recording_dir": str(paths.recording_dir),
-			"preprocessed_recording_dir": str(paths.recording_dir),
-			"concat_manifest_path": str(paths.concat_manifest_path),
 		}
 	if phase_name == "plot_concat_traces":
 		return {
@@ -2183,61 +2164,6 @@ def _resume_plot_segment_channel_layouts_payload_if_complete(
 	)
 
 
-def _resume_concat_segments_payload_if_complete(
-	*,
-	inputs: PreprocessInputs,
-	paths: _PreprocessPathSet,
-) -> dict[str, Any] | None:
-	requested_output_mode = str(inputs.phases.concat_segments.output_mode or "binary").strip().lower()
-	if requested_output_mode not in {"binary", "lazy"}:
-		requested_output_mode = "binary"
-	try:
-		concat_manifest = load_concat_manifest(paths.concat_manifest_path)
-		load_saved_recording(paths.recording_dir)
-	except Exception:
-		return None
-
-	segment_entries = [
-		dict(item)
-		for item in concat_manifest.get("segment_entries", [])
-		if isinstance(item, dict)
-	]
-	if not segment_entries:
-		return None
-	stitch_frames = [int(value) for value in concat_manifest.get("stitch_frames", []) if value is not None]
-	if len(stitch_frames) not in {0, max(0, int(len(segment_entries) - 1))}:
-		return None
-	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="concat_segments")
-	manifest_output_mode = str(concat_manifest.get("output_mode", "")).strip().lower()
-	if manifest_output_mode:
-		if manifest_output_mode != requested_output_mode:
-			return None
-	elif requested_output_mode != "binary":
-		return None
-	if existing_payload is not None:
-		existing_output_mode = str(existing_payload.get("output_mode", "")).strip().lower()
-		if existing_output_mode:
-			if existing_output_mode != requested_output_mode:
-				return None
-		elif requested_output_mode != "binary":
-			return None
-	return _build_resumed_phase_payload(
-		phase_name="concat_segments",
-		existing_payload=existing_payload,
-		payload_updates={
-			"requested_output_mode": str(inputs.phases.concat_segments.output_mode),
-			"output_mode": str(requested_output_mode),
-			"segment_count": int(len(segment_entries)),
-			"segment_source": str(concat_manifest.get("segment_source", "preprocessed") or "preprocessed"),
-			"source_segment_count": int(len(segment_entries)),
-			"concatenate_preprocessed_recordings": bool(inputs.phases.concat_segments.concatenate_preprocessed_recordings),
-			"concat_manifest_path": str(paths.concat_manifest_path),
-			"recording_dir": str(paths.recording_dir),
-			"stitch_frame_count": int(len(stitch_frames)),
-		},
-	)
-
-
 def _resume_plot_concat_traces_payload_if_complete(
 	*,
 	inputs: PreprocessInputs,
@@ -2359,8 +2285,6 @@ def _resume_phase_payload_if_complete(
 			paths=paths,
 			phase_plot_cfg=phase_plot_cfg,
 		)
-	if phase_name == "concat_segments":
-		return _resume_concat_segments_payload_if_complete(inputs=inputs, paths=paths)
 	if phase_name == "plot_concat_traces":
 		return _resume_plot_concat_traces_payload_if_complete(
 			inputs=inputs,
@@ -2714,28 +2638,6 @@ def _run_preprocess_phase_sequence(
 						logger=phase_logger,
 					)
 					payload["phase"] = "plot_segment_channel_layouts"
-				elif payload is None and phase_name == "concat_segments":
-					_cs_budget = current_phase_budget("preprocess", "concat_segments")
-					_cs_n_jobs = resolve_inner_worker_count(
-						nested_shape="si_njobs",
-						phase_cpus_per_task=getattr(_cs_budget, "cpus_per_task", None) if _cs_budget else None,
-						yaml_n_jobs_override=None,
-						work_item_count=None,
-					)
-					payload = run_concat_segments_core(
-						stream_id=str(inputs.stream_id),
-						segment_manifest_path=paths.per_segment_manifest_path,
-						recording_dir=paths.recording_dir,
-						concat_manifest_path=paths.concat_manifest_path,
-						overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
-						output_mode=str(inputs.phases.concat_segments.output_mode),
-						n_jobs=_cs_n_jobs,
-						chunk_duration=str(inputs.phases.concat_segments.outputs.save_chunk_duration),
-						progress_bar=bool(inputs.phases.concat_segments.outputs.save_progress_bar),
-						logger=phase_logger,
-						run_save_concatenated_recording_core=run_save_concatenated_recording_core,
-						common_electrodes=_load_common_electrodes_or_empty(recording_metadata_paths.common_electrodes_path),
-					)
 				elif payload is None and phase_name == "plot_concat_traces":
 					payload = run_plot_concat_traces_core(
 						stream_id=str(inputs.stream_id),
@@ -3220,12 +3122,6 @@ def run_preprocess_plot_segment_channel_layouts_phase(inputs: PreprocessInputs) 
 	from .orchestrators.plot_segment_channel_layouts import run_preprocess_plot_segment_channel_layouts
 
 	return run_preprocess_plot_segment_channel_layouts(inputs)
-
-
-def run_preprocess_concat_segments_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	from .orchestrators.concat_segments import run_preprocess_concat_segments
-
-	return run_preprocess_concat_segments(inputs)
 
 
 def run_preprocess_plot_concat_traces_phase(inputs: PreprocessInputs) -> dict[str, Any]:

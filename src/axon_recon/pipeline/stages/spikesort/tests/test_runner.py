@@ -8,7 +8,7 @@ import pytest
 
 from axon_recon.pipeline.stages.spikesort.models.inputs import SpikesortInputs
 from axon_recon.pipeline.stages.spikesort.runner import (
-    run_spikesort_bootstrap_concat_binary_stage,
+    run_spikesort_concat_binary_stage,
     run_spikesort_cleanup_concat_binary_stage,
     run_spikesort_merge_stage,
     run_spikesort_stage,
@@ -167,8 +167,8 @@ def test_extract_unit_locations_from_analyzer_computes_dependency_chain() -> Non
     assert {"random_spikes", "waveforms", "templates", "unit_locations"}.issubset(set(analyzer.compute_calls))
 
 
-def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeypatch, tmp_path: Path) -> None:
-    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_module
+def test_run_spikesort_concat_binary_stage_materializes_binary(monkeypatch, tmp_path: Path) -> None:
+    from axon_recon.pipeline.stages.spikesort.core import concat_binary as concat_binary_module
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     well_out_dir = tmp_path / "well001"
@@ -176,7 +176,7 @@ def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeyp
 
     captured: dict[str, object] = {}
 
-    def _fake_run_concat_segments_core(**kwargs):
+    def _fake_run_concat_binary_core(**kwargs):
         captured.update(kwargs)
         recording_dir = Path(kwargs["recording_dir"])
         recording_dir.mkdir(parents=True, exist_ok=True)
@@ -191,29 +191,29 @@ def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeyp
             "reused_existing": False,
         }
 
-    monkeypatch.setattr(concat_segments_module, "run_concat_segments_core", _fake_run_concat_segments_core)
+    monkeypatch.setattr(concat_binary_module, "run_concat_binary_core", _fake_run_concat_binary_core)
 
     stage_config = SimpleNamespace(
         output_rel_root="spikesort_outputs",
-        bootstrap_concat_binary_enabled=True,
-        bootstrap_concat_binary_cache_relpath="cache/bootstrap_concat_binary",
-        bootstrap_concat_binary_recording_relpath="cache/bootstrap_concat_binary/recording",
-        bootstrap_concat_binary_manifest_relpath="cache/bootstrap_concat_binary/concat_segments_manifest.json",
-        bootstrap_concat_binary_summary_json_relpath="cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json",
-        bootstrap_concat_binary_source_segment_manifest_relpath="preprocess_outputs/preprocessed_segments/manifest.json",
-        bootstrap_concat_binary_debug_limit_segments_per_well=2,
+        concat_binary_enabled=True,
+        concat_binary_cache_relpath="cache/concat_binary",
+        concat_binary_recording_relpath="cache/concat_binary/recording",
+        concat_binary_manifest_relpath="cache/concat_binary/concat_segments_manifest.json",
+        concat_binary_summary_json_relpath="cache/concat_binary/concat_binary_summary.json",
+        concat_binary_source_segment_manifest_relpath="preprocess_outputs/preprocessed_segments/manifest.json",
+        concat_binary_debug_limit_segments_per_well=2,
         debug_limit_segments_per_well=None,
-        bootstrap_concat_binary_overwrite_existing=False,
-        bootstrap_concat_binary_overwrite_on_force_restart=True,
-        bootstrap_concat_binary_n_jobs=2,
-        bootstrap_concat_binary_chunk_duration="1s",
-        bootstrap_concat_binary_progress_bar=False,
+        concat_binary_overwrite_existing=False,
+        concat_binary_overwrite_on_force_restart=True,
+        concat_binary_n_jobs=2,
+        concat_binary_chunk_duration="1s",
+        concat_binary_progress_bar=False,
         n_jobs=4,
         chunk_duration="2s",
     )
 
     with task_slot_context(_TEST_TASK_SLOT):
-        result = run_spikesort_bootstrap_concat_binary_stage(
+        result = run_spikesort_concat_binary_stage(
             h5_path=tmp_path / "test.h5",
             stream_id="well001",
             mea_output_root=tmp_path,
@@ -222,7 +222,7 @@ def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeyp
             force_restart=True,
         )
 
-    assert Path(captured["recording_dir"]) == well_out_dir / "spikesort_outputs/cache/bootstrap_concat_binary/recording"
+    assert Path(captured["recording_dir"]) == well_out_dir / "spikesort_outputs/cache/concat_binary/recording"
     assert captured["output_mode"] == "binary"
     assert captured["overwrite_saved_recording"] is True
     assert captured["n_jobs"] == 2
@@ -231,22 +231,22 @@ def test_run_spikesort_bootstrap_concat_binary_stage_materializes_binary(monkeyp
     payload = _read_json(result.summary_json)
     assert payload["status"] == "ok"
     assert payload["limit_segments_per_well"] == 2
-    assert payload["recording_dir"].endswith("spikesort_outputs/cache/bootstrap_concat_binary/recording")
+    assert payload["recording_dir"].endswith("spikesort_outputs/cache/concat_binary/recording")
 
 
 def test_run_spikesort_cleanup_concat_binary_stage_removes_cache(monkeypatch, tmp_path: Path) -> None:
     from axon_recon.pipeline.stages.spikesort import runner as spikesort_runner
 
     well_out_dir = tmp_path / "well001"
-    cache_dir = well_out_dir / "spikesort_outputs/cache/bootstrap_concat_binary"
+    cache_dir = well_out_dir / "spikesort_outputs/cache/concat_binary"
     cache_dir.mkdir(parents=True)
     (cache_dir / "traces_cached_seg0.raw").write_bytes(b"raw")
     monkeypatch.setattr(spikesort_runner, "compute_mea_analysis_output_dir", lambda **kwargs: well_out_dir)
 
     stage_config = SimpleNamespace(
         cleanup_concat_binary_enabled=True,
-        cleanup_concat_binary_relpath="cache/bootstrap_concat_binary",
-        cleanup_concat_binary_summary_json_relpath="cache/bootstrap_concat_binary_cleanup_summary.json",
+        cleanup_concat_binary_relpath="cache/concat_binary",
+        cleanup_concat_binary_summary_json_relpath="cache/concat_binary_cleanup_summary.json",
     )
 
     result = run_spikesort_cleanup_concat_binary_stage(
@@ -259,7 +259,7 @@ def test_run_spikesort_cleanup_concat_binary_stage_removes_cache(monkeypatch, tm
     )
 
     assert not cache_dir.exists()
-    assert result.summary_json == well_out_dir / "spikesort_outputs/cache/bootstrap_concat_binary_cleanup_summary.json"
+    assert result.summary_json == well_out_dir / "spikesort_outputs/cache/concat_binary_cleanup_summary.json"
     payload = _read_json(result.summary_json)
     assert payload["status"] == "ok"
     assert payload["removed_paths"] == [str(cache_dir.resolve())]
@@ -3863,7 +3863,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
         output_rel_root="spikesort_outputs_v2",
         preprocess_concat_recording_relpath="preprocess_outputs/preprocessed_recording",
         sort_original_preprocess_concat_recording_relpath="preprocess_outputs/concatenated_recording",
-        sort_bootstrapped_concat_recording_relpath="spikesort_outputs_v2/cache/bootstrap_concat_binary/recording",
+        sort_bootstrapped_concat_recording_relpath="spikesort_outputs_v2/cache/concat_binary/recording",
         sort_use_bootstrapped_concat_binary=True,
         sort_use_lazy_source=False,
         sort_assert_one_source=True,
@@ -3889,7 +3889,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert captured_legacy_inputs.get("log_file_override") == "logs/custom_spikesort.log"
     assert captured_legacy_inputs.get("preprocess_concat_recording_relpath") == "preprocess_outputs/preprocessed_recording"
     assert captured_legacy_inputs.get("sort_original_preprocess_concat_recording_relpath") == "preprocess_outputs/concatenated_recording"
-    assert captured_legacy_inputs.get("sort_bootstrapped_concat_recording_relpath") == "spikesort_outputs_v2/cache/bootstrap_concat_binary/recording"
+    assert captured_legacy_inputs.get("sort_bootstrapped_concat_recording_relpath") == "spikesort_outputs_v2/cache/concat_binary/recording"
     assert captured_legacy_inputs.get("sort_use_bootstrapped_concat_binary") is True
     assert captured_legacy_inputs.get("sort_use_lazy_source") is False
     assert captured_legacy_inputs.get("sort_assert_one_source") is True
@@ -3909,7 +3909,7 @@ def test_run_spikesort_stage_propagates_logging_debug_plot_report_inputs(tmp_pat
     assert summary.get("inputs", {}).get("debug_outputs") is True
     assert summary.get("inputs", {}).get("preprocess_concat_recording_relpath") == "preprocess_outputs/preprocessed_recording"
     assert summary.get("inputs", {}).get("sort_original_preprocess_concat_recording_relpath") == "preprocess_outputs/concatenated_recording"
-    assert summary.get("inputs", {}).get("sort_bootstrapped_concat_recording_relpath") == "spikesort_outputs_v2/cache/bootstrap_concat_binary/recording"
+    assert summary.get("inputs", {}).get("sort_bootstrapped_concat_recording_relpath") == "spikesort_outputs_v2/cache/concat_binary/recording"
     assert summary.get("inputs", {}).get("sort_use_bootstrapped_concat_binary") is True
     assert summary.get("inputs", {}).get("sort_use_lazy_source") is False
     assert summary.get("inputs", {}).get("sort_assert_one_source") is True

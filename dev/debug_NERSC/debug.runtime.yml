@@ -421,11 +421,11 @@ stages:
     phase_sequence:
     # copy_src_to_scratch moved to the init stage (see stages.init).
     # wipe_src_scratch moved to the cleanup stage (see stages.cleanup).
+    # concat_segments consolidated into spikesort.concat_binary (slice 7).
     - save_rec_metadata
     - preprocess_segments
     #- plot_segment_traces
     #- plot_segment_channel_layouts
-    #- concat_segments
     #- plot_concat_traces
     #- plot_concat_channel_layout
     #- plot_raster_threshold
@@ -502,21 +502,10 @@ stages:
           layouts: true
           channel_layouts_subdir: channel_layouts
 
-      # TODO Claude: In spikesort stage, we now bootstrap the concat binary as a prep phase to sort. We don't do this here anymore because beig overhead, and lazy wasnt an option for pre-sort.
-      # Move all cocat logic to spikesort stage. rename the bootstrap_concat_binary phase to just concat_binary.
-      # keep trace plotting and raster plotting disabled by default, but these are useful diagnostics to have in spikesort stage.
-      concat_segments:
-        enabled: false
-        resource_class: bootstrap_concat_binary
-        concatenate_preprocessed_recordings: true # when true, concatenate the preprocessed segment recordings; when false, concatenate raw segment recordings instead while keeping the rest of the concat phase wiring the same.
-        output_mode: lazy
-        summary_json_relpath: context/concat_segments_summary.json
-        rel_output_root: concatenated_recording
-        manifest_relpath: context/concat_segments_manifest.json
-        outputs:
-          save_chunk_duration: 1s
-          save_progress_bar: true
-          print_n_jobs_used: true
+      # phase_roster_cleanup_plan slice 7: the legacy `concat_segments` phase
+      # was consolidated into `spikesort.concat_binary` (renamed from
+      # `bootstrap_concat_binary`). The plot_concat_* phases below stay here
+      # until slice 8 moves them under spikesort alongside concat_binary.
 
       # TODO Claude: As stated above, move to spikesort stage.
       plot_concat_traces:
@@ -581,10 +570,10 @@ stages:
     inputs:
       # Relative paths resolve under the per-well output directory.
       preprocess_concat_recording_relpath: preprocess_outputs/concatenated_recording
-    #phase_sequence: [bootstrap_concat_binary, sort, bombcell_label, merge_SLAy, cleanup_concat_binary]
-    #phase_sequence: [bootstrap_concat_binary, sort, summarize_sort, bombcell_label, cleanup_concat_binary]
+    #phase_sequence: [concat_binary, sort, bombcell_label, merge_SLAy, cleanup_concat_binary]
+    #phase_sequence: [concat_binary, sort, summarize_sort, bombcell_label, cleanup_concat_binary]
     phase_sequence:
-    - bootstrap_concat_binary
+    - concat_binary
     - sort
     #- summarize_sort
     - snapshot_sorter_output
@@ -597,18 +586,19 @@ stages:
     debug_outputs: false
     phases:
 
-      # TODO Claude: As described above, this phase has been working well in the spikesort stage, it basically leverages preprocessing stage concat segments logic.
-      # Keep the behavior of this stage, just rename it and consolidate it with the concat_segments phase in processing stage.
-      # as described above, rename to just concat_binary.
-      bootstrap_concat_binary:
+      # phase_roster_cleanup_plan slice 7: renamed from `bootstrap_concat_binary`
+      # to `concat_binary`, and absorbed the (now-deleted) preprocess
+      # `concat_segments` phase. The recording/manifest/cache live under
+      # `cache/concat_binary/` (previously `cache/bootstrap_concat_binary/`).
+      concat_binary:
         enabled: true
         resource_class: bootstrap_concat_binary
         # Source manifest is produced by preprocess.preprocess_segments; the binary cache is local to spikesort_outputs.
         source_segment_manifest_relpath: preprocess_outputs/preprocessed_segments/manifest.json
-        cache_relpath: cache/bootstrap_concat_binary
-        recording_relpath: cache/bootstrap_concat_binary/recording
-        manifest_relpath: cache/bootstrap_concat_binary/concat_segments_manifest.json
-        summary_json_relpath: cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json
+        cache_relpath: cache/concat_binary
+        recording_relpath: cache/concat_binary/recording
+        manifest_relpath: cache/concat_binary/concat_segments_manifest.json
+        summary_json_relpath: cache/concat_binary/concat_binary_summary.json
         use_as_preprocess_concat_recording: true
         overwrite_existing: false
         overwrite_on_force_restart: true
@@ -1140,8 +1130,8 @@ stages:
         #enabled: true
         enabled: false
         resource_class: disk_cleanup
-        relpath: cache/bootstrap_concat_binary
-        summary_json_relpath: cache/bootstrap_concat_binary_cleanup_summary.json
+        relpath: cache/concat_binary
+        summary_json_relpath: cache/concat_binary_cleanup_summary.json
 
       # Slice 13: dedicated post-merge analyzer cleanup. Runs after
       # cleanup_concat_binary and deletes <well>/spikesort_outputs/concat_analyzer/

@@ -16,8 +16,6 @@ from ...execution.context import ExecutionTarget
 from ...resources import get_resource_default, parse_resources_config, validate_phase_resource_class
 from .models.inputs import (
 	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
-	PreprocessConcatSegmentsPhaseConfig,
-	PreprocessConcatenatePreprocessedRecordingsPhaseConfig,
 	PreprocessInputs,
 	PreprocessPlotConcatChannelLayoutPhaseConfig,
 	PreprocessPhaseConfig,
@@ -50,11 +48,6 @@ _PREPROCESS_PHASE_ALIASES: dict[str, str] = {
 	"plot_segment_traces": "plot_segment_traces",
 	"plot_segment_channel_layouts": "plot_segment_channel_layouts",
 	"plot_segment_channel_layout": "plot_segment_channel_layouts",
-	"concat_segments": "concat_segments",
-	"concatenate_segments": "concat_segments",
-	"concatenate_recordings": "concat_segments",
-	"concatenate_preprocessed_recordings": "concat_segments",
-	"save_concatenated_recording": "concat_segments",
 	"plot_concat_traces": "plot_concat_traces",
 	"plot_concatenated_traces": "plot_concat_traces",
 	"plot_concat_channel_layout": "plot_concat_channel_layout",
@@ -707,7 +700,6 @@ def parse_preprocess_stage_config(
 	save_progress_bar = _as_bool(outputs_cfg.get("save_progress_bar", False), False)
 	print_n_jobs_used = _as_bool(outputs_cfg.get("print_n_jobs_used", False), False)
 	legacy_segment_phase_cfg = phases_cfg.get("save_segment_recordings", {}) if isinstance(phases_cfg.get("save_segment_recordings", {}), dict) else {}
-	legacy_concat_phase_cfg = phases_cfg.get("save_concatenated_recording", {}) if isinstance(phases_cfg.get("save_concatenated_recording", {}), dict) else {}
 	legacy_common_phase_cfg = phases_cfg.get("save_common_electrodes", {}) if isinstance(phases_cfg.get("save_common_electrodes", {}), dict) else {}
 
 	legacy_segment_phase = _parse_simple_phase_config(
@@ -715,12 +707,6 @@ def parse_preprocess_stage_config(
 		default_enabled=save_segment_recordings,
 		default_summary_json_relpath="context/segment_recordings_summary.json",
 		resource_class=_phase_resource_class(legacy_segment_phase_cfg, "preprocess_segments"),
-	)
-	legacy_concat_phase = _parse_simple_phase_config(
-		raw_cfg=legacy_concat_phase_cfg,
-		default_enabled=save_concat_recording,
-		default_summary_json_relpath="context/concat_segments_summary.json",
-		resource_class=_phase_resource_class(legacy_concat_phase_cfg, "concat_segments"),
 	)
 	legacy_common_phase = _parse_simple_phase_config(
 		raw_cfg=legacy_common_phase_cfg,
@@ -733,21 +719,12 @@ def parse_preprocess_stage_config(
 	preprocess_segments_phase_cfg = phases_cfg.get("preprocess_segments", {}) if isinstance(phases_cfg.get("preprocess_segments", {}), dict) else {}
 	plot_segment_traces_phase_cfg = phases_cfg.get("plot_segment_traces", {}) if isinstance(phases_cfg.get("plot_segment_traces", {}), dict) else {}
 	plot_segment_channel_layouts_phase_cfg = phases_cfg.get("plot_segment_channel_layouts", {}) if isinstance(phases_cfg.get("plot_segment_channel_layouts", {}), dict) else {}
-	concatenate_phase_cfg_raw = phases_cfg.get("concat_segments", None)
-	if not isinstance(concatenate_phase_cfg_raw, dict):
-		concatenate_phase_cfg_raw = phases_cfg.get("concatenate_recordings", None)
-	if not isinstance(concatenate_phase_cfg_raw, dict):
-		concatenate_phase_cfg_raw = phases_cfg.get("concatenate_preprocessed_recordings", {})
-	concatenate_phase_cfg = concatenate_phase_cfg_raw if isinstance(concatenate_phase_cfg_raw, dict) else {}
 	plot_concat_traces_phase_cfg = phases_cfg.get("plot_concat_traces", {}) if isinstance(phases_cfg.get("plot_concat_traces", {}), dict) else {}
-	concatenate_save_common_cfg = legacy_common_phase_cfg
-	if isinstance(concatenate_phase_cfg.get("save_common_electrodes", {}), dict):
-		concatenate_save_common_cfg = dict(concatenate_phase_cfg.get("save_common_electrodes", {}))
-	if concatenate_save_common_cfg:
+	if legacy_common_phase_cfg:
 		save_rec_metadata_phase_cfg = dict(save_rec_metadata_phase_cfg)
 		save_rec_metadata_phase_cfg.setdefault(
 			"common_electrodes_summary_json_relpath",
-			concatenate_save_common_cfg.get("summary_json_relpath", "context/save_common_electrodes_summary.json"),
+			legacy_common_phase_cfg.get("summary_json_relpath", "context/save_common_electrodes_summary.json"),
 		)
 
 	plot_concat_channel_layout_phase_cfg = phases_cfg.get("plot_concat_channel_layout", {}) if isinstance(phases_cfg.get("plot_concat_channel_layout", {}), dict) else {}
@@ -913,85 +890,11 @@ def parse_preprocess_stage_config(
 		trace_downsample_hz=plot_segment_traces_phase.plot.trace_downsample_hz,
 		trace_max_points=plot_segment_traces_phase.plot.trace_max_points,
 	)
-	concat_outputs_defaults = PreprocessPhaseOutputsConfig(
-		save_chunk_duration=preprocess_segments_phase.outputs.save_chunk_duration,
-		save_progress_bar=preprocess_segments_phase.outputs.save_progress_bar,
-		print_n_jobs_used=preprocess_segments_phase.outputs.print_n_jobs_used,
-	)
-	concat_debug_cfg = (
-		concatenate_phase_cfg.get("debug_mode", {})
-		if isinstance(concatenate_phase_cfg.get("debug_mode", {}), dict)
-		else {}
-	)
-	concat_debug_mode_enabled = _as_bool(
-		concat_debug_cfg.get("enabled", concat_debug_cfg.get("enable", False)),
-		False,
-	)
-	concat_segments_phase = PreprocessConcatSegmentsPhaseConfig(
-		enabled=_as_bool(
-			concatenate_phase_cfg.get(
-				"enabled",
-				concatenate_phase_cfg.get("enable", legacy_concat_phase.enabled),
-			),
-			legacy_concat_phase.enabled,
-		),
-		concatenate_preprocessed_recordings=_as_bool(
-			concatenate_phase_cfg.get("concatenate_preprocessed_recordings", True),
-			True,
-		),
-		debug_mode_enabled=concat_debug_mode_enabled,
-		debug_limit_datasets=(
-			_as_optional_int(concat_debug_cfg.get("limit_datasets", None))
-			if concat_debug_mode_enabled
-			else None
-		),
-		debug_limit_wells=(
-			_as_optional_int(concat_debug_cfg.get("limit_wells", None))
-			if concat_debug_mode_enabled
-			else None
-		),
-		debug_limit_wells_per_dataset=(
-			_as_optional_int(concat_debug_cfg.get("limit_wells_per_dataset", None))
-			if concat_debug_mode_enabled
-			else None
-		),
-		output_mode=_normalize_concat_output_mode(
-			concatenate_phase_cfg.get("output_mode", "binary")
-		),
-		summary_json_relpath=str(
-			concatenate_phase_cfg.get(
-				"summary_json_relpath",
-				legacy_concat_phase.summary_json_relpath,
-			)
-			or legacy_concat_phase.summary_json_relpath
-		),
-		resource_class=_phase_resource_class(
-			concatenate_phase_cfg if concatenate_phase_cfg else legacy_concat_phase_cfg,
-			"concat_segments",
-		),
-		rel_output_root=str(
-			concatenate_phase_cfg.get("rel_output_root", "concatenated_recording")
-			or "concatenated_recording"
-		),
-		manifest_relpath=str(
-			concatenate_phase_cfg.get("manifest_relpath", "context/concat_segments_manifest.json")
-			or "context/concat_segments_manifest.json"
-		),
-		outputs=_parse_phase_outputs_config(
-			raw_cfg=concatenate_phase_cfg.get("outputs", {}),
-			defaults=concat_outputs_defaults,
-		),
-	)
 	plot_concat_traces_phase_raw = plot_concat_traces_phase_cfg
-	if not plot_concat_traces_phase_raw and isinstance(concatenate_phase_cfg.get("plot", {}), dict):
-		plot_concat_traces_phase_raw = {
-			"enabled": True,
-			"plot": dict(concatenate_phase_cfg.get("plot", {})),
-		}
 	plot_concat_traces_phase = PreprocessPlotConcatTracesPhaseConfig(
 		enabled=_as_bool(
-			plot_concat_traces_phase_raw.get("enabled", concat_segments_phase.enabled),
-			concat_segments_phase.enabled,
+			plot_concat_traces_phase_raw.get("enabled", False),
+			False,
 		),
 		summary_json_relpath=str(
 			plot_concat_traces_phase_raw.get("summary_json_relpath", "context/plot_concat_traces_summary.json")
@@ -1135,7 +1038,6 @@ def parse_preprocess_stage_config(
 			preprocess_segments=preprocess_segments_phase,
 			plot_segment_traces=plot_segment_traces_phase,
 			plot_segment_channel_layouts=plot_segment_channel_layouts_phase,
-			concat_segments=concat_segments_phase,
 			plot_concat_traces=plot_concat_traces_phase,
 			plot_concat_channel_layout=plot_concat_channel_layout_phase,
 			plot_raster_threshold=plot_raster_threshold_phase,

@@ -265,7 +265,7 @@ def _as_list_of_strings(value: Any) -> list[str]:
 
 
 DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
-	"bootstrap_concat_binary",
+	"concat_binary",
 	"sort",
 	"summarize_sort",
 	"snapshot_sorter_output",
@@ -279,10 +279,13 @@ DEFAULT_SPIKESORT_PHASE_SEQUENCE: tuple[str, ...] = (
 
 
 _SPIKESORT_PHASE_ALIASES: dict[str, str] = {
-	"bootstrap_concat_binary": "bootstrap_concat_binary",
-	"bootstrap_concat": "bootstrap_concat_binary",
-	"bootstrap_binary": "bootstrap_concat_binary",
-	"bootstrap": "bootstrap_concat_binary",
+	"concat_binary": "concat_binary",
+	# Legacy aliases for the pre-rename `bootstrap_concat_binary` phase
+	# (renamed to `concat_binary` in phase_roster_cleanup_plan slice 7).
+	"bootstrap_concat_binary": "concat_binary",
+	"bootstrap_concat": "concat_binary",
+	"bootstrap_binary": "concat_binary",
+	"bootstrap": "concat_binary",
 	"sort": "sort",
 	"spikesort": "sort",
 	"summarize_sort": "summarize_sort",
@@ -411,11 +414,11 @@ class SpikesortStageConfig:
 	sort_debug_limit_datasets: int | None
 	sort_debug_limit_wells: int | None
 	sort_debug_limit_wells_per_dataset: int | None
-	bootstrap_concat_binary_debug_mode_enabled: bool
-	bootstrap_concat_binary_debug_limit_datasets: int | None
-	bootstrap_concat_binary_debug_limit_wells: int | None
-	bootstrap_concat_binary_debug_limit_wells_per_dataset: int | None
-	bootstrap_concat_binary_debug_limit_segments_per_well: int | None
+	concat_binary_debug_mode_enabled: bool
+	concat_binary_debug_limit_datasets: int | None
+	concat_binary_debug_limit_wells: int | None
+	concat_binary_debug_limit_wells_per_dataset: int | None
+	concat_binary_debug_limit_segments_per_well: int | None
 	cleanup_concat_binary_debug_mode_enabled: bool
 	cleanup_concat_binary_debug_limit_datasets: int | None
 	cleanup_concat_binary_debug_limit_wells: int | None
@@ -424,7 +427,7 @@ class SpikesortStageConfig:
 	cleanup_analyzers_debug_limit_datasets: int | None
 	cleanup_analyzers_debug_limit_wells: int | None
 	cleanup_analyzers_debug_limit_wells_per_dataset: int | None
-	bootstrap_concat_binary_resource_class: str | None
+	concat_binary_resource_class: str | None
 	sort_resource_class: str | None
 	summarize_sort_resource_class: str | None
 	snapshot_sorter_output_resource_class: str | None
@@ -491,18 +494,18 @@ class SpikesortStageConfig:
 	no_curation: bool
 	export_to_phy: bool
 	force_rerun_analyzer: bool
-	bootstrap_concat_binary_enabled: bool
-	bootstrap_concat_binary_cache_relpath: str
-	bootstrap_concat_binary_recording_relpath: str
-	bootstrap_concat_binary_manifest_relpath: str
-	bootstrap_concat_binary_summary_json_relpath: str
-	bootstrap_concat_binary_source_segment_manifest_relpath: str
-	bootstrap_concat_binary_use_as_preprocess_concat_recording: bool
-	bootstrap_concat_binary_overwrite_existing: bool
-	bootstrap_concat_binary_overwrite_on_force_restart: bool
-	bootstrap_concat_binary_n_jobs: int | None
-	bootstrap_concat_binary_chunk_duration: str | None
-	bootstrap_concat_binary_progress_bar: bool
+	concat_binary_enabled: bool
+	concat_binary_cache_relpath: str
+	concat_binary_recording_relpath: str
+	concat_binary_manifest_relpath: str
+	concat_binary_summary_json_relpath: str
+	concat_binary_source_segment_manifest_relpath: str
+	concat_binary_use_as_preprocess_concat_recording: bool
+	concat_binary_overwrite_existing: bool
+	concat_binary_overwrite_on_force_restart: bool
+	concat_binary_n_jobs: int | None
+	concat_binary_chunk_duration: str | None
+	concat_binary_progress_bar: bool
 	cleanup_concat_binary_enabled: bool
 	cleanup_concat_binary_relpath: str
 	cleanup_concat_binary_summary_json_relpath: str
@@ -759,7 +762,12 @@ def parse_spikesort_stage_config(
 	execution_cfg = _as_section(stage_cfg.get("execution", {}))
 	phases_cfg = _as_section(stage_cfg.get("phases", {}))
 	sort_phase_cfg = _as_section(phases_cfg.get("sort", {}))
-	bootstrap_concat_binary_phase_cfg = _as_section(phases_cfg.get("bootstrap_concat_binary", {}))
+	# `concat_binary` is the canonical YAML key after phase_roster_cleanup_plan
+	# slice 7; fall back to the legacy `bootstrap_concat_binary` key when the
+	# new key is absent so existing configs keep parsing.
+	concat_binary_phase_cfg = _as_section(
+		phases_cfg.get("concat_binary", phases_cfg.get("bootstrap_concat_binary", {}))
+	)
 	cleanup_concat_binary_phase_cfg = _as_section(
 		_coalesce(
 			phases_cfg.get("cleanup_concat_binary", None),
@@ -827,9 +835,9 @@ def parse_spikesort_stage_config(
 			phase_name=f"spikesort.{phase_name}",
 		)
 
-	bootstrap_concat_binary_resource_class = _phase_resource_class(
-		bootstrap_concat_binary_phase_cfg,
-		"bootstrap_concat_binary",
+	concat_binary_resource_class = _phase_resource_class(
+		concat_binary_phase_cfg,
+		"concat_binary",
 	)
 	sort_resource_class = _phase_resource_class(sort_phase_cfg, "sort")
 	summarize_sort_resource_class = _phase_resource_class(summarize_sort_phase_cfg, "summarize_sort")
@@ -1110,26 +1118,26 @@ def parse_spikesort_stage_config(
 	sort_debug_limit_wells_per_dataset = _as_optional_positive_int(
 		sort_debug_cfg.get("limit_wells_per_dataset", None)
 	)
-	bootstrap_concat_binary_debug_cfg = _as_section(bootstrap_concat_binary_phase_cfg.get("debug_mode", {}))
-	bootstrap_concat_binary_debug_mode_enabled = _as_bool(
-		bootstrap_concat_binary_debug_cfg.get("enabled", False),
+	concat_binary_debug_cfg = _as_section(concat_binary_phase_cfg.get("debug_mode", {}))
+	concat_binary_debug_mode_enabled = _as_bool(
+		concat_binary_debug_cfg.get("enabled", False),
 		False,
 	)
-	bootstrap_concat_binary_debug_limit_datasets = _as_optional_positive_int(
-		bootstrap_concat_binary_debug_cfg.get("limit_datasets", None)
+	concat_binary_debug_limit_datasets = _as_optional_positive_int(
+		concat_binary_debug_cfg.get("limit_datasets", None)
 	)
-	bootstrap_concat_binary_debug_limit_wells = _as_optional_positive_int(
-		bootstrap_concat_binary_debug_cfg.get("limit_wells", None)
+	concat_binary_debug_limit_wells = _as_optional_positive_int(
+		concat_binary_debug_cfg.get("limit_wells", None)
 	)
-	bootstrap_concat_binary_debug_limit_wells_per_dataset = _as_optional_positive_int(
-		bootstrap_concat_binary_debug_cfg.get("limit_wells_per_dataset", None)
+	concat_binary_debug_limit_wells_per_dataset = _as_optional_positive_int(
+		concat_binary_debug_cfg.get("limit_wells_per_dataset", None)
 	)
-	bootstrap_concat_binary_debug_limit_segments_per_well = _as_optional_positive_int(
+	concat_binary_debug_limit_segments_per_well = _as_optional_positive_int(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("limit_segments_per_well", None),
-			bootstrap_concat_binary_phase_cfg.get("limit_segments", None),
-			bootstrap_concat_binary_debug_cfg.get("limit_segments_per_well", None),
-			bootstrap_concat_binary_debug_cfg.get("limit_segments", None),
+			concat_binary_phase_cfg.get("limit_segments_per_well", None),
+			concat_binary_phase_cfg.get("limit_segments", None),
+			concat_binary_debug_cfg.get("limit_segments_per_well", None),
+			concat_binary_debug_cfg.get("limit_segments", None),
 		)
 	)
 	cleanup_concat_binary_debug_cfg = _as_section(cleanup_concat_binary_phase_cfg.get("debug_mode", {}))
@@ -1272,95 +1280,95 @@ def parse_spikesort_stage_config(
 		),
 		False,
 	)
-	bootstrap_concat_binary_enabled = _as_bool(
+	concat_binary_enabled = _as_bool(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("enabled", None),
+			concat_binary_phase_cfg.get("enabled", None),
 			False,
 		),
 		False,
 	)
-	bootstrap_concat_binary_cache_relpath = _normalize_optional_relpath(
+	concat_binary_cache_relpath = _normalize_optional_relpath(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("cache_relpath", None),
-			bootstrap_concat_binary_phase_cfg.get("rel_output_root", None),
-			"cache/bootstrap_concat_binary",
+			concat_binary_phase_cfg.get("cache_relpath", None),
+			concat_binary_phase_cfg.get("rel_output_root", None),
+			"cache/concat_binary",
 		)
-	) or "cache/bootstrap_concat_binary"
-	bootstrap_concat_binary_recording_relpath = _normalize_optional_relpath(
+	) or "cache/concat_binary"
+	concat_binary_recording_relpath = _normalize_optional_relpath(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("recording_relpath", None),
-			f"{bootstrap_concat_binary_cache_relpath}/recording",
+			concat_binary_phase_cfg.get("recording_relpath", None),
+			f"{concat_binary_cache_relpath}/recording",
 		)
-	) or f"{bootstrap_concat_binary_cache_relpath}/recording"
-	bootstrap_concat_binary_manifest_relpath = _normalize_optional_relpath(
+	) or f"{concat_binary_cache_relpath}/recording"
+	concat_binary_manifest_relpath = _normalize_optional_relpath(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("manifest_relpath", None),
-			f"{bootstrap_concat_binary_cache_relpath}/concat_segments_manifest.json",
+			concat_binary_phase_cfg.get("manifest_relpath", None),
+			f"{concat_binary_cache_relpath}/concat_segments_manifest.json",
 		)
-	) or f"{bootstrap_concat_binary_cache_relpath}/concat_segments_manifest.json"
-	bootstrap_concat_binary_summary_json_relpath = _normalize_optional_relpath(
+	) or f"{concat_binary_cache_relpath}/concat_segments_manifest.json"
+	concat_binary_summary_json_relpath = _normalize_optional_relpath(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("summary_json_relpath", None),
-			f"{bootstrap_concat_binary_cache_relpath}/bootstrap_concat_binary_summary.json",
+			concat_binary_phase_cfg.get("summary_json_relpath", None),
+			f"{concat_binary_cache_relpath}/concat_binary_summary.json",
 		)
-	) or f"{bootstrap_concat_binary_cache_relpath}/bootstrap_concat_binary_summary.json"
-	bootstrap_concat_binary_source_segment_manifest_relpath = _normalize_optional_relpath(
+	) or f"{concat_binary_cache_relpath}/concat_binary_summary.json"
+	concat_binary_source_segment_manifest_relpath = _normalize_optional_relpath(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("source_segment_manifest_relpath", None),
-			bootstrap_concat_binary_phase_cfg.get("segment_manifest_relpath", None),
+			concat_binary_phase_cfg.get("source_segment_manifest_relpath", None),
+			concat_binary_phase_cfg.get("segment_manifest_relpath", None),
 			"preprocess_outputs/preprocessed_segments/manifest.json",
 		)
 	) or "preprocess_outputs/preprocessed_segments/manifest.json"
-	bootstrap_concat_binary_use_as_preprocess_concat_recording = _as_bool(
+	concat_binary_use_as_preprocess_concat_recording = _as_bool(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("use_as_preprocess_concat_recording", None),
-			bootstrap_concat_binary_phase_cfg.get("use_as_spikesort_recording", None),
+			concat_binary_phase_cfg.get("use_as_preprocess_concat_recording", None),
+			concat_binary_phase_cfg.get("use_as_spikesort_recording", None),
 			True,
 		),
 		True,
 	)
-	bootstrap_concat_binary_overwrite_existing = _as_bool(
+	concat_binary_overwrite_existing = _as_bool(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("overwrite_existing", None),
+			concat_binary_phase_cfg.get("overwrite_existing", None),
 			False,
 		),
 		False,
 	)
-	bootstrap_concat_binary_overwrite_on_force_restart = _as_bool(
+	concat_binary_overwrite_on_force_restart = _as_bool(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("overwrite_on_force_restart", None),
+			concat_binary_phase_cfg.get("overwrite_on_force_restart", None),
 			True,
 		),
 		True,
 	)
-	bootstrap_concat_binary_n_jobs = _as_optional_positive_int(
-		bootstrap_concat_binary_phase_cfg.get("n_jobs", None)
+	concat_binary_n_jobs = _as_optional_positive_int(
+		concat_binary_phase_cfg.get("n_jobs", None)
 	)
-	bootstrap_concat_binary_chunk_duration = _as_optional_str(
+	concat_binary_chunk_duration = _as_optional_str(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("chunk_duration", None),
-			_get_nested_value(bootstrap_concat_binary_phase_cfg, ("outputs", "save_chunk_duration")),
+			concat_binary_phase_cfg.get("chunk_duration", None),
+			_get_nested_value(concat_binary_phase_cfg, ("outputs", "save_chunk_duration")),
 			None,
 		)
 	)
-	bootstrap_concat_binary_progress_bar = _as_bool(
+	concat_binary_progress_bar = _as_bool(
 		_coalesce(
-			bootstrap_concat_binary_phase_cfg.get("progress_bar", None),
-			_get_nested_value(bootstrap_concat_binary_phase_cfg, ("outputs", "save_progress_bar")),
+			concat_binary_phase_cfg.get("progress_bar", None),
+			_get_nested_value(concat_binary_phase_cfg, ("outputs", "save_progress_bar")),
 			True,
 		),
 		True,
 	)
 	sort_source_cfg = _as_section(sort_phase_cfg.get("source", {}))
 	sort_use_bootstrapped_default = bool(
-		bootstrap_concat_binary_enabled and bootstrap_concat_binary_use_as_preprocess_concat_recording
+		concat_binary_enabled and concat_binary_use_as_preprocess_concat_recording
 	)
 	sort_use_bootstrapped_concat_binary = _as_bool(
 		_coalesce(
 			sort_phase_cfg.get("use_bootstrapped_concat_binary", None),
 			sort_source_cfg.get("use_bootstrapped_concat_binary", None),
-			sort_phase_cfg.get("use_bootstrap_concat_binary", None),
-			sort_source_cfg.get("use_bootstrap_concat_binary", None),
+			sort_phase_cfg.get("use_concat_binary", None),
+			sort_source_cfg.get("use_concat_binary", None),
 			stage_cfg.get("sort_use_bootstrapped_concat_binary", None),
 			sort_use_bootstrapped_default,
 		),
@@ -1397,15 +1405,15 @@ def parse_spikesort_stage_config(
 		_coalesce(
 			cleanup_concat_binary_phase_cfg.get("relpath", None),
 			cleanup_concat_binary_phase_cfg.get("cache_relpath", None),
-			bootstrap_concat_binary_cache_relpath,
+			concat_binary_cache_relpath,
 		)
-	) or bootstrap_concat_binary_cache_relpath
+	) or concat_binary_cache_relpath
 	cleanup_concat_binary_summary_json_relpath = _normalize_optional_relpath(
 		_coalesce(
 			cleanup_concat_binary_phase_cfg.get("summary_json_relpath", None),
-			"cache/bootstrap_concat_binary_cleanup_summary.json",
+			"cache/concat_binary_cleanup_summary.json",
 		)
-	) or "cache/bootstrap_concat_binary_cleanup_summary.json"
+	) or "cache/concat_binary_cleanup_summary.json"
 	cleanup_analyzers_enabled = _as_bool(
 		_coalesce(
 			cleanup_analyzers_phase_cfg.get("enabled", None),
@@ -3306,7 +3314,7 @@ def parse_spikesort_stage_config(
 		)
 	)
 	sort_bootstrapped_concat_recording_relpath = _normalize_optional_relpath(
-		f"{output_rel_root}/{bootstrap_concat_binary_recording_relpath}"
+		f"{output_rel_root}/{concat_binary_recording_relpath}"
 	)
 	effective_preprocess_concat_recording_relpath = preprocess_concat_recording_relpath
 	if bool(sort_use_bootstrapped_concat_binary):
@@ -3340,14 +3348,14 @@ def parse_spikesort_stage_config(
 		sort_debug_limit_datasets=sort_debug_limit_datasets,
 		sort_debug_limit_wells=sort_debug_limit_wells,
 		sort_debug_limit_wells_per_dataset=sort_debug_limit_wells_per_dataset,
-		bootstrap_concat_binary_debug_mode_enabled=bool(bootstrap_concat_binary_debug_mode_enabled),
-		bootstrap_concat_binary_debug_limit_datasets=bootstrap_concat_binary_debug_limit_datasets,
-		bootstrap_concat_binary_debug_limit_wells=bootstrap_concat_binary_debug_limit_wells,
-		bootstrap_concat_binary_debug_limit_wells_per_dataset=(
-			bootstrap_concat_binary_debug_limit_wells_per_dataset
+		concat_binary_debug_mode_enabled=bool(concat_binary_debug_mode_enabled),
+		concat_binary_debug_limit_datasets=concat_binary_debug_limit_datasets,
+		concat_binary_debug_limit_wells=concat_binary_debug_limit_wells,
+		concat_binary_debug_limit_wells_per_dataset=(
+			concat_binary_debug_limit_wells_per_dataset
 		),
-		bootstrap_concat_binary_debug_limit_segments_per_well=(
-			bootstrap_concat_binary_debug_limit_segments_per_well
+		concat_binary_debug_limit_segments_per_well=(
+			concat_binary_debug_limit_segments_per_well
 		),
 		cleanup_concat_binary_debug_mode_enabled=bool(cleanup_concat_binary_debug_mode_enabled),
 		cleanup_concat_binary_debug_limit_datasets=cleanup_concat_binary_debug_limit_datasets,
@@ -3361,7 +3369,7 @@ def parse_spikesort_stage_config(
 		cleanup_analyzers_debug_limit_wells_per_dataset=(
 			cleanup_analyzers_debug_limit_wells_per_dataset
 		),
-		bootstrap_concat_binary_resource_class=bootstrap_concat_binary_resource_class,
+		concat_binary_resource_class=concat_binary_resource_class,
 		sort_resource_class=sort_resource_class,
 		summarize_sort_resource_class=summarize_sort_resource_class,
 		snapshot_sorter_output_resource_class=snapshot_sorter_output_resource_class,
@@ -3503,22 +3511,22 @@ def parse_spikesort_stage_config(
 		no_curation=no_curation,
 		export_to_phy=export_to_phy,
 		force_rerun_analyzer=force_rerun_analyzer,
-		bootstrap_concat_binary_enabled=bool(bootstrap_concat_binary_enabled),
-		bootstrap_concat_binary_cache_relpath=str(bootstrap_concat_binary_cache_relpath),
-		bootstrap_concat_binary_recording_relpath=str(bootstrap_concat_binary_recording_relpath),
-		bootstrap_concat_binary_manifest_relpath=str(bootstrap_concat_binary_manifest_relpath),
-		bootstrap_concat_binary_summary_json_relpath=str(bootstrap_concat_binary_summary_json_relpath),
-		bootstrap_concat_binary_source_segment_manifest_relpath=str(
-			bootstrap_concat_binary_source_segment_manifest_relpath
+		concat_binary_enabled=bool(concat_binary_enabled),
+		concat_binary_cache_relpath=str(concat_binary_cache_relpath),
+		concat_binary_recording_relpath=str(concat_binary_recording_relpath),
+		concat_binary_manifest_relpath=str(concat_binary_manifest_relpath),
+		concat_binary_summary_json_relpath=str(concat_binary_summary_json_relpath),
+		concat_binary_source_segment_manifest_relpath=str(
+			concat_binary_source_segment_manifest_relpath
 		),
-		bootstrap_concat_binary_use_as_preprocess_concat_recording=bool(
-			bootstrap_concat_binary_use_as_preprocess_concat_recording
+		concat_binary_use_as_preprocess_concat_recording=bool(
+			concat_binary_use_as_preprocess_concat_recording
 		),
-		bootstrap_concat_binary_overwrite_existing=bool(bootstrap_concat_binary_overwrite_existing),
-		bootstrap_concat_binary_overwrite_on_force_restart=bool(bootstrap_concat_binary_overwrite_on_force_restart),
-		bootstrap_concat_binary_n_jobs=bootstrap_concat_binary_n_jobs,
-		bootstrap_concat_binary_chunk_duration=bootstrap_concat_binary_chunk_duration,
-		bootstrap_concat_binary_progress_bar=bool(bootstrap_concat_binary_progress_bar),
+		concat_binary_overwrite_existing=bool(concat_binary_overwrite_existing),
+		concat_binary_overwrite_on_force_restart=bool(concat_binary_overwrite_on_force_restart),
+		concat_binary_n_jobs=concat_binary_n_jobs,
+		concat_binary_chunk_duration=concat_binary_chunk_duration,
+		concat_binary_progress_bar=bool(concat_binary_progress_bar),
 		cleanup_concat_binary_enabled=bool(cleanup_concat_binary_enabled),
 		cleanup_concat_binary_relpath=str(cleanup_concat_binary_relpath),
 		cleanup_concat_binary_summary_json_relpath=str(cleanup_concat_binary_summary_json_relpath),

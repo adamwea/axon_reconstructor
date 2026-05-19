@@ -269,7 +269,7 @@ def test_spikesort_runtime_phase_plan_preserves_phase_resource_class():
 
 	stage_config = SimpleNamespace(
 		phase_sequence=("sort", "merge_SLAy", "cleanup_concat_binary"),
-		bootstrap_concat_binary_enabled=False,
+		concat_binary_enabled=False,
 		sort_enabled=True,
 		sort_resource_class="kilosort4",
 		summarize_sort_enabled=False,

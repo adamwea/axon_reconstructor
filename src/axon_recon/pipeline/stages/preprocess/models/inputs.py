@@ -16,7 +16,6 @@ DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
 	"plot_segment_traces",
 	"plot_segment_channel_layouts",
 	"plot_raster_threshold",
-	"concat_segments",
 	"plot_concat_traces",
 	"plot_concat_channel_layout",
 )
@@ -99,22 +98,6 @@ class PreprocessPlotSegmentTracesPhaseConfig:
 
 
 @dataclass(frozen=True)
-class PreprocessConcatSegmentsPhaseConfig:
-	enabled: bool = True
-	concatenate_preprocessed_recordings: bool = True
-	debug_mode_enabled: bool = False
-	debug_limit_datasets: int | None = None
-	debug_limit_wells: int | None = None
-	debug_limit_wells_per_dataset: int | None = None
-	output_mode: str = "binary"
-	summary_json_relpath: str = "context/concat_segments_summary.json"
-	resource_class: str | None = None
-	rel_output_root: str = "concatenated_recording"
-	manifest_relpath: str = "context/concat_segments_manifest.json"
-	outputs: PreprocessPhaseOutputsConfig = field(default_factory=PreprocessPhaseOutputsConfig)
-
-
-@dataclass(frozen=True)
 class PreprocessPlotConcatTracesPhaseConfig:
 	enabled: bool = True
 	summary_json_relpath: str = "context/plot_concat_traces_summary.json"
@@ -166,10 +149,6 @@ class PreprocessPlotRasterThresholdPhaseConfig:
 	rel_output_root: str = "raster_threshold"
 
 
-PreprocessConcatenateRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig
-PreprocessConcatenatePreprocessedRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig
-
-
 @dataclass(frozen=True)
 class PreprocessPhasesConfig:
 	save_rec_metadata: PreprocessSaveRecMetadataPhaseConfig = field(
@@ -199,9 +178,6 @@ class PreprocessPhasesConfig:
 	plot_segment_channel_layouts: PreprocessPlotSegmentChannelLayoutsPhaseConfig = field(
 		default_factory=PreprocessPlotSegmentChannelLayoutsPhaseConfig
 	)
-	concat_segments: PreprocessConcatSegmentsPhaseConfig = field(
-		default_factory=PreprocessConcatSegmentsPhaseConfig
-	)
 	plot_concat_traces: PreprocessPlotConcatTracesPhaseConfig = field(
 		default_factory=PreprocessPlotConcatTracesPhaseConfig
 	)
@@ -211,13 +187,6 @@ class PreprocessPhasesConfig:
 	plot_raster_threshold: PreprocessPlotRasterThresholdPhaseConfig = field(
 		default_factory=PreprocessPlotRasterThresholdPhaseConfig
 	)
-	@property
-	def concatenate_recordings(self) -> PreprocessConcatSegmentsPhaseConfig:
-		return self.concat_segments
-
-	@property
-	def concatenate_preprocessed_recordings(self) -> PreprocessConcatSegmentsPhaseConfig:
-		return self.concat_segments
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,12 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .artifacts import build_stitch_frames_from_segment_manifest, load_segment_manifest, load_segment_recording_from_entry, write_json
+from ...preprocess.core.artifacts import (
+	build_stitch_frames_from_segment_manifest,
+	load_segment_manifest,
+	load_segment_recording_from_entry,
+	write_json,
+)
 
 
 def _slice_to_common_electrodes(*, recording: Any, common_electrodes: list[int], rec_name: str) -> Any:
@@ -23,7 +28,7 @@ def _slice_to_common_electrodes(*, recording: Any, common_electrodes: list[int],
 	return selected
 
 
-def run_concat_segments_core(
+def run_concat_binary_core(
 	*,
 	stream_id: str,
 	segment_manifest_path: Path,
@@ -53,7 +58,7 @@ def run_concat_segments_core(
 			segment_entries = list(segment_entries[:segment_limit])
 	if logger is not None:
 		logger.info(
-			"Starting concat_segments for well=%s segment_count=%d source_segment_count=%d limit_segments_per_well=%s manifest=%s common_electrodes=%d",
+			"Starting concat_binary for well=%s segment_count=%d source_segment_count=%d limit_segments_per_well=%s manifest=%s common_electrodes=%d",
 			str(stream_id),
 			int(len(segment_entries)),
 			int(source_segment_count),
@@ -79,7 +84,7 @@ def run_concat_segments_core(
 		segment_recordings.append(loaded)
 		if logger is not None:
 			logger.info(
-				"concat_segments progress well=%s loaded=%d/%d rec_name=%s",
+				"concat_binary progress well=%s loaded=%d/%d rec_name=%s",
 				str(stream_id),
 				int(segment_index),
 				int(len(segment_entries)),
@@ -130,7 +135,7 @@ def run_concat_segments_core(
 			recording_dir,
 		)
 	payload: dict[str, object] = {
-		"phase": "concat_segments",
+		"phase": "concat_binary",
 		"output_mode": str(save_result.get("output_mode", requested_output_mode)),
 		"segment_count": int(len(segment_entries)),
 		"segment_source": "preprocessed",
@@ -139,7 +144,7 @@ def run_concat_segments_core(
 		"concat_manifest_path": str(concat_manifest_path),
 		"stitch_frame_count": int(len(stitch_frames)),
 		"phase_timing_s": {
-			"concat_segments": float(max(0.0, time.perf_counter() - t0)),
+			"concat_binary": float(max(0.0, time.perf_counter() - t0)),
 		},
 	}
 	payload.update({str(key): value for key, value in dict(save_result).items()})

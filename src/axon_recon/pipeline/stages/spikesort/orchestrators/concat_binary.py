@@ -6,11 +6,11 @@ from typing import Any
 
 from ....execution.results import MultiTargetStageResult
 from ..models.results import SpikesortResult
-from ..runner import run_spikesort_bootstrap_concat_binary_stage
+from ..runner import run_spikesort_concat_binary_stage
 from .sort import _print_spikesort_aggregate, _target_datasets_override_from_args
 
 
-def run_spikesort_bootstrap_concat_binary(
+def run_spikesort_concat_binary(
 	*,
 	h5_path: Path,
 	stream_id: str,
@@ -19,7 +19,7 @@ def run_spikesort_bootstrap_concat_binary(
 	stage_config: Any,
 	force_restart: bool,
 ) -> SpikesortResult:
-	return run_spikesort_bootstrap_concat_binary_stage(
+	return run_spikesort_concat_binary_stage(
 		h5_path=h5_path,
 		stream_id=stream_id,
 		mea_output_root=mea_output_root,
@@ -29,7 +29,7 @@ def run_spikesort_bootstrap_concat_binary(
 	)
 
 
-def run_spikesort_bootstrap_concat_binary_from_runtime(
+def run_spikesort_concat_binary_from_runtime(
 	*,
 	config_path: str,
 	limit_segments_override: int | None = None,
@@ -39,7 +39,7 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 	force_restart_override: bool | None = None,
 	force_replot_override: bool | None = None,
 ) -> MultiTargetStageResult:
-	from ....runner import run_spikesort_bootstrap_concat_binary_from_runtime as run_runtime
+	from ....runner import run_spikesort_concat_binary_from_runtime as run_runtime
 
 	return run_runtime(
 		config_path=str(config_path),
@@ -52,10 +52,10 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 	)
 
 
-def _run_bootstrap_concat_binary_from_args(args: argparse.Namespace) -> int:
+def _run_concat_binary_from_args(args: argparse.Namespace) -> int:
 	target_datasets_override = _target_datasets_override_from_args(args)
 	return _print_spikesort_aggregate(
-		run_spikesort_bootstrap_concat_binary_from_runtime(
+		run_spikesort_concat_binary_from_runtime(
 			config_path=str(args.config),
 			limit_segments_override=getattr(args, "limit_segments", None),
 			limit_datasets_override=getattr(args, "limit_datasets", None),

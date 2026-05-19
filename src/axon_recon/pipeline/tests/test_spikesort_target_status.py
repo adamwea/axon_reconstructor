@@ -348,7 +348,7 @@ def test_run_spikesort_from_runtime_applies_segment_limit_to_bootstrap_phase(
                 "stages": {
                     "spikesort": {
                         "phases": {
-                            "bootstrap_concat_binary": {"enabled": True},
+                            "concat_binary": {"enabled": True},
                             "sort": {"enabled": False},
                             "cleanup_concat_binary": {"enabled": False},
                         }
@@ -374,9 +374,9 @@ def test_run_spikesort_from_runtime_applies_segment_limit_to_bootstrap_phase(
 
     def _fake_bootstrap_target(*, target, stage_config, unit_workers: int):
         seen["debug_limit_segments_per_well"] = getattr(stage_config, "debug_limit_segments_per_well", None)
-        seen["bootstrap_concat_binary_debug_limit_segments_per_well"] = getattr(
+        seen["concat_binary_debug_limit_segments_per_well"] = getattr(
             stage_config,
-            "bootstrap_concat_binary_debug_limit_segments_per_well",
+            "concat_binary_debug_limit_segments_per_well",
             None,
         )
         return SpikesortResult(
@@ -390,14 +390,14 @@ def test_run_spikesort_from_runtime_applies_segment_limit_to_bootstrap_phase(
     monkeypatch.setattr(pipeline_runner, "select_execution_targets", _fake_select_execution_targets)
     monkeypatch.setattr(pipeline_runner, "resolve_stage_parallelism", _fake_resolve_stage_parallelism)
     monkeypatch.setattr(pipeline_runner, "distribute_targets", _fake_distribute_targets)
-    monkeypatch.setattr(pipeline_runner, "_run_spikesort_bootstrap_concat_binary_target", _fake_bootstrap_target)
+    monkeypatch.setattr(pipeline_runner, "_run_spikesort_concat_binary_target", _fake_bootstrap_target)
 
     agg = run_spikesort_from_runtime(config_path=str(tmp_path / "runtime.yml"), limit_segments_override=2)
 
     assert agg.total_targets == 1
     assert seen == {
         "debug_limit_segments_per_well": 2,
-        "bootstrap_concat_binary_debug_limit_segments_per_well": 2,
+        "concat_binary_debug_limit_segments_per_well": 2,
     }
 
 
@@ -639,7 +639,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
         return SimpleNamespace(
             debug_limit_wells=None,
             output_rel_root="spikesort_outputs",
-            bootstrap_concat_binary_enabled=True,
+            concat_binary_enabled=True,
             sort_enabled=True,
             summarize_sort_enabled=False,
             bombcell_label_enabled=True,
@@ -670,8 +670,8 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", _fake_parse_spikesort_stage_config)
     monkeypatch.setattr(
         pipeline_runner,
-        "_run_spikesort_bootstrap_concat_binary_target",
-        _fake_target_phase_runner("spikesort.bootstrap_concat_binary"),
+        "_run_spikesort_concat_binary_target",
+        _fake_target_phase_runner("spikesort.concat_binary"),
     )
     monkeypatch.setattr(
         pipeline_runner,
@@ -703,7 +703,7 @@ def test_run_spikesort_from_runtime_runs_enabled_phases_in_lifecycle_order(
     assert len(distribute_calls) == 1
     assert distribute_calls[0][0] == [target]
     assert calls == [
-        "spikesort.bootstrap_concat_binary",
+        "spikesort.concat_binary",
         "spikesort.sort",
         "spikesort.bombcell_label",
         "spikesort.merge_SLAy",
@@ -760,7 +760,7 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
                         }
                     },
                     "phase_budgets": {
-                        "bootstrap_concat_binary": {
+                        "concat_binary": {
                             "cpus_per_task": 1,
                             "ram_gb": 1,
                         },
@@ -775,8 +775,8 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
         )
         data_config = object()
 
-    active_counts = {"bootstrap_concat_binary": 0, "sort": 0}
-    max_active_counts = {"bootstrap_concat_binary": 0, "sort": 0}
+    active_counts = {"concat_binary": 0, "sort": 0}
+    max_active_counts = {"concat_binary": 0, "sort": 0}
     active_lock = threading.Lock()
 
     def _fake_load_pipeline_runtime_bundle(*, config_path: str):
@@ -793,9 +793,9 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
             debug_limit_wells=None,
             output_rel_root="spikesort_outputs",
             force_single_well_sort=False,
-            phase_sequence=("bootstrap_concat_binary", "sort"),
-            bootstrap_concat_binary_enabled=True,
-            bootstrap_concat_binary_resource_class="bootstrap_concat_binary",
+            phase_sequence=("concat_binary", "sort"),
+            concat_binary_enabled=True,
+            concat_binary_resource_class="bootstrap_concat_binary",
             sort_enabled=True,
             sort_resource_class="kilosort4",
             summarize_sort_enabled=False,
@@ -841,8 +841,8 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
     monkeypatch.setattr(pipeline_runner, "parse_spikesort_stage_config", _fake_parse_spikesort_stage_config)
     monkeypatch.setattr(
         pipeline_runner,
-        "_run_spikesort_bootstrap_concat_binary_target",
-        _fake_phase_runner("bootstrap_concat_binary"),
+        "_run_spikesort_concat_binary_target",
+        _fake_phase_runner("concat_binary"),
     )
     monkeypatch.setattr(pipeline_runner, "_run_spikesort_sort_target", _fake_phase_runner("sort"))
     monkeypatch.setattr(pipeline_runner, "distribute_targets", _fake_distribute_targets)
@@ -852,7 +852,7 @@ def test_run_spikesort_from_runtime_gates_only_sort_phase_across_wells_via_resou
     assert agg.total_targets == 2
     assert agg.succeeded_targets == 2
     assert agg.failed_targets == 0
-    assert max_active_counts["bootstrap_concat_binary"] == 2
+    assert max_active_counts["concat_binary"] == 2
     assert max_active_counts["sort"] == 1
 
 
@@ -860,7 +860,7 @@ def test_enabled_spikesort_runtime_phase_plan_uses_configured_sequence_and_skips
     import axon_recon.pipeline.runner as pipeline_runner
 
     stage_config = SimpleNamespace(
-        bootstrap_concat_binary_enabled=True,
+        concat_binary_enabled=True,
         sort_enabled=True,
         summarize_sort_enabled=False,
         bombcell_label_enabled=True,
@@ -876,7 +876,7 @@ def test_enabled_spikesort_runtime_phase_plan_uses_configured_sequence_and_skips
         "spikesort.sort",
         "spikesort.cleanup_concat_binary",
         "spikesort.merge_SLAy",
-        "spikesort.bootstrap_concat_binary",
+        "spikesort.concat_binary",
     ]
 
 

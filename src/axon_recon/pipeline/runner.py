@@ -50,7 +50,6 @@ from .resources import TaskAllocationConfig, get_active_profile, get_active_reso
 from .shared.maxwell_plugin import install_maxwell_hdf5_plugin_message_filter
 from .stages.preprocess.api import (
 	run_preprocess,
-	run_preprocess_concat_segments,
 	run_preprocess_plot_concat_channel_layout,
 	run_preprocess_plot_concat_traces,
 	run_preprocess_plot_raster_threshold,
@@ -100,8 +99,8 @@ from .stages.reconstruct.templates.config import (
 	parse_reconstruct_templates_config,
 )
 from .stages.spikesort.api import (
-	bootstrap_spikesort_concat_binary,
 	build_spikesort_concat_analyzer,
+	build_spikesort_concat_binary,
 	cleanup_spikesort_analyzers,
 	cleanup_spikesort_concat_binary,
 	restore_spikesort_sorter_output,
@@ -235,17 +234,14 @@ def _preprocess_stage_uses_nested_workers(stage_config: Any) -> bool:
 	except Exception:
 		return True
 	preprocess_segments_enabled = bool(getattr(getattr(phases, "preprocess_segments", None), "enabled", False))
-	concat_segments_enabled = bool(getattr(getattr(phases, "concat_segments", None), "enabled", False))
 	return bool(
-		(preprocess_segments_enabled and _preprocess_stage_phase_in_sequence(stage_config, "preprocess_segments"))
-		or (concat_segments_enabled and _preprocess_stage_phase_in_sequence(stage_config, "concat_segments"))
+		preprocess_segments_enabled and _preprocess_stage_phase_in_sequence(stage_config, "preprocess_segments")
 	)
 
 
 def _preprocess_substage_uses_nested_workers(stage_name: str) -> bool:
 	return str(stage_name).strip() in {
 		"preprocess.preprocess_segments",
-		"preprocess.concat_segments",
 	}
 
 
@@ -466,7 +462,7 @@ def _spikesort_phase_resource_classes_from_labels(
 	phase_labels: list[str] | tuple[str, ...],
 ) -> tuple[str, ...]:
 	resource_attr_by_phase_label = {
-		"bootstrap_concat_binary": "bootstrap_concat_binary_resource_class",
+		"concat_binary": "concat_binary_resource_class",
 		"sort": "sort_resource_class",
 		"summarize_sort": "summarize_sort_resource_class",
 		"snapshot_sorter_output": "snapshot_sorter_output_resource_class",
@@ -1032,8 +1028,8 @@ def _with_debug_limit_overrides(
 			if "debug_limit_segments_per_well" in field_names:
 				replace_kwargs["debug_limit_segments_per_well"] = segment_limit
 				segment_limit_replaced = True
-			if "bootstrap_concat_binary_debug_limit_segments_per_well" in field_names:
-				replace_kwargs["bootstrap_concat_binary_debug_limit_segments_per_well"] = segment_limit
+			if "concat_binary_debug_limit_segments_per_well" in field_names:
+				replace_kwargs["concat_binary_debug_limit_segments_per_well"] = segment_limit
 				segment_limit_replaced = True
 			if not segment_limit_replaced and "limit_segments" in field_names:
 				replace_kwargs["limit_segments"] = segment_limit
@@ -1192,7 +1188,6 @@ def _apply_preprocess_substage_phase_debug_limits(
 ) -> list[Any]:
 	phase_attr_by_stage_name = {
 		"preprocess.save_rec_metadata": "save_rec_metadata",
-		"preprocess.concat_segments": "concat_segments",
 		"preprocess.plot_raster_threshold": "plot_raster_threshold",
 	}
 	phase_attr = phase_attr_by_stage_name.get(str(stage_name).strip())
@@ -1870,7 +1865,7 @@ def _build_preprocess_allocation_preview(
 
 
 _SPIKESORT_DIRECT_PHASE_LABELS: dict[str, str] = {
-	"spikesort.bootstrap_concat_binary": "bootstrap_concat_binary",
+	"spikesort.concat_binary": "concat_binary",
 	"spikesort.cleanup_concat_binary": "cleanup_concat_binary",
 	"spikesort.cleanup_analyzers": "cleanup_analyzers",
 	"spikesort.sort": "sort",
@@ -2678,31 +2673,6 @@ def run_preprocess_plot_segment_traces_from_runtime(
 	)
 
 
-def run_preprocess_concat_segments_from_runtime(
-	*,
-	config_path: str,
-	limit_segments_override: int | None = None,
-	limit_datasets_override: int | None = None,
-	target_datasets_override: list[int] | None = None,
-	limit_wells_per_dataset_override: int | None = None,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-	task_allocation_override: dict[str, Any] | None = None,
-) -> MultiTargetStageResult:
-	return _run_preprocess_substage_from_runtime(
-		config_path=config_path,
-		stage_name="preprocess.concat_segments",
-		runner_fn=run_preprocess_concat_segments,
-		limit_segments_override=limit_segments_override,
-		limit_datasets_override=limit_datasets_override,
-		target_datasets_override=target_datasets_override,
-		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-		task_allocation_override=task_allocation_override,
-	)
-
-
 def run_preprocess_plot_concat_traces_from_runtime(
 	*,
 	config_path: str,
@@ -2940,17 +2910,17 @@ def _enabled_spikesort_runtime_phase_plan(
 	stage_config: Any,
 ) -> list[_SpikesortRuntimePhase]:
 	available_phases: dict[str, _SpikesortRuntimePhase] = {}
-	if bool(getattr(stage_config, "bootstrap_concat_binary_enabled", False)):
-		available_phases["bootstrap_concat_binary"] = (
+	if bool(getattr(stage_config, "concat_binary_enabled", False)):
+		available_phases["concat_binary"] = (
 			_SpikesortRuntimePhase(
-				name="spikesort.bootstrap_concat_binary",
-				phase_label="bootstrap_concat_binary",
-				debug_enabled_attr="bootstrap_concat_binary_debug_mode_enabled",
-				debug_limit_datasets_attr="bootstrap_concat_binary_debug_limit_datasets",
-				debug_limit_wells_attr="bootstrap_concat_binary_debug_limit_wells",
-				target_runner=_run_spikesort_bootstrap_concat_binary_target,
-				debug_limit_wells_per_dataset_attr="bootstrap_concat_binary_debug_limit_wells_per_dataset",
-				resource_class=getattr(stage_config, "bootstrap_concat_binary_resource_class", None),
+				name="spikesort.concat_binary",
+				phase_label="concat_binary",
+				debug_enabled_attr="concat_binary_debug_mode_enabled",
+				debug_limit_datasets_attr="concat_binary_debug_limit_datasets",
+				debug_limit_wells_attr="concat_binary_debug_limit_wells",
+				target_runner=_run_spikesort_concat_binary_target,
+				debug_limit_wells_per_dataset_attr="concat_binary_debug_limit_wells_per_dataset",
+				resource_class=getattr(stage_config, "concat_binary_resource_class", None),
 			)
 		)
 	if bool(getattr(stage_config, "sort_enabled", True)):
@@ -3098,8 +3068,8 @@ def _spikesort_output_rel_root(stage_config: Any) -> str:
 	return str(getattr(stage_config, "output_rel_root", "spikesort_outputs") or "spikesort_outputs")
 
 
-def _run_spikesort_bootstrap_concat_binary_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
-	return bootstrap_spikesort_concat_binary(
+def _run_spikesort_concat_binary_target(*, target: Any, stage_config: Any, unit_workers: int) -> SpikesortResult:
+	return build_spikesort_concat_binary(
 		h5_path=target.h5_path,
 		stream_id=target.stream_id,
 		mea_output_root=target.mea_output_root,
@@ -3479,7 +3449,7 @@ def _run_spikesort_concat_binary_phase_from_runtime(
 	)
 
 
-def run_spikesort_bootstrap_concat_binary_from_runtime(
+def run_spikesort_concat_binary_from_runtime(
 	*,
 	config_path: str,
 	limit_segments_override: int | None = None,
@@ -3492,8 +3462,8 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 ) -> MultiTargetStageResult:
 	return _run_spikesort_concat_binary_phase_from_runtime(
 		config_path=config_path,
-		stage_name="spikesort.bootstrap_concat_binary",
-		runner_fn=bootstrap_spikesort_concat_binary,
+		stage_name="spikesort.concat_binary",
+		runner_fn=build_spikesort_concat_binary,
 		limit_segments_override=limit_segments_override,
 		limit_datasets_override=limit_datasets_override,
 		target_datasets_override=target_datasets_override,
@@ -3501,11 +3471,11 @@ def run_spikesort_bootstrap_concat_binary_from_runtime(
 		force_restart_override=force_restart_override,
 		force_replot_override=force_replot_override,
 		task_allocation_override=task_allocation_override,
-		debug_phase_label="bootstrap_concat_binary",
-		debug_enabled_attr="bootstrap_concat_binary_debug_mode_enabled",
-		debug_limit_datasets_attr="bootstrap_concat_binary_debug_limit_datasets",
-		debug_limit_wells_attr="bootstrap_concat_binary_debug_limit_wells",
-		debug_limit_wells_per_dataset_attr="bootstrap_concat_binary_debug_limit_wells_per_dataset",
+		debug_phase_label="concat_binary",
+		debug_enabled_attr="concat_binary_debug_mode_enabled",
+		debug_limit_datasets_attr="concat_binary_debug_limit_datasets",
+		debug_limit_wells_attr="concat_binary_debug_limit_wells",
+		debug_limit_wells_per_dataset_attr="concat_binary_debug_limit_wells_per_dataset",
 		publish_after_run=False,
 	)
 

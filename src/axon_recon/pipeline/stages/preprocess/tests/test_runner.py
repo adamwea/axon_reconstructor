@@ -12,11 +12,11 @@ from pathlib import Path
 import pytest
 
 from axon_recon.pipeline.stages.preprocess.models.inputs import (
-    PreprocessConcatSegmentsPhaseConfig,
     PreprocessInputs,
     PreprocessPhasesConfig,
-    PreprocessPlotRasterThresholdPhaseConfig,
+    PreprocessPlotConcatChannelLayoutPhaseConfig,
     PreprocessPlotConcatTracesPhaseConfig,
+    PreprocessPlotRasterThresholdPhaseConfig,
     PreprocessPlotSegmentChannelLayoutsPhaseConfig,
     PreprocessPlotSegmentTracesPhaseConfig,
     PreprocessSaveRecMetadataPhaseConfig,
@@ -24,7 +24,6 @@ from axon_recon.pipeline.stages.preprocess.models.inputs import (
 )
 from axon_recon.pipeline.stages.preprocess.runner import (
     _run_preprocess_selected_phase,
-    run_preprocess_concat_segments_phase,
     run_preprocess_plot_raster_threshold_phase,
     run_preprocess_plot_segment_channel_layouts_phase,
     run_preprocess_save_rec_metadata_phase,
@@ -46,8 +45,15 @@ def _write_test_png(path: Path) -> None:
 
 
 def _full_stage_phases() -> PreprocessPhasesConfig:
+    # After phase_roster_cleanup_plan slice 7, the preprocess stage no longer
+    # owns the concat-recording materialization step (it lives in
+    # spikesort.concat_binary now). The plot_concat_* phases are kept in
+    # preprocess code but default to disabled because they depend on the
+    # concat artifacts that the preprocess stage no longer produces.
     return PreprocessPhasesConfig(
         save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
+        plot_concat_traces=PreprocessPlotConcatTracesPhaseConfig(enabled=False),
+        plot_concat_channel_layout=PreprocessPlotConcatChannelLayoutPhaseConfig(enabled=False),
     )
 
 
@@ -247,37 +253,6 @@ def _install_success_fakes(
             "total_event_count": 7,
         }
 
-    def _fake_run_concat_segments_core(**kwargs):
-        _capture("concat_segments", kwargs)
-        recording_dir = Path(str(kwargs["recording_dir"]))
-        concat_manifest_path = Path(str(kwargs["concat_manifest_path"]))
-        recording_dir.mkdir(parents=True, exist_ok=True)
-        concat_manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        (recording_dir / "recording.marker").write_text("ok\n", encoding="utf-8")
-        concat_manifest_path.write_text(
-            json.dumps(
-                {
-                    "segment_count": 2,
-                    "segment_source": "preprocessed",
-                    "segment_entries": [
-                        {"segment_index": 0, "rec_name": "seg000", "folder": str(Path(str(kwargs["segment_manifest_path"])).parent / "000_seg000")},
-                        {"segment_index": 1, "rec_name": "seg001", "folder": str(Path(str(kwargs["segment_manifest_path"])).parent / "001_seg001")},
-                    ],
-                    "stitch_frames": [100],
-                }
-            ),
-            encoding="utf-8",
-        )
-        return {
-            "phase": "concat_segments",
-            "recording_dir": str(recording_dir),
-            "concat_manifest_path": str(concat_manifest_path),
-            "segment_source": "preprocessed",
-            "source_segment_count": 2,
-            "concatenate_preprocessed_recordings": True,
-            "stitch_frame_count": 1,
-        }
-
     def _fake_run_plot_concat_traces_core(**kwargs):
         _capture("plot_concat_traces", kwargs)
         plot_output_dir = Path(str(kwargs["plot_output_dir"]))
@@ -297,7 +272,6 @@ def _install_success_fakes(
     monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _fake_run_save_rec_metadata_core)
     monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _fake_run_preprocess_segments_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _fake_run_plot_segment_traces_core)
-    monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _fake_run_concat_segments_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_concat_traces_core", _fake_run_plot_concat_traces_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_concat_channel_layout_core", _fake_run_plot_concat_channel_layout_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_raster_threshold_core", _fake_run_plot_raster_threshold_core)
@@ -342,7 +316,8 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
     assert "preprocess_segments_summary_json" in outputs
     assert "plot_segment_traces_summary_json" in outputs
     assert "plot_segment_channel_layouts_summary_json" in outputs
-    assert "concat_segments_summary_json" in outputs
+    # concat_segments was consolidated into spikesort.concat_binary in slice 7.
+    assert "concat_segments_summary_json" not in outputs
     assert "plot_concat_traces_summary_json" in outputs
     assert "observability.run_manifest_json" in outputs
     assert "observability.event_timeline_jsonl" in outputs
@@ -442,16 +417,15 @@ def test_run_preprocess_stage_passes_plot_and_segment_controls_to_phase_cores(tm
     assert Path(str(captured_phase_kwargs["save_rec_metadata"]["assay_stats_path"])) == canonical_out_dir / "assay_stats_well001.txt"
     assert Path(str(captured_phase_kwargs["plot_segment_traces"]["plot_output_dir"])) == canonical_out_dir
     assert Path(str(captured_phase_kwargs["plot_segment_channel_layouts"]["plot_output_dir"])) == canonical_out_dir
-    assert Path(str(captured_phase_kwargs["plot_concat_traces"]["plot_output_dir"])) == canonical_out_dir
+    # plot_concat_traces is disabled by default in `_full_stage_phases` after
+    # slice 7 — the upstream concat-recording phase moved to spikesort.
+    assert "plot_concat_traces" not in captured_phase_kwargs
     assert captured_phase_kwargs["plot_segment_traces"]["plot_layouts"] is False
     assert captured_phase_kwargs["plot_segment_channel_layouts"]["plot_layouts"] is True
     assert captured_phase_kwargs["plot_segment_channel_layouts"]["plot_segment_traces"] is False
     assert captured_phase_kwargs["plot_segment_traces"]["segment_trace_n_reps"] == 6
     assert captured_phase_kwargs["plot_segment_traces"]["plot_n_jobs"] == 3
     assert captured_phase_kwargs["plot_segment_traces"]["trace_max_points"] == -1
-    assert captured_phase_kwargs["plot_concat_traces"]["concat_trace_n_reps"] == 3
-    assert captured_phase_kwargs["plot_concat_traces"]["plot_n_jobs"] == 3
-    assert captured_phase_kwargs["plot_concat_traces"]["trace_max_points"] == -1
     assert summary.get("inputs", {}).get("trace_max_points") == -1
     assert summary.get("inputs", {}).get("debug_limit_segments_per_well") == 2
     assert summary.get("inputs", {}).get("logging_enabled") is False
@@ -696,13 +670,16 @@ def test_run_preprocess_stage_force_restart_clears_outputs_and_reruns_enabled_ph
     outputs = dict(summary.get("outputs", {}))
 
     assert not stale_path.exists()
+    # After slice 7, plot_concat_traces / plot_concat_channel_layout default
+    # to disabled in `_full_stage_phases` because the concat-recording phase
+    # they consumed (`preprocess.concat_segments`) was consolidated into
+    # spikesort.concat_binary; the preprocess stage no longer materializes
+    # those concat artifacts.
     assert phase_call_order == [
         "save_rec_metadata",
         "preprocess_segments",
         "plot_segment_traces",
         "plot_segment_channel_layouts",
-        "concat_segments",
-        "plot_concat_traces",
     ]
     assert summary.get("inputs", {}).get("force_restart") is True
     assert outputs["pipeline_log"] == str(canonical_out_dir / "logs" / "preprocess_pipeline.log")
@@ -794,14 +771,19 @@ def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypa
         run_preprocess_stage(inputs)
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any("Starting preprocess work for well=well001 phase_count=6 selected_phase=all" in message for message in messages)
+    # phase_count is 4 after slice 7:
+    # save_rec_metadata + preprocess_segments + plot_segment_traces + plot_segment_channel_layouts
+    # are enabled. plot_concat_traces / plot_concat_channel_layout default to
+    # disabled in the test fixture (they no longer have an upstream concat
+    # phase to feed them), and plot_raster_threshold defaults to disabled.
+    assert any("Starting preprocess work for well=well001 phase_count=4 selected_phase=all" in message for message in messages)
     assert any(
         "Preprocess phase worker allocation stage=preprocess phase=preprocess_segments well=well001 well_workers=2 n_jobs=12 n_jobs_source=derived phase_n_jobs=12"
         in message
         for message in messages
     )
-    assert any("Starting preprocess phase 1/6 for well=well001 phase=save_rec_metadata" in message for message in messages)
-    assert any("Starting preprocess phase 5/6 for well=well001 phase=concat_segments" in message for message in messages)
+    assert any("Starting preprocess phase 1/4 for well=well001 phase=save_rec_metadata" in message for message in messages)
+    assert any("Starting preprocess phase 4/4 for well=well001 phase=plot_segment_channel_layouts" in message for message in messages)
     assert not any("unit_workers" in message for message in messages if "worker allocation" in message)
 
 
@@ -957,8 +939,6 @@ def test_run_preprocess_stage_resumes_complete_phase_artifacts_without_force_res
     monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _explode)
-    monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _explode)
-    monkeypatch.setattr(preprocess_runner, "run_plot_concat_traces_core", _explode)
 
     with caplog.at_level(logging.INFO):
         second_result = run_preprocess_stage(inputs)
@@ -966,13 +946,15 @@ def test_run_preprocess_stage_resumes_complete_phase_artifacts_without_force_res
     phase_summary_paths = {str(name): Path(str(path)) for name, path in dict(stage_summary.get("phase_summaries", {})).items()}
     messages = [record.getMessage() for record in caplog.records]
 
+    # After slice 7: preprocess no longer materializes the concat recording
+    # (concat_segments consolidated into spikesort.concat_binary), and the
+    # plot_concat_* phases are disabled by default in `_full_stage_phases`
+    # because they depend on artifacts the preprocess stage no longer makes.
     for phase_name in (
         "save_rec_metadata",
         "preprocess_segments",
         "plot_segment_traces",
         "plot_segment_channel_layouts",
-        "concat_segments",
-        "plot_concat_traces",
     ):
         phase_summary = _read_json(phase_summary_paths[phase_name])
         assert phase_summary["status"] == "skipped"
@@ -982,12 +964,6 @@ def test_run_preprocess_stage_resumes_complete_phase_artifacts_without_force_res
         "Resuming preprocess phase for well=well001 phase=preprocess_segments; found existing complete artifacts:" in message
         and "manifest_path=" in message
         and "output_dir=" in message
-        for message in messages
-    )
-    assert any(
-        "Resuming preprocess phase for well=well001 phase=concat_segments; found existing complete artifacts:" in message
-        and "recording_dir=" in message
-        and "concat_manifest_path=" in message
         for message in messages
     )
 
@@ -1034,7 +1010,6 @@ def test_run_preprocess_stage_reruns_phase_when_resume_artifact_is_incomplete(tm
     monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _tracked_plot_segment_traces_core)
-    monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_plot_concat_traces_core", _explode)
 
     second_result = run_preprocess_stage(inputs)
@@ -1370,7 +1345,10 @@ def test_run_preprocess_segments_core_lazy_mode_writes_provenance_manifest_witho
 
 
 def test_run_save_concatenated_recording_core_lazy_mode_writes_cached_json_without_binary_save(tmp_path: Path) -> None:
-    from axon_recon.pipeline.stages.preprocess.core import save_concatenated_recording as save_concat_core
+    # `save_concatenated_recording` moved from preprocess.core to
+    # spikesort.core when phase_roster_cleanup_plan slice 7 consolidated
+    # `preprocess.concat_segments` into `spikesort.concat_binary`.
+    from axon_recon.pipeline.stages.spikesort.core import save_concatenated_recording as save_concat_core
 
     class _FakeRecording:
         def dump_to_json(self, file_path, relative_to=None) -> None:
@@ -1409,148 +1387,6 @@ def test_run_save_concatenated_recording_core_lazy_mode_writes_cached_json_witho
     assert (recording_dir / "cached.json").is_file()
 
 
-def test_run_concat_segments_core_records_lazy_output_mode(monkeypatch, tmp_path: Path) -> None:
-    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_core
-
-    class _FakeRecording:
-        pass
-
-    fake_spikeinterface = types.ModuleType("spikeinterface")
-    fake_spikeinterface_full = types.ModuleType("spikeinterface.full")
-    fake_spikeinterface_full.concatenate_recordings = lambda recordings: {"concatenated": len(recordings)}
-    fake_spikeinterface.full = fake_spikeinterface_full
-    monkeypatch.setitem(sys.modules, "spikeinterface", fake_spikeinterface)
-    monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_spikeinterface_full)
-
-    written_manifests: list[tuple[Path, dict[str, object]]] = []
-    monkeypatch.setattr(
-        concat_segments_core,
-        "load_segment_manifest",
-        lambda _path: [
-            {"segment_index": 0, "rec_name": "seg000", "provenance_path": str(tmp_path / "seg000.json"), "n_samples": 100},
-            {"segment_index": 1, "rec_name": "seg001", "provenance_path": str(tmp_path / "seg001.json"), "n_samples": 120},
-        ],
-    )
-    monkeypatch.setattr(concat_segments_core, "load_segment_recording_from_entry", lambda _entry: _FakeRecording())
-    monkeypatch.setattr(concat_segments_core, "build_stitch_frames_from_segment_manifest", lambda _entries: [100])
-    monkeypatch.setattr(
-        concat_segments_core,
-        "write_json",
-        lambda path, payload: written_manifests.append((Path(path), dict(payload))),
-    )
-
-    saved_payloads: list[dict[str, object]] = []
-
-    def _fake_save(**kwargs):
-        saved_payloads.append(dict(kwargs))
-        return {
-            "recording_dir": str(kwargs["recording_dir"]),
-            "recording_json_path": str(Path(str(kwargs["recording_dir"])) / "cached.json"),
-            "output_mode": str(kwargs["output_mode"]),
-            "materialized_recording": False,
-            "saved": True,
-        }
-
-    payload = concat_segments_core.run_concat_segments_core(
-        stream_id="well001",
-        segment_manifest_path=tmp_path / "segments_manifest.json",
-        recording_dir=tmp_path / "concatenated_recording",
-        concat_manifest_path=tmp_path / "concat_manifest.json",
-        overwrite_saved_recording=True,
-        output_mode="lazy",
-        n_jobs=1,
-        chunk_duration="1s",
-        progress_bar=False,
-        logger=None,
-        run_save_concatenated_recording_core=_fake_save,
-    )
-
-    assert payload["output_mode"] == "lazy"
-    assert payload["materialized_recording"] is False
-    assert len(saved_payloads) == 1
-    assert saved_payloads[0]["output_mode"] == "lazy"
-    assert len(written_manifests) == 1
-    assert written_manifests[0][1]["output_mode"] == "lazy"
-
-
-def test_run_concat_segments_core_limits_segments_before_concatenating(monkeypatch, tmp_path: Path) -> None:
-    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_core
-
-    class _FakeRecording:
-        def __init__(self, name: str) -> None:
-            self.name = name
-
-    fake_spikeinterface = types.ModuleType("spikeinterface")
-    fake_spikeinterface_full = types.ModuleType("spikeinterface.full")
-
-    def _fake_concatenate(recordings):
-        return {"concatenated": [recording.name for recording in recordings]}
-
-    fake_spikeinterface_full.concatenate_recordings = _fake_concatenate
-    fake_spikeinterface.full = fake_spikeinterface_full
-    monkeypatch.setitem(sys.modules, "spikeinterface", fake_spikeinterface)
-    monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_spikeinterface_full)
-
-    manifest_entries = [
-        {"segment_index": 0, "rec_name": "seg000", "provenance_path": str(tmp_path / "seg000.json"), "n_samples": 100},
-        {"segment_index": 1, "rec_name": "seg001", "provenance_path": str(tmp_path / "seg001.json"), "n_samples": 120},
-        {"segment_index": 2, "rec_name": "seg002", "provenance_path": str(tmp_path / "seg002.json"), "n_samples": 140},
-    ]
-    monkeypatch.setattr(concat_segments_core, "load_segment_manifest", lambda _path: list(manifest_entries))
-    monkeypatch.setattr(
-        concat_segments_core,
-        "load_segment_recording_from_entry",
-        lambda entry: _FakeRecording(str(entry["rec_name"])),
-    )
-
-    stitch_inputs: list[list[str]] = []
-
-    def _fake_stitch_frames(entries):
-        stitch_inputs.append([str(item["rec_name"]) for item in entries])
-        return [100, 220]
-
-    monkeypatch.setattr(concat_segments_core, "build_stitch_frames_from_segment_manifest", _fake_stitch_frames)
-    written_manifests: list[tuple[Path, dict[str, object]]] = []
-    monkeypatch.setattr(
-        concat_segments_core,
-        "write_json",
-        lambda path, payload: written_manifests.append((Path(path), dict(payload))),
-    )
-
-    saved_payloads: list[dict[str, object]] = []
-
-    def _fake_save(**kwargs):
-        saved_payloads.append(dict(kwargs))
-        return {
-            "recording_dir": str(kwargs["recording_dir"]),
-            "output_mode": str(kwargs["output_mode"]),
-            "materialized_recording": True,
-            "saved": True,
-        }
-
-    payload = concat_segments_core.run_concat_segments_core(
-        stream_id="well001",
-        segment_manifest_path=tmp_path / "segments_manifest.json",
-        recording_dir=tmp_path / "concatenated_recording",
-        concat_manifest_path=tmp_path / "concat_manifest.json",
-        overwrite_saved_recording=True,
-        output_mode="binary",
-        n_jobs=1,
-        chunk_duration="1s",
-        progress_bar=False,
-        logger=None,
-        run_save_concatenated_recording_core=_fake_save,
-        limit_segments_per_well=2,
-    )
-
-    assert payload["segment_count"] == 2
-    assert payload["source_segment_count"] == 3
-    assert payload["limit_segments_per_well"] == 2
-    assert stitch_inputs == [["seg000", "seg001"]]
-    assert saved_payloads[0]["multirecording"] == {"concatenated": ["seg000", "seg001"]}
-    assert written_manifests[0][1]["segment_count"] == 2
-    assert written_manifests[0][1]["source_segment_count"] == 3
-    assert [item["rec_name"] for item in written_manifests[0][1]["segment_entries"]] == ["seg000", "seg001"]
 
 
 def test_run_preprocess_stage_uses_lazy_output_mode_for_preprocess_segments_when_no_downstream_consumers_enabled(
@@ -1569,7 +1405,6 @@ def test_run_preprocess_stage_uses_lazy_output_mode_for_preprocess_segments_when
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, output_mode="lazy"),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
             plot_segment_channel_layouts=PreprocessPlotSegmentChannelLayoutsPhaseConfig(enabled=False),
-            concat_segments=PreprocessConcatSegmentsPhaseConfig(enabled=False),
         ),
     )
 
@@ -1594,7 +1429,6 @@ def test_run_preprocess_stage_keeps_lazy_preprocess_segments_when_downstream_con
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, output_mode="lazy"),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=True),
             plot_segment_channel_layouts=PreprocessPlotSegmentChannelLayoutsPhaseConfig(enabled=False),
-            concat_segments=PreprocessConcatSegmentsPhaseConfig(enabled=False),
         ),
     )
 
@@ -1628,7 +1462,6 @@ def test_run_preprocess_stage_resumes_lazy_preprocess_segments_artifacts_without
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, output_mode="lazy"),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
             plot_segment_channel_layouts=PreprocessPlotSegmentChannelLayoutsPhaseConfig(enabled=False),
-            concat_segments=PreprocessConcatSegmentsPhaseConfig(enabled=False),
             plot_concat_traces=PreprocessPlotConcatTracesPhaseConfig(enabled=False),
         ),
     )
@@ -1650,66 +1483,6 @@ def test_run_preprocess_stage_resumes_lazy_preprocess_segments_artifacts_without
     assert preprocess_phase_summary["status"] == "skipped"
     assert preprocess_phase_summary["reused_existing_artifacts"] is True
     assert preprocess_phase_summary["output_mode"] == "lazy"
-
-
-def test_run_concat_segments_core_logs_progress_per_well(monkeypatch, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_core
-
-    class _FakeRecording:
-        pass
-
-    fake_spikeinterface = types.ModuleType("spikeinterface")
-    fake_spikeinterface_full = types.ModuleType("spikeinterface.full")
-    fake_spikeinterface_full.concatenate_recordings = lambda recordings: {"concatenated": len(recordings)}
-    fake_spikeinterface.full = fake_spikeinterface_full
-    monkeypatch.setitem(sys.modules, "spikeinterface", fake_spikeinterface)
-    monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_spikeinterface_full)
-
-    monkeypatch.setattr(
-        concat_segments_core,
-        "load_segment_manifest",
-        lambda _path: [
-            {"segment_index": 0, "rec_name": "seg000", "folder": str(tmp_path / "seg000")},
-            {"segment_index": 1, "rec_name": "seg001", "folder": str(tmp_path / "seg001")},
-        ],
-    )
-    monkeypatch.setattr(concat_segments_core, "load_segment_recording_from_entry", lambda _entry: _FakeRecording())
-    monkeypatch.setattr(concat_segments_core, "build_stitch_frames_from_segment_manifest", lambda _entries: [100])
-    written_manifests: list[tuple[Path, dict[str, object]]] = []
-    monkeypatch.setattr(
-        concat_segments_core,
-        "write_json",
-        lambda path, payload: written_manifests.append((Path(path), dict(payload))),
-    )
-
-    saved_payloads: list[dict[str, object]] = []
-
-    def _fake_save(**kwargs):
-        saved_payloads.append(dict(kwargs))
-        return {"recording_dir": str(kwargs["recording_dir"]), "saved": True}
-
-    with caplog.at_level(logging.INFO):
-        payload = concat_segments_core.run_concat_segments_core(
-            stream_id="well001",
-            segment_manifest_path=tmp_path / "segments_manifest.json",
-            recording_dir=tmp_path / "concatenated_recording",
-            concat_manifest_path=tmp_path / "concat_manifest.json",
-            overwrite_saved_recording=False,
-            output_mode="binary",
-            n_jobs=1,
-            chunk_duration="1s",
-            progress_bar=False,
-            logger=logging.getLogger("test.concat_segments.progress"),
-            run_save_concatenated_recording_core=_fake_save,
-        )
-
-    messages = [record.getMessage() for record in caplog.records]
-    assert payload["segment_count"] == 2
-    assert len(saved_payloads) == 1
-    assert len(written_manifests) == 1
-    assert any("Starting concat_segments for well=well001 segment_count=2" in message for message in messages)
-    assert any("concat_segments progress well=well001 loaded=1/2 rec_name=seg000" in message for message in messages)
-    assert any("concat_segments progress well=well001 loaded=2/2 rec_name=seg001" in message for message in messages)
 
 
 def test_run_plot_segment_traces_core_loads_lazy_provenance_entries(monkeypatch, tmp_path: Path) -> None:
@@ -1883,102 +1656,6 @@ def test_run_plot_raster_threshold_core_loads_lazy_provenance_entries(monkeypatc
     assert written["unique_electrodes"] == [11, 22]
 
 
-def test_run_concat_segments_core_loads_lazy_provenance_entries(monkeypatch, tmp_path: Path) -> None:
-    from axon_recon.pipeline.stages.preprocess.core import concat_segments as concat_segments_core
-
-    class _FakeRecording:
-        pass
-
-    fake_spikeinterface = types.ModuleType("spikeinterface")
-    fake_spikeinterface_full = types.ModuleType("spikeinterface.full")
-    fake_spikeinterface_full.concatenate_recordings = lambda recordings: {"concatenated": len(recordings)}
-    fake_spikeinterface.full = fake_spikeinterface_full
-    monkeypatch.setitem(sys.modules, "spikeinterface", fake_spikeinterface)
-    monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_spikeinterface_full)
-
-    provenance_paths = [tmp_path / "segments" / "000_seg000.json", tmp_path / "segments" / "001_seg001.json"]
-    load_calls: list[str] = []
-    monkeypatch.setattr(
-        concat_segments_core,
-        "load_segment_manifest",
-        lambda _path: [
-            {"segment_index": 0, "rec_name": "seg000", "provenance_path": str(provenance_paths[0]), "n_samples": 100},
-            {"segment_index": 1, "rec_name": "seg001", "provenance_path": str(provenance_paths[1]), "n_samples": 120},
-        ],
-    )
-    monkeypatch.setattr(
-        concat_segments_core,
-        "load_segment_recording_from_entry",
-        lambda entry: load_calls.append(str(entry["provenance_path"])) or _FakeRecording(),
-    )
-    monkeypatch.setattr(concat_segments_core, "build_stitch_frames_from_segment_manifest", lambda _entries: [100])
-    monkeypatch.setattr(concat_segments_core, "write_json", lambda *_args, **_kwargs: None)
-
-    saved_payloads: list[dict[str, object]] = []
-
-    def _fake_save(**kwargs):
-        saved_payloads.append(dict(kwargs))
-        return {"recording_dir": str(kwargs["recording_dir"]), "saved": True}
-
-    payload = concat_segments_core.run_concat_segments_core(
-        stream_id="well001",
-        segment_manifest_path=tmp_path / "segments_manifest.json",
-        recording_dir=tmp_path / "concatenated_recording",
-        concat_manifest_path=tmp_path / "concat_manifest.json",
-        overwrite_saved_recording=False,
-        output_mode="binary",
-        n_jobs=1,
-        chunk_duration="1s",
-        progress_bar=False,
-        logger=None,
-        run_save_concatenated_recording_core=_fake_save,
-    )
-
-    assert payload["segment_count"] == 2
-    assert load_calls == [str(provenance_paths[0]), str(provenance_paths[1])]
-    assert len(saved_payloads) == 1
-
-
-def test_run_preprocess_concat_segments_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
-    _install_success_fakes(monkeypatch, tmp_path)
-
-    inputs = PreprocessInputs(
-        h5_path=tmp_path / "input.raw.h5",
-        stream_id="well001",
-        mea_output_root=tmp_path,
-    )
-
-    payload = run_preprocess_concat_segments_phase(inputs)
-
-    assert payload["phase"] == "concat_segments"
-    assert Path(str(payload["summary_json"])).exists()
-    assert payload["outputs"]["concatenated_recording_dir"].endswith("concatenated_recording")
-    assert payload["segment_source"] == "preprocessed"
-    assert payload["concatenate_preprocessed_recordings"] is True
-
-
-def test_run_preprocess_concat_segments_phase_uses_targeted_summary_when_raw_concat_toggle_disabled(tmp_path: Path, monkeypatch) -> None:
-    _install_success_fakes(monkeypatch, tmp_path)
-
-    inputs = PreprocessInputs(
-        h5_path=tmp_path / "input.raw.h5",
-        stream_id="well001",
-        mea_output_root=tmp_path,
-        phases=PreprocessPhasesConfig(
-            concat_segments=PreprocessConcatSegmentsPhaseConfig(
-                enabled=True,
-                concatenate_preprocessed_recordings=False,
-            )
-        ),
-    )
-
-    payload = run_preprocess_concat_segments_phase(inputs)
-
-    assert payload["phase"] == "concat_segments"
-    assert payload["segment_source"] == "preprocessed"
-    assert payload["source_segment_count"] == 2
-
-
 def test_run_preprocess_save_rec_metadata_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
     well_out_dir, _fake_log = _install_success_fakes(monkeypatch, tmp_path)
     canonical_out_dir = well_out_dir / "preprocess_outputs"
@@ -2042,7 +1719,6 @@ def test_run_preprocess_plot_raster_threshold_phase_writes_targeted_summary(tmp_
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
             plot_segment_channel_layouts=PreprocessPlotSegmentChannelLayoutsPhaseConfig(enabled=False),
-            concat_segments=PreprocessConcatSegmentsPhaseConfig(enabled=False),
             plot_concat_traces=PreprocessPlotConcatTracesPhaseConfig(enabled=False),
             plot_raster_threshold=PreprocessPlotRasterThresholdPhaseConfig(
                 enabled=True,

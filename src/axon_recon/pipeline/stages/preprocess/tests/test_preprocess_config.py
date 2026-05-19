@@ -83,16 +83,10 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.plot_segment_traces.summary_json_relpath == "context/plot_segment_traces_summary.json"
     assert parsed.phases.plot_segment_channel_layouts.enabled is True
     assert parsed.phases.plot_segment_channel_layouts.summary_json_relpath == "context/plot_segment_channel_layouts_summary.json"
-    assert parsed.phases.concat_segments.enabled is True
-    assert parsed.phases.concat_segments.concatenate_preprocessed_recordings is True
-    assert parsed.phases.concat_segments.debug_mode_enabled is False
-    assert parsed.phases.concat_segments.debug_limit_datasets is None
-    assert parsed.phases.concat_segments.debug_limit_wells is None
-    assert parsed.phases.concat_segments.debug_limit_wells_per_dataset is None
-    assert parsed.phases.concat_segments.output_mode == "binary"
-    assert parsed.phases.concat_segments.summary_json_relpath == "context/concat_segments_summary.json"
-    assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
-    assert parsed.phases.plot_concat_traces.enabled is True
+    # concat_segments preprocess phase was consolidated into
+    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7.
+    assert not hasattr(parsed.phases, "concat_segments")
+    assert parsed.phases.plot_concat_traces.enabled is False
     assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/plot_concat_traces_summary.json"
     assert parsed.phases.plot_concat_channel_layout.enabled is False
     assert parsed.phases.plot_concat_channel_layout.summary_json_relpath == "context/plot_concat_channel_layout_summary.json"
@@ -442,20 +436,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                                 "channel_layouts_subdir": "custom_segment_layouts",
                             },
                         },
-                        "concat_segments": {
-                            "enabled": True,
-                            "concatenate_preprocessed_recordings": False,
-                            "debug_mode": {
-                                "enabled": True,
-                                "limit_datasets": 1,
-                                "limit_wells": 2,
-                                "limit_wells_per_dataset": 2,
-                            },
-                            "output_mode": "lazy",
-                            "summary_json_relpath": "context/custom_concat_segments_summary.json",
-                            "rel_output_root": "concatenated_recording",
-                            "outputs": {},
-                        },
                         "plot_concat_traces": {
                             "enabled": True,
                             "summary_json_relpath": "context/custom_plot_concat_traces_summary.json",
@@ -523,15 +503,9 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.plot_segment_channel_layouts.summary_json_relpath == "context/custom_plot_segment_channel_layouts_summary.json"
     assert parsed.phases.plot_segment_channel_layouts.plot.layouts is True
     assert parsed.phases.plot_segment_channel_layouts.plot.channel_layouts_subdir == "custom_segment_layouts"
-    assert parsed.phases.concat_segments.enabled is True
-    assert parsed.phases.concat_segments.concatenate_preprocessed_recordings is False
-    assert parsed.phases.concat_segments.debug_mode_enabled is True
-    assert parsed.phases.concat_segments.debug_limit_datasets == 1
-    assert parsed.phases.concat_segments.debug_limit_wells == 2
-    assert parsed.phases.concat_segments.debug_limit_wells_per_dataset == 2
-    assert parsed.phases.concat_segments.output_mode == "lazy"
-    assert parsed.phases.concat_segments.summary_json_relpath == "context/custom_concat_segments_summary.json"
-    assert parsed.phases.concat_segments.rel_output_root == "concatenated_recording"
+    # concat_segments preprocess phase was consolidated into
+    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7.
+    assert not hasattr(parsed.phases, "concat_segments")
     assert parsed.phases.plot_concat_traces.enabled is True
     assert parsed.phases.plot_concat_traces.summary_json_relpath == "context/custom_plot_concat_traces_summary.json"
     assert parsed.phases.plot_concat_traces.plot.concat_trace is False
@@ -556,7 +530,8 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
 
 def test_parse_preprocess_stage_config_reads_phase_sequence() -> None:
     # `copy_src_to_scratch` moved to the init stage in slice 5 — it's no
-    # longer a valid preprocess phase. The legacy alias is gone; the
+    # longer a valid preprocess phase. `concat_segments` was consolidated into
+    # `spikesort.concat_binary` in slice 7. Both legacy aliases are gone; the
     # preprocess phase_sequence only honors the surviving phases.
     cfg = RuntimeConfig(
         {
@@ -564,7 +539,7 @@ def test_parse_preprocess_stage_config_reads_phase_sequence() -> None:
                 "preprocess": {
                     "phase_sequence": [
                         "save_segment_recordings",
-                        "concat_segments",
+                        "plot_concat_traces",
                     ]
                 }
             }
@@ -575,7 +550,7 @@ def test_parse_preprocess_stage_config_reads_phase_sequence() -> None:
 
     assert parsed.phase_sequence == (
         "preprocess_segments",
-        "concat_segments",
+        "plot_concat_traces",
     )
 
 
@@ -736,12 +711,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "          save_chunk_duration: 2s\n"
                         "          save_progress_bar: true\n"
                         "          print_n_jobs_used: true\n"
-                        "      concat_segments:\n"
-                        "        enabled: true\n"
-                        "        concatenate_preprocessed_recordings: false\n"
-                        "        output_mode: binary\n"
-                        "        rel_output_root: concatenated_recording\n"
-                        "        outputs: {}\n"
                         "      plot_concat_traces:\n"
                         "        enabled: true\n"
                         "        plot:\n"
@@ -807,10 +776,9 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.plot_segment_traces.plot.trace_max_points == 32000
     assert inputs.phases.plot_segment_traces.plot.output_dir == "preprocess_outputs/plots"
     assert inputs.phases.plot_segment_channel_layouts.enabled is True
-    assert inputs.phases.concat_segments.enabled is True
-    assert inputs.phases.concat_segments.concatenate_preprocessed_recordings is False
-    assert inputs.phases.concat_segments.output_mode == "binary"
-    assert inputs.phases.concat_segments.rel_output_root == "concatenated_recording"
+    # concat_segments preprocess phase was consolidated into
+    # spikesort.concat_binary in phase_roster_cleanup_plan slice 7.
+    assert not hasattr(inputs.phases, "concat_segments")
     assert inputs.phases.plot_concat_traces.enabled is True
     assert inputs.phases.plot_concat_traces.plot.concat_trace is False
     assert inputs.phases.plot_concat_channel_layout.enabled is False
@@ -893,11 +861,6 @@ def test_per_phase_yaml_n_jobs_no_longer_recognized() -> None:
                                 "segment_save_n_jobs": 8,
                             },
                         },
-                        "concat_segments": {
-                            "outputs": {
-                                "concat_save_n_jobs": 8,
-                            },
-                        },
                     }
                 }
             }
@@ -906,7 +869,4 @@ def test_per_phase_yaml_n_jobs_no_longer_recognized() -> None:
     parsed = parse_preprocess_stage_config(runtime_config=cfg)
     assert not hasattr(parsed.phases.preprocess_segments.outputs, "segment_save_n_jobs"), (
         "segment_save_n_jobs field must be removed from PreprocessPhaseOutputsConfig"
-    )
-    assert not hasattr(parsed.phases.concat_segments.outputs, "concat_save_n_jobs"), (
-        "concat_save_n_jobs field must be removed from PreprocessPhaseOutputsConfig"
     )

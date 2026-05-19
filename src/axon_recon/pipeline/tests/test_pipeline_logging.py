@@ -144,7 +144,7 @@ def test_pipeline_logging_can_disable_phase_logs(tmp_path):
     runtime_path = _write_runtime(tmp_path, phase_logs_enabled=False)
     config = configure_pipeline_logging(config_path=runtime_path)
     logger = logging.getLogger("axon_recon.tests.pipeline_logging.phase_toggle")
-    with log_context(dataset_id="dataset-a", recording_id="000123", well_id="well001", stage="preprocess", phase="concat_segments"):
+    with log_context(dataset_id="dataset-a", recording_id="000123", well_id="well001", stage="preprocess", phase="preprocess_segments"):
         logger.info("phase message", extra={"event": "phase_completed"})
     finalize_pipeline_logging(status="ok")
 
@@ -157,11 +157,11 @@ def test_pipeline_logging_can_disable_phase_logs(tmp_path):
         / "wells"
         / "well001"
         / "phases"
-        / "preprocess__concat_segments.log"
+        / "preprocess__preprocess_segments.log"
     )
     assert not phase_log.exists()
     records = [json.loads(line) for line in (config.logs_dir / "pipeline.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert records[0]["phase"] == "concat_segments"
+    assert records[0]["phase"] == "preprocess_segments"
 
 
 def test_pipeline_logging_nested_context_preserves_parent_fields(tmp_path):

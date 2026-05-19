@@ -8,7 +8,7 @@ from .models.results import SpikesortBombcellResult, SpikesortMergeResult, Spike
 from .orchestrators import (
 	run_spikesort_bombcell_label,
 	run_spikesort_bombcell_label_pass2,
-	run_spikesort_bootstrap_concat_binary,
+	run_spikesort_concat_binary,
 	run_spikesort_cleanup_analyzers,
 	run_spikesort_cleanup_concat_binary,
 	run_spikesort_concat_analyzer,
@@ -87,7 +87,7 @@ def run_spikesort_bombcell_pass2(
 	)
 
 
-def bootstrap_spikesort_concat_binary(
+def build_spikesort_concat_binary(
 	*,
 	h5_path: Path,
 	stream_id: str,
@@ -96,7 +96,7 @@ def bootstrap_spikesort_concat_binary(
 	stage_config: Any,
 	force_restart: bool,
 ) -> SpikesortResult:
-	return run_spikesort_bootstrap_concat_binary(
+	return run_spikesort_concat_binary(
 		h5_path=h5_path,
 		stream_id=stream_id,
 		mea_output_root=mea_output_root,

@@ -8,10 +8,10 @@ from .bombcell_label_pass2 import (
 	run_spikesort_bombcell_label_pass2,
 	run_spikesort_bombcell_label_pass2_from_runtime,
 )
-from .bootstrap_concat_binary import (
-	_run_bootstrap_concat_binary_from_args,
-	run_spikesort_bootstrap_concat_binary,
-	run_spikesort_bootstrap_concat_binary_from_runtime,
+from .concat_binary import (
+	_run_concat_binary_from_args,
+	run_spikesort_concat_binary,
+	run_spikesort_concat_binary_from_runtime,
 )
 from .cleanup_analyzers import (
 	_run_cleanup_analyzers_from_args,
@@ -56,7 +56,7 @@ from .summarize_sort import (
 __all__ = [
 	"_run_bombcell_label_from_args",
 	"_run_bombcell_label_pass2_from_args",
-	"_run_bootstrap_concat_binary_from_args",
+	"_run_concat_binary_from_args",
 	"_run_cleanup_analyzers_from_args",
 	"_run_cleanup_concat_binary_from_args",
 	"_run_concat_analyzer_from_args",
@@ -70,8 +70,8 @@ __all__ = [
 	"run_spikesort_bombcell_label_from_runtime",
 	"run_spikesort_bombcell_label_pass2",
 	"run_spikesort_bombcell_label_pass2_from_runtime",
-	"run_spikesort_bootstrap_concat_binary",
-	"run_spikesort_bootstrap_concat_binary_from_runtime",
+	"run_spikesort_concat_binary",
+	"run_spikesort_concat_binary_from_runtime",
 	"run_spikesort_cleanup_analyzers",
 	"run_spikesort_cleanup_analyzers_from_runtime",
 	"run_spikesort_cleanup_concat_binary",

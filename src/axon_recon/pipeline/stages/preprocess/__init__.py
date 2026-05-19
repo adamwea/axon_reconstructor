@@ -1,7 +1,6 @@
 """Preprocess stage package."""
 
 from .api import (
-	run_preprocess_concat_segments,
 	run_preprocess,
 	run_preprocess_plot_concat_channel_layout,
 	run_preprocess_plot_concat_traces,
@@ -13,7 +12,6 @@ from .api import (
 )
 
 __all__ = [
-	"run_preprocess_concat_segments",
 	"run_preprocess",
 	"run_preprocess_plot_concat_channel_layout",
 	"run_preprocess_plot_concat_traces",

@@ -34,11 +34,11 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.sort_debug_limit_datasets is None
     assert parsed.sort_debug_limit_wells is None
     assert parsed.sort_debug_limit_wells_per_dataset is None
-    assert parsed.bootstrap_concat_binary_debug_mode_enabled is False
-    assert parsed.bootstrap_concat_binary_debug_limit_datasets is None
-    assert parsed.bootstrap_concat_binary_debug_limit_wells is None
-    assert parsed.bootstrap_concat_binary_debug_limit_wells_per_dataset is None
-    assert parsed.bootstrap_concat_binary_debug_limit_segments_per_well is None
+    assert parsed.concat_binary_debug_mode_enabled is False
+    assert parsed.concat_binary_debug_limit_datasets is None
+    assert parsed.concat_binary_debug_limit_wells is None
+    assert parsed.concat_binary_debug_limit_wells_per_dataset is None
+    assert parsed.concat_binary_debug_limit_segments_per_well is None
     assert parsed.cleanup_concat_binary_debug_mode_enabled is False
     assert parsed.cleanup_concat_binary_debug_limit_datasets is None
     assert parsed.cleanup_concat_binary_debug_limit_wells is None
@@ -74,7 +74,7 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.sort_enabled is True
     assert parsed.sort_delete_outputs_on_force_restart is False
     assert parsed.sort_original_preprocess_concat_recording_relpath is None
-    assert parsed.sort_bootstrapped_concat_recording_relpath == "spikesort_outputs/cache/bootstrap_concat_binary/recording"
+    assert parsed.sort_bootstrapped_concat_recording_relpath == "spikesort_outputs/cache/concat_binary/recording"
     assert parsed.sort_use_bootstrapped_concat_binary is False
     assert parsed.sort_use_lazy_source is True
     assert parsed.sort_assert_one_source is False
@@ -86,21 +86,21 @@ def test_parse_spikesort_stage_config_defaults() -> None:
     assert parsed.no_curation is False
     assert parsed.export_to_phy is False
     assert parsed.force_rerun_analyzer is False
-    assert parsed.bootstrap_concat_binary_enabled is False
-    assert parsed.bootstrap_concat_binary_cache_relpath == "cache/bootstrap_concat_binary"
-    assert parsed.bootstrap_concat_binary_recording_relpath == "cache/bootstrap_concat_binary/recording"
-    assert parsed.bootstrap_concat_binary_manifest_relpath == "cache/bootstrap_concat_binary/concat_segments_manifest.json"
-    assert parsed.bootstrap_concat_binary_summary_json_relpath == "cache/bootstrap_concat_binary/bootstrap_concat_binary_summary.json"
-    assert parsed.bootstrap_concat_binary_source_segment_manifest_relpath == "preprocess_outputs/preprocessed_segments/manifest.json"
-    assert parsed.bootstrap_concat_binary_use_as_preprocess_concat_recording is True
-    assert parsed.bootstrap_concat_binary_overwrite_existing is False
-    assert parsed.bootstrap_concat_binary_overwrite_on_force_restart is True
-    assert parsed.bootstrap_concat_binary_n_jobs is None
-    assert parsed.bootstrap_concat_binary_chunk_duration is None
-    assert parsed.bootstrap_concat_binary_progress_bar is True
+    assert parsed.concat_binary_enabled is False
+    assert parsed.concat_binary_cache_relpath == "cache/concat_binary"
+    assert parsed.concat_binary_recording_relpath == "cache/concat_binary/recording"
+    assert parsed.concat_binary_manifest_relpath == "cache/concat_binary/concat_segments_manifest.json"
+    assert parsed.concat_binary_summary_json_relpath == "cache/concat_binary/concat_binary_summary.json"
+    assert parsed.concat_binary_source_segment_manifest_relpath == "preprocess_outputs/preprocessed_segments/manifest.json"
+    assert parsed.concat_binary_use_as_preprocess_concat_recording is True
+    assert parsed.concat_binary_overwrite_existing is False
+    assert parsed.concat_binary_overwrite_on_force_restart is True
+    assert parsed.concat_binary_n_jobs is None
+    assert parsed.concat_binary_chunk_duration is None
+    assert parsed.concat_binary_progress_bar is True
     assert parsed.cleanup_concat_binary_enabled is False
-    assert parsed.cleanup_concat_binary_relpath == "cache/bootstrap_concat_binary"
-    assert parsed.cleanup_concat_binary_summary_json_relpath == "cache/bootstrap_concat_binary_cleanup_summary.json"
+    assert parsed.cleanup_concat_binary_relpath == "cache/concat_binary"
+    assert parsed.cleanup_concat_binary_summary_json_relpath == "cache/concat_binary_cleanup_summary.json"
     assert parsed.summarize_sort_enabled is False
     assert parsed.summarize_sort_emit_logs is True
     assert parsed.summarize_sort_generate_artifacts is False
@@ -204,6 +204,8 @@ def test_parse_spikesort_stage_config_defaults() -> None:
 
 
 def test_parse_spikesort_stage_config_reads_phase_sequence() -> None:
+    # The legacy `bootstrap_concat_binary` token resolves to the renamed
+    # canonical `concat_binary` phase (phase_roster_cleanup_plan slice 7).
     cfg = RuntimeConfig(
         {
             "stages": {
@@ -223,7 +225,7 @@ def test_parse_spikesort_stage_config_reads_phase_sequence() -> None:
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
     assert parsed.phase_sequence == (
-        "bootstrap_concat_binary",
+        "concat_binary",
         "sort",
         "bombcell_label",
         "merge_SLAy",
@@ -459,21 +461,21 @@ def test_parse_spikesort_stage_config_reads_bootstrap_concat_binary_phase() -> N
 
     parsed = parse_spikesort_stage_config(runtime_config=cfg)
 
-    assert parsed.bootstrap_concat_binary_enabled is True
-    assert parsed.bootstrap_concat_binary_cache_relpath == "cache/local_concat"
-    assert parsed.bootstrap_concat_binary_recording_relpath == "cache/local_concat/recording"
-    assert parsed.bootstrap_concat_binary_manifest_relpath == "cache/local_concat/manifest.json"
-    assert parsed.bootstrap_concat_binary_summary_json_relpath == "cache/local_concat/summary.json"
-    assert parsed.bootstrap_concat_binary_source_segment_manifest_relpath == "preprocess_outputs/preprocessed_segments/manifest.json"
-    assert parsed.bootstrap_concat_binary_overwrite_existing is True
-    assert parsed.bootstrap_concat_binary_overwrite_on_force_restart is False
-    assert parsed.bootstrap_concat_binary_n_jobs == 3
-    assert parsed.bootstrap_concat_binary_chunk_duration == "2s"
-    assert parsed.bootstrap_concat_binary_progress_bar is False
-    assert parsed.bootstrap_concat_binary_debug_mode_enabled is True
-    assert parsed.bootstrap_concat_binary_debug_limit_datasets == 1
-    assert parsed.bootstrap_concat_binary_debug_limit_wells == 2
-    assert parsed.bootstrap_concat_binary_debug_limit_segments_per_well == 3
+    assert parsed.concat_binary_enabled is True
+    assert parsed.concat_binary_cache_relpath == "cache/local_concat"
+    assert parsed.concat_binary_recording_relpath == "cache/local_concat/recording"
+    assert parsed.concat_binary_manifest_relpath == "cache/local_concat/manifest.json"
+    assert parsed.concat_binary_summary_json_relpath == "cache/local_concat/summary.json"
+    assert parsed.concat_binary_source_segment_manifest_relpath == "preprocess_outputs/preprocessed_segments/manifest.json"
+    assert parsed.concat_binary_overwrite_existing is True
+    assert parsed.concat_binary_overwrite_on_force_restart is False
+    assert parsed.concat_binary_n_jobs == 3
+    assert parsed.concat_binary_chunk_duration == "2s"
+    assert parsed.concat_binary_progress_bar is False
+    assert parsed.concat_binary_debug_mode_enabled is True
+    assert parsed.concat_binary_debug_limit_datasets == 1
+    assert parsed.concat_binary_debug_limit_wells == 2
+    assert parsed.concat_binary_debug_limit_segments_per_well == 3
     assert parsed.sort_use_bootstrapped_concat_binary is True
     assert parsed.sort_use_lazy_source is True
     assert parsed.sort_assert_one_source is False
@@ -2319,7 +2321,7 @@ def test_load_spikesort_inputs_from_runtime_reads_stage_level_input_and_output_r
     assert inputs.output_rel_root == "spikesort_stage_outputs"
     assert inputs.preprocess_concat_recording_relpath == "preprocess_outputs/preprocessed_recording"
     assert inputs.sort_original_preprocess_concat_recording_relpath == "preprocess_outputs/preprocessed_recording"
-    assert inputs.sort_bootstrapped_concat_recording_relpath == "spikesort_stage_outputs/cache/bootstrap_concat_binary/recording"
+    assert inputs.sort_bootstrapped_concat_recording_relpath == "spikesort_stage_outputs/cache/concat_binary/recording"
     assert inputs.sort_use_bootstrapped_concat_binary is False
     assert inputs.sort_use_lazy_source is True
     assert inputs.sort_assert_one_source is False

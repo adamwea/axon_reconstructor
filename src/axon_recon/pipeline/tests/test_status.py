@@ -154,7 +154,7 @@ def test_scan_status_phase_markers_only_when_requested(tmp_path: Path) -> None:
 	verbose_report = scan_status(runtime_yml, collect_phases=True)
 	spike_v = next(stage for stage in verbose_report.stages if stage.stage == "spikesort")
 	phases_for_well = spike_v.datasets[0].wells[0].phase_done
-	assert phases_for_well["bootstrap_concat_binary"] is True
+	assert phases_for_well["concat_binary"] is True
 	assert phases_for_well["sort"] is False
 
 
@@ -646,7 +646,7 @@ def test_format_verbose_tables_numbers_phase_legend(tmp_path: Path) -> None:
 	text = format_verbose_tables(report)
 
 	assert "=== spikesort phases ===" in text
-	assert "1. bootstrap_concat_binary" in text
+	assert "1. concat_binary" in text
 	assert "2. sort" in text
 	# The glyph string should start with ✓ (phase 1 marker present) followed by ·'s
 	assert "✓·······" in text
