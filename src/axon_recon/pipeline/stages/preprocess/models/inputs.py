@@ -181,13 +181,6 @@ class PreprocessPlotRasterThresholdPhaseConfig:
 	rel_output_root: str = "raster_threshold"
 
 
-@dataclass(frozen=True)
-class PreprocessCleanupOutputsPhaseConfig:
-	enabled: bool = False
-	summary_json_relpath: str = "context/cleanup_preprocessing_outputs_summary.json"
-	resource_class: str | None = None
-
-
 PreprocessConcatenateRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig
 PreprocessConcatenatePreprocessedRecordingsPhaseConfig = PreprocessConcatSegmentsPhaseConfig
 
@@ -239,10 +232,6 @@ class PreprocessPhasesConfig:
 	plot_raster_threshold: PreprocessPlotRasterThresholdPhaseConfig = field(
 		default_factory=PreprocessPlotRasterThresholdPhaseConfig
 	)
-	cleanup_preprocessing_outputs: PreprocessCleanupOutputsPhaseConfig = field(
-		default_factory=PreprocessCleanupOutputsPhaseConfig
-	)
-
 	@property
 	def concatenate_recordings(self) -> PreprocessConcatSegmentsPhaseConfig:
 		return self.concat_segments

@@ -302,7 +302,6 @@ stages:
     #- plot_concat_traces
     #- plot_concat_channel_layout
     #- plot_raster_threshold
-    #- cleanup_preprocessing_outputs
     #- wipe_src_scratch
     phases:
       copy_src_to_scratch:
@@ -420,11 +419,6 @@ stages:
         resource_class: plot_unit
         summary_json_relpath: context/plot_raster_threshold_summary.json
         rel_output_root: raster_threshold
-
-      cleanup_preprocessing_outputs:
-        enabled: false
-        resource_class: disk_cleanup
-        summary_json_relpath: context/cleanup_preprocessing_outputs_summary.json
 
       wipe_src_scratch:
         enabled: false

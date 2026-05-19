@@ -2027,8 +2027,6 @@ def _resource_class_for_phase(inputs: PreprocessInputs, phase_name: str) -> str 
 		return inputs.phases.plot_concat_channel_layout.resource_class
 	if phase_name == "plot_raster_threshold":
 		return inputs.phases.plot_raster_threshold.resource_class
-	if phase_name == "cleanup_preprocessing_outputs":
-		return inputs.phases.cleanup_preprocessing_outputs.resource_class
 	if phase_name == "wipe_src_scratch":
 		return inputs.phases.wipe_src_scratch.resource_class
 	return None

@@ -18,7 +18,6 @@ from .models.inputs import (
 	DEFAULT_PREPROCESS_PHASE_SEQUENCE,
 	PreprocessConcatSegmentsPhaseConfig,
 	PreprocessConcatenatePreprocessedRecordingsPhaseConfig,
-	PreprocessCleanupOutputsPhaseConfig,
 	PreprocessCopySrcToScratchPhaseConfig,
 	PreprocessInputs,
 	PreprocessPlotConcatChannelLayoutPhaseConfig,
@@ -763,7 +762,6 @@ def parse_preprocess_stage_config(
 
 	plot_concat_channel_layout_phase_cfg = phases_cfg.get("plot_concat_channel_layout", {}) if isinstance(phases_cfg.get("plot_concat_channel_layout", {}), dict) else {}
 	plot_raster_threshold_phase_cfg = phases_cfg.get("plot_raster_threshold", {}) if isinstance(phases_cfg.get("plot_raster_threshold", {}), dict) else {}
-	cleanup_preprocessing_outputs_phase_cfg = phases_cfg.get("cleanup_preprocessing_outputs", {}) if isinstance(phases_cfg.get("cleanup_preprocessing_outputs", {}), dict) else {}
 	segment_plot_defaults = PreprocessPlotConfig(
 		disable_all_png_diagnostics=raw_disable_all_png_diagnostics,
 		layouts=bool(plot_layouts_effective),
@@ -1081,26 +1079,6 @@ def parse_preprocess_stage_config(
 		raw_cfg=plot_raster_threshold_phase_cfg,
 		resource_class=_phase_resource_class(plot_raster_threshold_phase_cfg, "plot_raster_threshold"),
 	)
-	cleanup_preprocessing_outputs_phase = PreprocessCleanupOutputsPhaseConfig(
-		enabled=_as_bool(
-			cleanup_preprocessing_outputs_phase_cfg.get(
-				"enabled",
-				cleanup_preprocessing_outputs_phase_cfg.get("enable", False),
-			),
-			False,
-		),
-		summary_json_relpath=str(
-			cleanup_preprocessing_outputs_phase_cfg.get(
-				"summary_json_relpath",
-				"context/cleanup_preprocessing_outputs_summary.json",
-			)
-			or "context/cleanup_preprocessing_outputs_summary.json"
-		),
-		resource_class=_phase_resource_class(
-			cleanup_preprocessing_outputs_phase_cfg,
-			"cleanup_preprocessing_outputs",
-		),
-	)
 	copy_src_to_scratch_phase = PreprocessCopySrcToScratchPhaseConfig(
 		enabled=_as_bool(copy_phase_cfg.get("enabled", copy_phase_cfg.get("enable", False)), False),
 		requires_use_scratch_root=_as_bool(
@@ -1198,7 +1176,6 @@ def parse_preprocess_stage_config(
 			plot_concat_traces=plot_concat_traces_phase,
 			plot_concat_channel_layout=plot_concat_channel_layout_phase,
 			plot_raster_threshold=plot_raster_threshold_phase,
-			cleanup_preprocessing_outputs=cleanup_preprocessing_outputs_phase,
 		),
 	)
 
