@@ -535,50 +535,115 @@ def _parse_target_well_ids_from_args(args: argparse.Namespace) -> list[str] | No
 	return parsed
 
 
+def _iter_targets_tokens(args: argparse.Namespace) -> list[str]:
+	"""Flatten ``args.targets`` to a list of non-empty trimmed tokens."""
+
+	raw = getattr(args, "targets", None)
+	if raw is None:
+		return []
+	items = list(raw) if isinstance(raw, (list, tuple, set)) else [raw]
+	out: list[str] = []
+	for item in items:
+		for token in str(item).split(","):
+			text = str(token).strip()
+			if text:
+				out.append(text)
+	return out
+
+
 def _parse_targets_pairs_from_args(args: argparse.Namespace) -> dict[int, list[str]] | None:
 	"""Parse `--targets 6:1,6:4,12:4` into {6: ["well001", "well004"], 12: ["well004"]}.
 
 	Each token is `<dataset_idx>:<well>` where well is an integer index (zero-padded
 	to wellNNN) or an explicit wellNNN string. Returns None if the flag was not
 	provided. Datasets that appear multiple times have their wells merged.
+
+	``chip-well:<chip_id>:<well_id>`` tokens are *not* parsed here — they're
+	handled by ``_parse_targets_chip_well_groups_from_args`` because they need
+	the data config to resolve to dataset indices. A `--targets` value that
+	consists only of chip-well tokens returns None from this parser so the
+	regular pair filter stays unset; chip-well expansion happens later.
 	"""
-	raw = getattr(args, "targets", None)
-	if raw is None:
+
+	tokens = _iter_targets_tokens(args)
+	if not tokens:
 		return None
-	items = list(raw) if isinstance(raw, (list, tuple, set)) else [raw]
 	pairs: dict[int, list[str]] = {}
 	seen_pairs: set[tuple[int, str]] = set()
-	for item in items:
-		for token in str(item).split(","):
-			text = str(token).strip()
-			if not text:
-				continue
-			if ":" not in text:
-				raise SystemExit(
-					f"--targets entries must be <dataset>:<well>, got {text!r}"
-				)
-			dataset_part, well_part = text.split(":", 1)
-			dataset_part = dataset_part.strip()
-			well_part = well_part.strip()
-			try:
-				dataset_idx = int(dataset_part)
-			except ValueError as exc:
-				raise SystemExit(
-					f"--targets dataset index must be an integer, got {dataset_part!r}"
-				) from exc
-			if dataset_idx < 0:
-				raise SystemExit(f"--targets dataset index must be >= 0, got {dataset_idx}")
-			well_id = _normalize_well_token(well_part)
-			if not well_id:
-				raise SystemExit(f"--targets well must be non-empty, got {text!r}")
-			key = (dataset_idx, well_id)
-			if key in seen_pairs:
-				continue
-			seen_pairs.add(key)
-			pairs.setdefault(dataset_idx, []).append(well_id)
+	saw_chip_well = False
+	for text in tokens:
+		if text.lower().startswith("chip-well:"):
+			saw_chip_well = True
+			continue
+		if ":" not in text:
+			raise SystemExit(
+				f"--targets entries must be <dataset>:<well> or chip-well:<chip>:<well>, got {text!r}"
+			)
+		dataset_part, well_part = text.split(":", 1)
+		dataset_part = dataset_part.strip()
+		well_part = well_part.strip()
+		try:
+			dataset_idx = int(dataset_part)
+		except ValueError as exc:
+			raise SystemExit(
+				f"--targets dataset index must be an integer, got {dataset_part!r}"
+			) from exc
+		if dataset_idx < 0:
+			raise SystemExit(f"--targets dataset index must be >= 0, got {dataset_idx}")
+		well_id = _normalize_well_token(well_part)
+		if not well_id:
+			raise SystemExit(f"--targets well must be non-empty, got {text!r}")
+		key = (dataset_idx, well_id)
+		if key in seen_pairs:
+			continue
+		seen_pairs.add(key)
+		pairs.setdefault(dataset_idx, []).append(well_id)
 	if not pairs:
+		if saw_chip_well:
+			return None
 		raise SystemExit("--targets requires at least one <dataset>:<well> pair")
 	return pairs
+
+
+def _parse_targets_chip_well_groups_from_args(
+	args: argparse.Namespace,
+) -> list[tuple[str, str]] | None:
+	"""Parse ``chip-well:<chip>:<well>`` tokens from ``--targets``.
+
+	Slice 4 of `unitmatch_phase_plan.md`: a group-level addressing form for
+	`--targets` so operators can request the analysis.unitmatch phase by
+	chip-well GROUP without enumerating each (dataset, well). The CLI hands
+	these to ``select_execution_targets`` via
+	``set_target_chip_well_groups_override``; expansion to concrete pair
+	entries happens against the resolved data config.
+	"""
+
+	tokens = _iter_targets_tokens(args)
+	if not tokens:
+		return None
+	groups: list[tuple[str, str]] = []
+	seen: set[tuple[str, str]] = set()
+	for text in tokens:
+		if not text.lower().startswith("chip-well:"):
+			continue
+		body = text.split(":", 1)[1]
+		if ":" not in body:
+			raise SystemExit(
+				f"--targets chip-well entries must be chip-well:<chip>:<well>, got {text!r}"
+			)
+		chip_part, well_part = body.split(":", 1)
+		chip_id = chip_part.strip()
+		well_id = _normalize_well_token(well_part.strip())
+		if not chip_id:
+			raise SystemExit(f"--targets chip-well chip must be non-empty, got {text!r}")
+		if not well_id:
+			raise SystemExit(f"--targets chip-well well must be non-empty, got {text!r}")
+		key = (chip_id, well_id)
+		if key in seen:
+			continue
+		seen.add(key)
+		groups.append(key)
+	return groups or None
 
 
 def _parse_positive_int(raw: str) -> int:
@@ -635,8 +700,11 @@ def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
 		dest="targets",
 		help=(
 			"Per-pair dataset:well filter, e.g. --targets 6:1,6:4,12:4. Each entry is "
-			"<dataset_index>:<well> where well is an integer index or wellNNN. Takes "
-			"precedence over --target-datasets / --target-wells when set."
+			"either <dataset_index>:<well> or chip-well:<chip_id>:<well>. The "
+			"chip-well form selects every dataset whose raw_data_h5_path parses to "
+			"the named chip — handy for the analysis.unitmatch phase, which "
+			"operates per chip-well GROUP across DIVs. Takes precedence over "
+			"--target-datasets / --target-wells when set."
 		),
 	)
 	parser.add_argument(
@@ -1305,6 +1373,7 @@ def main(argv: list[str] | None = None) -> int:
 		set_no_plot_override,
 		set_output_root_override,
 		set_scratch_output_override,
+		set_target_chip_well_groups_override,
 		set_target_pairs_override,
 		set_target_wells_override,
 	)
@@ -1316,6 +1385,10 @@ def main(argv: list[str] | None = None) -> int:
 	target_pairs_filter = _parse_targets_pairs_from_args(args)
 	if target_pairs_filter is not None:
 		set_target_pairs_override(target_pairs_filter)
+
+	target_chip_well_groups_filter = _parse_targets_chip_well_groups_from_args(args)
+	if target_chip_well_groups_filter is not None:
+		set_target_chip_well_groups_override(target_chip_well_groups_filter)
 
 	# Same pattern for --no-plot: a process-wide toggle that each plot-heavy
 	# phase consults via resolve_plots_enabled(). Reset to None in the finally
@@ -1358,6 +1431,7 @@ def main(argv: list[str] | None = None) -> int:
 		finalize_pipeline_logging(status=status)
 		set_target_wells_override(None)
 		set_target_pairs_override(None)
+		set_target_chip_well_groups_override(None)
 		set_no_plot_override(None)
 		set_scratch_output_override(None)
 		set_output_root_override(None)

@@ -84,6 +84,65 @@ def get_target_pairs_override() -> dict[int, set[str]] | None:
 	return {ds: set(wells) for ds, wells in _TARGET_PAIRS_OVERRIDE.items()}
 
 
+# Process-wide --targets chip-well group override. Set alongside
+# _TARGET_PAIRS_OVERRIDE by the CLI when `--targets` contains tokens of the
+# form ``chip-well:<chip_id>:<well_id>``. Resolution to concrete (dataset,
+# well) pairs happens inside ``select_execution_targets`` once datasets are
+# known. Each entry is the (chip_id, well_id) pair to include in the run.
+# Slice 4 of unitmatch_phase_plan.md.
+_TARGET_CHIP_WELL_GROUPS_OVERRIDE: list[tuple[str, str]] | None = None
+
+
+def set_target_chip_well_groups_override(
+	groups: list[tuple[str, str]] | None,
+) -> None:
+	"""Set the process-wide chip-well group allowlist.
+
+	The CLI calls this once at entry when ``--targets chip-well:<chip>:<well>``
+	tokens are present. ``select_execution_targets`` expands each group to all
+	(dataset_index, well_id) pairs whose dataset's raw_data_h5_path parses to
+	the matching chip_id, then merges those into the per-pair allowlist.
+	"""
+
+	global _TARGET_CHIP_WELL_GROUPS_OVERRIDE
+	if not groups:
+		_TARGET_CHIP_WELL_GROUPS_OVERRIDE = None
+		return
+	normalized: list[tuple[str, str]] = []
+	seen: set[tuple[str, str]] = set()
+	for chip_id, well_id in groups:
+		key = (str(chip_id).strip(), str(well_id).strip())
+		if not key[0] or not key[1]:
+			continue
+		if key in seen:
+			continue
+		seen.add(key)
+		normalized.append(key)
+	_TARGET_CHIP_WELL_GROUPS_OVERRIDE = normalized or None
+
+
+def get_target_chip_well_groups_override() -> list[tuple[str, str]] | None:
+	"""Return a copy of the current chip-well group allowlist, or None."""
+	if _TARGET_CHIP_WELL_GROUPS_OVERRIDE is None:
+		return None
+	return list(_TARGET_CHIP_WELL_GROUPS_OVERRIDE)
+
+
+def _parse_chip_id_from_h5_path(raw_h5: Any) -> str | None:
+	"""Extract chip_id from a canonical h5 path.
+
+	Path tail shape: ``<project>/<YYMMDD>/<chip>/<scan_type>/<run>/data.raw.h5``.
+	Returns None when the shape doesn't match.
+	"""
+
+	if not raw_h5:
+		return None
+	parts = Path(str(raw_h5)).parts
+	if len(parts) < 6:
+		return None
+	return str(parts[-4]) or None
+
+
 # Same pattern as _TARGET_WELLS_OVERRIDE: a process-wide toggle set by the CLI
 # (`--no-plot`) that downstream phases can consult to decide whether to skip
 # their plot/report work. `None` means "no override — honor the YAML setting".
@@ -400,6 +459,37 @@ def select_execution_targets(
 	# --targets pair override takes precedence over --target-datasets / --target-wells.
 	# Synthesize target_datasets from the pair-override keys; the per-dataset well
 	# filter is applied below via `pair_override`.
+	#
+	# Slice 4 of unitmatch_phase_plan.md: ``--targets chip-well:<chip>:<well>``
+	# tokens are stored separately by the CLI and expanded here against the
+	# enabled-datasets list, then merged into the pair allowlist. This lets the
+	# unitmatch phase (which operates per chip-well group) be addressed without
+	# the operator having to enumerate every (dataset, well) pair in the group.
+	chip_well_groups = get_target_chip_well_groups_override()
+	if chip_well_groups:
+		existing_pair_override = get_target_pairs_override() or {}
+		expanded: dict[int, set[str]] = {ds: set(wells) for ds, wells in existing_pair_override.items()}
+		matched_any_group = False
+		for chip_id, well_id in chip_well_groups:
+			group_matched = False
+			for ds_index, dataset_entry in enabled:
+				raw_h5 = dataset_entry.get("raw_data_h5_path", None) if isinstance(dataset_entry, dict) else None
+				dataset_chip = _parse_chip_id_from_h5_path(raw_h5)
+				if dataset_chip != chip_id:
+					continue
+				expanded.setdefault(int(ds_index), set()).add(str(well_id))
+				group_matched = True
+			if group_matched:
+				matched_any_group = True
+		if not matched_any_group and not existing_pair_override:
+			raise ValueError(
+				"No enabled datasets matched --targets chip-well groups="
+				f"{chip_well_groups}. Verify each <chip>:<well> selector matches a "
+				"chip parsed from datasets[*].raw_data_h5_path in your data config."
+			)
+		set_target_pairs_override(
+			{ds: list(wells) for ds, wells in expanded.items()} if expanded else None
+		)
 	pair_override = get_target_pairs_override()
 	if pair_override is not None:
 		target_datasets = sorted(pair_override.keys())
