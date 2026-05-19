@@ -109,8 +109,6 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.plot_raster_threshold.debug_limit_wells_per_dataset is None
     assert parsed.phases.plot_raster_threshold.report_step_timers is False
     assert parsed.phases.plot_raster_threshold.summary_json_relpath == "context/plot_raster_threshold_summary.json"
-    assert parsed.phases.report_preprocessing.enabled is False
-    assert parsed.phases.report_preprocessing.summary_json_relpath == "context/report_preprocessing_summary.json"
     assert parsed.phases.cleanup_preprocessing_outputs.enabled is False
     assert parsed.phases.cleanup_preprocessing_outputs.summary_json_relpath == "context/cleanup_preprocessing_outputs_summary.json"
     assert parsed.phases.save_rec_metadata.common_electrodes_relpath == "common_electrodes.npy"
@@ -507,12 +505,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                             "summary_json_relpath": "context/custom_plot_raster_threshold_summary.json",
                             "rel_output_root": "raster_threshold_outputs",
                         },
-                        "report_preprocessing": {
-                            "enabled": True,
-                            "summary_json_relpath": "context/custom_report_preprocessing_summary.json",
-                            "report_relpath": "report/custom_preprocessing_report.md",
-                            "json_summary_relpath": "report/custom_preprocessing_report.json",
-                        },
                         "cleanup_preprocessing_outputs": {
                             "enabled": True,
                             "summary_json_relpath": "context/custom_cleanup_preprocessing_outputs_summary.json",
@@ -586,10 +578,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.plot_raster_threshold.report_step_timers is True
     assert parsed.phases.plot_raster_threshold.summary_json_relpath == "context/custom_plot_raster_threshold_summary.json"
     assert parsed.phases.plot_raster_threshold.rel_output_root == "raster_threshold_outputs"
-    assert parsed.phases.report_preprocessing.enabled is True
-    assert parsed.phases.report_preprocessing.summary_json_relpath == "context/custom_report_preprocessing_summary.json"
-    assert parsed.phases.report_preprocessing.report_relpath == "report/custom_preprocessing_report.md"
-    assert parsed.phases.report_preprocessing.json_summary_relpath == "report/custom_preprocessing_report.json"
     assert parsed.phases.cleanup_preprocessing_outputs.enabled is True
     assert parsed.phases.cleanup_preprocessing_outputs.summary_json_relpath == "context/custom_cleanup_preprocessing_outputs_summary.json"
     assert (
@@ -803,8 +791,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "        enabled: false\n"
                         "      plot_raster_threshold:\n"
                         "        enabled: false\n"
-                        "      report_preprocessing:\n"
-                        "        enabled: false\n"
                         "      cleanup_preprocessing_outputs:\n"
                         "        enabled: false\n"
                 ),
@@ -875,7 +861,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.plot_concat_traces.plot.concat_trace is False
     assert inputs.phases.plot_concat_channel_layout.enabled is False
     assert inputs.phases.plot_raster_threshold.enabled is False
-    assert inputs.phases.report_preprocessing.enabled is False
     assert inputs.phases.cleanup_preprocessing_outputs.enabled is False
     assert inputs.phases.save_rec_metadata.common_electrodes_summary_json_relpath == "context/save_common_electrodes_summary.json"
 

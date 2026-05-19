@@ -30,7 +30,6 @@ from .models.inputs import (
 	PreprocessPlotRasterThresholdPhaseConfig,
 	PreprocessPlotSegmentChannelLayoutsPhaseConfig,
 	PreprocessPlotSegmentTracesPhaseConfig,
-	PreprocessReportPreprocessingPhaseConfig,
 	PreprocessSaveRecMetadataPhaseConfig,
 	PreprocessSegmentsPhaseConfig,
 	PreprocessWipeSrcScratchPhaseConfig,
@@ -764,7 +763,6 @@ def parse_preprocess_stage_config(
 
 	plot_concat_channel_layout_phase_cfg = phases_cfg.get("plot_concat_channel_layout", {}) if isinstance(phases_cfg.get("plot_concat_channel_layout", {}), dict) else {}
 	plot_raster_threshold_phase_cfg = phases_cfg.get("plot_raster_threshold", {}) if isinstance(phases_cfg.get("plot_raster_threshold", {}), dict) else {}
-	report_preprocessing_phase_cfg = phases_cfg.get("report_preprocessing", {}) if isinstance(phases_cfg.get("report_preprocessing", {}), dict) else {}
 	cleanup_preprocessing_outputs_phase_cfg = phases_cfg.get("cleanup_preprocessing_outputs", {}) if isinstance(phases_cfg.get("cleanup_preprocessing_outputs", {}), dict) else {}
 	segment_plot_defaults = PreprocessPlotConfig(
 		disable_all_png_diagnostics=raw_disable_all_png_diagnostics,
@@ -1083,28 +1081,6 @@ def parse_preprocess_stage_config(
 		raw_cfg=plot_raster_threshold_phase_cfg,
 		resource_class=_phase_resource_class(plot_raster_threshold_phase_cfg, "plot_raster_threshold"),
 	)
-	report_preprocessing_phase = PreprocessReportPreprocessingPhaseConfig(
-		enabled=_as_bool(
-			report_preprocessing_phase_cfg.get("enabled", report_preprocessing_phase_cfg.get("enable", False)),
-			False,
-		),
-		summary_json_relpath=str(
-			report_preprocessing_phase_cfg.get(
-				"summary_json_relpath",
-				"context/report_preprocessing_summary.json",
-			)
-			or "context/report_preprocessing_summary.json"
-		),
-		resource_class=_phase_resource_class(report_preprocessing_phase_cfg, "report_preprocessing"),
-		report_relpath=str(
-			report_preprocessing_phase_cfg.get("report_relpath", "report/preprocessing_report.md")
-			or "report/preprocessing_report.md"
-		),
-		json_summary_relpath=str(
-			report_preprocessing_phase_cfg.get("json_summary_relpath", "report/preprocessing_report.json")
-			or "report/preprocessing_report.json"
-		),
-	)
 	cleanup_preprocessing_outputs_phase = PreprocessCleanupOutputsPhaseConfig(
 		enabled=_as_bool(
 			cleanup_preprocessing_outputs_phase_cfg.get(
@@ -1222,7 +1198,6 @@ def parse_preprocess_stage_config(
 			plot_concat_traces=plot_concat_traces_phase,
 			plot_concat_channel_layout=plot_concat_channel_layout_phase,
 			plot_raster_threshold=plot_raster_threshold_phase,
-			report_preprocessing=report_preprocessing_phase,
 			cleanup_preprocessing_outputs=cleanup_preprocessing_outputs_phase,
 		),
 	)

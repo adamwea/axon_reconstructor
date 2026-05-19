@@ -182,15 +182,6 @@ class PreprocessPlotRasterThresholdPhaseConfig:
 
 
 @dataclass(frozen=True)
-class PreprocessReportPreprocessingPhaseConfig:
-	enabled: bool = False
-	summary_json_relpath: str = "context/report_preprocessing_summary.json"
-	resource_class: str | None = None
-	report_relpath: str = "report/preprocessing_report.md"
-	json_summary_relpath: str = "report/preprocessing_report.json"
-
-
-@dataclass(frozen=True)
 class PreprocessCleanupOutputsPhaseConfig:
 	enabled: bool = False
 	summary_json_relpath: str = "context/cleanup_preprocessing_outputs_summary.json"
@@ -247,9 +238,6 @@ class PreprocessPhasesConfig:
 	)
 	plot_raster_threshold: PreprocessPlotRasterThresholdPhaseConfig = field(
 		default_factory=PreprocessPlotRasterThresholdPhaseConfig
-	)
-	report_preprocessing: PreprocessReportPreprocessingPhaseConfig = field(
-		default_factory=PreprocessReportPreprocessingPhaseConfig
 	)
 	cleanup_preprocessing_outputs: PreprocessCleanupOutputsPhaseConfig = field(
 		default_factory=PreprocessCleanupOutputsPhaseConfig
