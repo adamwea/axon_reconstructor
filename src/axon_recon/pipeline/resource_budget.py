@@ -328,9 +328,9 @@ def current_phase_worker_allocation(
 ) -> tuple[int, str]:
 	manager = current_stage_resource_budget_manager()
 	if manager is None:
-		return max(1, int(fallback_workers)), "inputs.n_jobs"
+		return max(1, int(fallback_workers)), "fallback_workers"
 	demands = manager.slot_demands(resource_class)
 	cpus_per_task = max(0, int(demands.get("cpu_cores", 0) or 0))
 	if cpus_per_task > 0:
 		return cpus_per_task, "resource_class.cpus_per_task"
-	return max(1, int(fallback_workers)), "inputs.n_jobs"
+	return max(1, int(fallback_workers)), "fallback_workers"
