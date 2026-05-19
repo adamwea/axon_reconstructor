@@ -291,6 +291,93 @@ def test_orchestrator_records_missing_inputs_as_unit_level_error(tmp_path: Path)
 	assert "missing inputs" in result["units_processed"][0]["reason"]
 
 
+# --- Slice 6 dry-run tests ---
+
+
+def test_dry_run_skips_render_and_writes_dry_run_ok(tmp_path: Path) -> None:
+	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5, 7))
+	cfg = _parse_config(enabled=True)
+	cfg.__dict__["dry_run"] = True
+
+	# Render mock that flags if called (it shouldn't be).
+	calls: list[Any] = []
+
+	def _render_should_not_be_called(**kwargs):
+		calls.append(kwargs)
+		return {"status": "ok"}
+
+	cfg.__dict__["_propagation_video_render_override"] = _render_should_not_be_called
+
+	result = run_analysis_propagation_video(
+		dataset_index=0,
+		dataset_id="ds0",
+		h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=cfg,
+		force_restart=False,
+	)
+	assert result["status"] == "dry_run_ok"
+	assert result["reason"] == "dry_run: skipped renders"
+	assert result["n_units_discovered"] == 2
+	# Render was NOT called.
+	assert calls == []
+	# Inputs + outputs sections populated.
+	assert len(result["inputs_resolved"]) == 6  # 2 units × 3 inputs
+	assert len(result["outputs_would_produce"]) == 2  # one GIF per unit
+	# All prerequisites exist (the scaffold wrote them).
+	assert result["validation"]["missing_prerequisites"] == []
+
+
+def test_dry_run_reports_missing_prerequisites_without_raising(tmp_path: Path) -> None:
+	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5,))
+	# Remove the GTR pickle to simulate a missing prereq.
+	gtr = output_root / "proj" / "260224" / "M08073" / "AxonTracking" / "000001" / "well000" / "recon_outputs" / "units" / "0005" / "gtr.pkl"
+	gtr.unlink()
+
+	cfg = _parse_config(enabled=True)
+	cfg.__dict__["dry_run"] = True
+
+	result = run_analysis_propagation_video(
+		dataset_index=0,
+		dataset_id="ds0",
+		h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=cfg,
+		force_restart=False,
+	)
+	assert result["status"] == "dry_run_ok"
+	# Missing prereq surfaced in validation.
+	assert any(
+		"gtr_pkl missing" in msg
+		for msg in result["validation"]["missing_prerequisites"]
+	)
+
+
+def test_dry_run_summary_persists_to_disk(tmp_path: Path) -> None:
+	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5,))
+	cfg = _parse_config(enabled=True)
+	cfg.__dict__["dry_run"] = True
+
+	run_analysis_propagation_video(
+		dataset_index=0,
+		dataset_id="ds0",
+		h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+		stream_id="well000",
+		mea_output_root=output_root,
+		output_rel_root="analysis_outputs",
+		stage_config=cfg,
+		force_restart=False,
+	)
+	matches = list(output_root.rglob("propagation_video_summary.json"))
+	assert len(matches) == 1
+	payload = json.loads(matches[0].read_text(encoding="utf-8"))
+	assert payload["status"] == "dry_run_ok"
+
+
 def test_orchestrator_partial_status_when_some_units_fail(tmp_path: Path) -> None:
 	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5, 7))
 	# Remove unit 7's gtr.pkl to simulate a partial failure.

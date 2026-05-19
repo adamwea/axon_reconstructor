@@ -95,6 +95,95 @@ def _write_phase_summary(
 	return payload
 
 
+def _write_dry_run_summary(
+	*,
+	target_summary_path: Path,
+	dataset_index: int,
+	stream_id: str,
+	h5_path: Path,
+	mea_output_root: Path,
+	stage_output_root: Path,
+	rel_output_root: str,
+) -> dict[str, Any]:
+	"""Per slice 6: write `status: dry_run_ok` summary.
+
+	Per `guardrails/dry_run.md`, this:
+	- Resolves inputs (paths, prerequisites) the same way a real run
+	  would.
+	- Validates that prerequisites are present and readable.
+	- Skips the expensive render work.
+	- Reports findings under `inputs_resolved` / `outputs_would_produce`
+	  / `validation.missing_prerequisites`.
+	"""
+
+	video_output_dir = stage_output_root / rel_output_root
+	unit_ids = discover_unit_ids_for_target(
+		well_id=str(stream_id),
+		h5_path=h5_path,
+		mea_output_root=mea_output_root,
+	)
+	inputs_resolved: list[dict[str, Any]] = []
+	outputs_would_produce: list[dict[str, Any]] = []
+	missing_prerequisites: list[str] = []
+
+	for unit_id in unit_ids:
+		try:
+			inputs = resolve_propagation_video_inputs(
+				dataset_index=int(dataset_index),
+				well_id=str(stream_id),
+				unit_id=int(unit_id),
+				h5_path=h5_path,
+				mea_output_root=mea_output_root,
+				require_exists=False,  # dry-run gathers paths even if missing
+			)
+		except Exception as exc:  # pragma: no cover — require_exists=False shouldn't raise
+			missing_prerequisites.append(
+				f"unit_id={unit_id}: input resolution raised {exc!r}"
+			)
+			continue
+		for name, path in (
+			("merged_template_npy", inputs.merged_template_npy),
+			("merged_locations_npy", inputs.merged_locations_npy),
+			("gtr_pkl", inputs.gtr_pkl),
+		):
+			exists = bool(Path(path).is_file())
+			inputs_resolved.append({
+				"name": f"unit_{int(unit_id):04d}.{name}",
+				"path": str(path),
+				"exists": exists,
+			})
+			if not exists:
+				missing_prerequisites.append(
+					f"unit_id={unit_id}: {name} missing at {path}"
+				)
+		outputs_would_produce.append({
+			"name": f"unit_{int(unit_id):04d}_video",
+			"path": str(video_output_dir / f"unit_{int(unit_id):04d}.gif"),
+		})
+
+	payload: dict[str, Any] = {
+		"phase": "propagation_video",
+		"status": "dry_run_ok",
+		"dataset_index": int(dataset_index),
+		"well_id": str(stream_id),
+		"reason": "dry_run: skipped renders",
+		"stage_output_root_dir": str(stage_output_root),
+		"video_output_dir": str(video_output_dir),
+		"n_units_discovered": len(unit_ids),
+		"inputs_resolved": inputs_resolved,
+		"outputs_would_produce": outputs_would_produce,
+		"validation": {
+			"missing_prerequisites": missing_prerequisites,
+			"warnings": [],
+		},
+	}
+	target_summary_path.parent.mkdir(parents=True, exist_ok=True)
+	target_summary_path.write_text(
+		json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+	)
+	return payload
+
+
 def _resolve_render_callable(stage_config: Any) -> Any:
 	"""Honor a test-only `_propagation_video_render_override` on
 	stage_config so slice-7 tests can monkey-patch the renderer without
@@ -144,6 +233,25 @@ def run_analysis_propagation_video(
 			well_id=str(stream_id),
 			dataset_index=int(dataset_index),
 			reason="phase disabled in YAML",
+		)
+
+	# Slice 6 of analysis_propagation_video_plan: --dry-run support.
+	# Per `guardrails/dry_run.md`: resolve inputs + validate
+	# prerequisites + skip the expensive render call + write a
+	# `status: dry_run_ok` summary with `inputs_resolved` /
+	# `outputs_would_produce` / `validation` fields.
+	if bool(getattr(stage_config, "dry_run", False)):
+		return _write_dry_run_summary(
+			target_summary_path=target_summary_path,
+			dataset_index=int(dataset_index),
+			stream_id=str(stream_id),
+			h5_path=h5_path,
+			mea_output_root=mea_output_root,
+			stage_output_root=stage_output_root,
+			rel_output_root=str(
+				getattr(stage_config, "propagation_video_rel_output_root", "propagation_video")
+				or "propagation_video"
+			),
 		)
 
 	rel_output_root = str(
