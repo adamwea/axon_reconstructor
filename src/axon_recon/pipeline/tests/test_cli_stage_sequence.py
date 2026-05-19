@@ -92,7 +92,6 @@ def test_parse_stage_list_tokens_rejects_removed_extract_template_segments(raw_t
     [
         ("preprocess.copy_src_to_scratch", "preprocess.copy_src_to_scratch"),
         ("preprocess.save_rec_metadata", "preprocess.save_rec_metadata"),
-        ("preprocess.prepare_raw_binaries", "preprocess.prepare_raw_binaries"),
         ("preprocess.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preprocess.preprocess_segments", "preprocess.preprocess_segments"),
         ("preprocess.plot_segment_traces", "preprocess.plot_segment_traces"),
@@ -102,7 +101,6 @@ def test_parse_stage_list_tokens_rejects_removed_extract_template_segments(raw_t
         ("preprocess.plot_concat_channel_layout", "preprocess.plot_concat_channel_layout"),
         ("preprocess.plot_raster_threshold", "preprocess.plot_raster_threshold"),
         ("preproc.save_rec_metadata", "preprocess.save_rec_metadata"),
-        ("preproc.prepare_raw_binaries", "preprocess.prepare_raw_binaries"),
         ("preproc.wipe_src_scratch", "preprocess.wipe_src_scratch"),
         ("preproc.plot_segment_traces", "preprocess.plot_segment_traces"),
         ("preproc.plot_segment_channel_layouts", "preprocess.plot_segment_channel_layouts"),

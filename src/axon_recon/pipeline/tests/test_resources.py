@@ -233,7 +233,7 @@ def test_preprocess_stage_parses_phase_resource_class_and_default_chunk_duration
 	payload["stages"] = {
 		"preprocess": {
 			"phases": {
-				"prepare_raw_binaries": {"resource_class": "h5_to_binary"},
+				"preprocess_segments": {"resource_class": "preprocess_segments"},
 				"plot_segment_traces": {"resource_class": "plot_unit"},
 			},
 		}
@@ -242,7 +242,7 @@ def test_preprocess_stage_parses_phase_resource_class_and_default_chunk_duration
 	parsed = parse_preprocess_stage_config(runtime_config=RuntimeConfig(payload))
 
 	assert parsed.save_chunk_duration == "3s"
-	assert parsed.phases.prepare_raw_binaries.resource_class == "h5_to_binary"
+	assert parsed.phases.preprocess_segments.resource_class == "preprocess_segments"
 	assert parsed.phases.plot_segment_traces.resource_class == "plot_unit"
 
 
@@ -330,7 +330,7 @@ def test_get_resource_default_uses_active_profile_default_chunk_duration_when_de
 			**_resource_payload(),
 			"stages": {
 				"preprocess": {
-					"phases": {"prepare_raw_binaries": {"resource_class": "missing"}},
+					"phases": {"preprocess_segments": {"resource_class": "missing"}},
 				}
 			},
 		},

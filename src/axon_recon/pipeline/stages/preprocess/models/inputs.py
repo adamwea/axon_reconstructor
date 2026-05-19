@@ -9,7 +9,6 @@ from ..constants import PREPROCESS_OUTPUTS_DIRNAME
 DEFAULT_PREPROCESS_PHASE_SEQUENCE: tuple[str, ...] = (
 	"copy_src_to_scratch",
 	"save_rec_metadata",
-	"prepare_raw_binaries",
 	"preprocess_segments",
 	"plot_segment_traces",
 	"plot_segment_channel_layouts",
@@ -53,16 +52,6 @@ class PreprocessSaveRecMetadataPhaseConfig:
 	common_electrodes_relpath: str = "common_electrodes.npy"
 	common_electrodes_summary_json_relpath: str = "context/save_common_electrodes_summary.json"
 	resource_class: str | None = None
-
-
-@dataclass(frozen=True)
-class PreprocessPrepareRawBinariesPhaseConfig:
-	enabled: bool = True
-	summary_json_relpath: str = "context/prepare_raw_binaries_summary.json"
-	resource_class: str | None = None
-	rel_output_root: str = "raw_binary_recording"
-	manifest_relpath: str = "context/raw_binary_manifest.json"
-	outputs: PreprocessPhaseOutputsConfig = field(default_factory=lambda: PreprocessPhaseOutputsConfig())
 
 
 @dataclass(frozen=True)
@@ -234,9 +223,6 @@ class PreprocessPhasesConfig:
 			common_electrodes_relpath="common_electrodes.npy",
 			common_electrodes_summary_json_relpath="context/save_common_electrodes_summary.json",
 		)
-	)
-	prepare_raw_binaries: PreprocessPrepareRawBinariesPhaseConfig = field(
-		default_factory=PreprocessPrepareRawBinariesPhaseConfig
 	)
 	wipe_src_scratch: PreprocessWipeSrcScratchPhaseConfig = field(
 		default_factory=PreprocessWipeSrcScratchPhaseConfig

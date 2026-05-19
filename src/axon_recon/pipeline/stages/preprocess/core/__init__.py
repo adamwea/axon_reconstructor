@@ -3,7 +3,6 @@ from .artifacts import (
 	build_segment_time_vector,
 	load_common_electrodes,
 	load_concat_manifest,
-	load_raw_binary_manifest,
 	load_recording_metadata,
 	load_saved_recording,
 	load_segment_manifest,
@@ -17,7 +16,6 @@ from .plot_concat_traces import run_plot_concat_traces_core
 from .plot_raster_threshold import run_plot_raster_threshold_core
 from .plot_segment_traces import run_plot_segment_traces_core
 from .preprocess_segments import run_preprocess_segments_core
-from .prepare_raw_binaries import run_prepare_raw_binaries_core
 from .save_concatenated_recording import run_save_concatenated_recording_core
 from .save_rec_metadata import run_save_rec_metadata_core
 from .save_segment_recordings import run_save_segment_recordings_core
@@ -29,7 +27,6 @@ __all__ = [
 	"candidate_wipe_src_scratch_paths",
 	"load_common_electrodes",
 	"load_concat_manifest",
-	"load_raw_binary_manifest",
 	"load_recording_metadata",
 	"load_saved_recording",
 	"load_segment_manifest",
@@ -41,7 +38,6 @@ __all__ = [
 	"run_plot_raster_threshold_core",
 	"run_plot_segment_traces_core",
 	"run_preprocess_segments_core",
-	"run_prepare_raw_binaries_core",
 	"run_save_concatenated_recording_core",
 	"run_save_rec_metadata_core",
 	"run_save_segment_recordings_core",

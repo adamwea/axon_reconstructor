@@ -45,7 +45,6 @@ from ...shared.sampling import read_maxwell_sampling_frequency_hz
 from .core import (
 	load_common_electrodes,
 	load_concat_manifest,
-	load_raw_binary_manifest,
 	load_recording_metadata,
 	load_saved_recording,
 	load_segment_manifest,
@@ -57,7 +56,6 @@ from .core import (
 	run_plot_raster_threshold_core,
 	run_plot_segment_traces_core,
 	run_preprocess_segments_core,
-	run_prepare_raw_binaries_core,
 	run_save_concatenated_recording_core,
 	run_save_rec_metadata_core,
 	run_save_segment_recordings_core,
@@ -96,8 +94,6 @@ class _PreprocessPathSet:
 	well_out_dir: Path
 	preprocess_out_dir: Path
 	legacy_out_dir: Path
-	raw_binary_dir: Path
-	raw_binary_manifest_path: Path
 	recording_dir: Path
 	concat_manifest_path: Path
 	common_electrodes_path: Path
@@ -909,16 +905,6 @@ def _resolve_preprocess_paths(inputs: PreprocessInputs, *, plot_cfg: PreprocessP
 		well_out_dir=well_out_dir,
 		preprocess_out_dir=preprocess_out_dir,
 		legacy_out_dir=preprocess_out_dir,
-		raw_binary_dir=_resolve_phase_output_dir(
-			preprocess_out_dir=preprocess_out_dir,
-			raw=inputs.phases.prepare_raw_binaries.rel_output_root,
-			default="raw_binary_recording",
-		),
-		raw_binary_manifest_path=_resolve_phase_output_dir(
-			preprocess_out_dir=preprocess_out_dir,
-			raw=inputs.phases.prepare_raw_binaries.manifest_relpath,
-			default="context/raw_binary_manifest.json",
-		),
 		recording_dir=_resolve_phase_output_dir(
 			preprocess_out_dir=preprocess_out_dir,
 			raw=inputs.phases.concat_segments.rel_output_root,
@@ -1001,7 +987,7 @@ def _resolve_preprocess_phase_n_jobs(
 	phase_name: str,
 	phase_plot_cfg: PreprocessPlotConfig,
 ) -> int:
-	_si_njobs_phases = {"prepare_raw_binaries", "preprocess_segments", "concat_segments"}
+	_si_njobs_phases = {"preprocess_segments", "concat_segments"}
 	if phase_name in _si_njobs_phases:
 		_budget = current_phase_budget("preprocess", phase_name)
 		return resolve_inner_worker_count(
@@ -1514,8 +1500,6 @@ def _resolve_preprocess_phase_read_h5_path(inputs: PreprocessInputs, *, phase_na
 	if phase == "save_rec_metadata":
 		metadata_h5_path, _source_h5_path, _requested_metadata_source, _metadata_source = _resolve_metadata_source_selection(inputs)
 		return metadata_h5_path
-	if phase == "prepare_raw_binaries":
-		return Path(inputs.h5_path).expanduser().resolve()
 	if phase == "preprocess_segments":
 		selected_h5_path, _source_h5_path, _lazy_source = _resolve_preprocess_segments_source_selection(inputs)
 		return selected_h5_path
@@ -1973,8 +1957,6 @@ def _phase_enabled(inputs: PreprocessInputs, phase_name: str) -> bool:
 		return bool(inputs.phases.copy_src_to_scratch.enabled)
 	if phase_name == "save_rec_metadata":
 		return bool(inputs.phases.save_rec_metadata.enabled)
-	if phase_name == "prepare_raw_binaries":
-		return bool(inputs.phases.prepare_raw_binaries.enabled)
 	if phase_name == "preprocess_segments":
 		return bool(inputs.phases.preprocess_segments.enabled) and bool(inputs.save_segment_recordings)
 	if phase_name == "plot_segment_traces":
@@ -2007,8 +1989,6 @@ def _summary_relpath_for_phase(inputs: PreprocessInputs, phase_name: str) -> str
 		return str(inputs.phases.copy_src_to_scratch.summary_json_relpath)
 	if phase_name == "save_rec_metadata":
 		return str(inputs.phases.save_rec_metadata.summary_json_relpath)
-	if phase_name == "prepare_raw_binaries":
-		return str(inputs.phases.prepare_raw_binaries.summary_json_relpath)
 	if phase_name == "preprocess_segments":
 		return str(inputs.phases.preprocess_segments.summary_json_relpath)
 	if phase_name == "plot_segment_traces":
@@ -2033,8 +2013,6 @@ def _resource_class_for_phase(inputs: PreprocessInputs, phase_name: str) -> str 
 		return inputs.phases.copy_src_to_scratch.resource_class
 	if phase_name == "save_rec_metadata":
 		return inputs.phases.save_rec_metadata.resource_class
-	if phase_name == "prepare_raw_binaries":
-		return inputs.phases.prepare_raw_binaries.resource_class
 	if phase_name == "preprocess_segments":
 		return inputs.phases.preprocess_segments.resource_class
 	if phase_name == "plot_segment_traces":
@@ -2078,11 +2056,6 @@ def _summary_outputs_for_phase(
 			"sampling_metadata_json": str(recording_metadata_paths.sampling_metadata_path),
 			"assay_stats_txt": str(recording_metadata_paths.assay_stats_path),
 			"common_electrodes_path": str(recording_metadata_paths.common_electrodes_path),
-		}
-	if phase_name == "prepare_raw_binaries":
-		return {
-			"raw_binary_recording_dir": str(paths.raw_binary_dir),
-			"raw_binary_manifest_json": str(paths.raw_binary_manifest_path),
 		}
 	if phase_name == "preprocess_segments":
 		return {
@@ -2192,8 +2165,6 @@ def _resume_artifact_log_details(payload: dict[str, Any]) -> str:
 		"common_electrodes_path",
 		"output_dir",
 		"manifest_path",
-		"raw_binary_recording_dir",
-		"raw_binary_manifest_path",
 		"recording_dir",
 		"concat_manifest_path",
 		"trace_plot_path",
@@ -2291,72 +2262,6 @@ def _resume_save_rec_metadata_payload_if_complete(
 			"common_electrodes_path": str(recording_metadata_paths.common_electrodes_path),
 			"common_electrode_count": int(len(common_electrodes)),
 			"sampling_summary": (dict(sampling_summary) if isinstance(sampling_summary, dict) else {}),
-		},
-	)
-
-
-def _resume_prepare_raw_binaries_payload_if_complete(
-	*,
-	inputs: PreprocessInputs,
-	paths: _PreprocessPathSet,
-) -> dict[str, Any] | None:
-	try:
-		manifest_payload = load_raw_binary_manifest(paths.raw_binary_manifest_path)
-		segment_entries = [
-			dict(item)
-			for item in list(manifest_payload.get("segments", []))
-			if isinstance(item, dict)
-		]
-		if segment_entries:
-			for entry in segment_entries:
-				folder = Path(str(entry.get("folder", ""))).expanduser().resolve()
-				if not str(folder):
-					return None
-				load_saved_recording(folder)
-		else:
-			load_saved_recording(paths.raw_binary_dir)
-	except Exception:
-		return None
-	recorded_h5_path = str(manifest_payload.get("resolved_h5_path", "")).strip()
-	if recorded_h5_path:
-		try:
-			stored_h5_path = Path(recorded_h5_path).expanduser().resolve()
-		except Exception:
-			return None
-		if not _paths_equal_no_resolve(left=stored_h5_path, right=Path(inputs.h5_path).expanduser().resolve()):
-			return None
-	segment_count = int(manifest_payload.get("segment_count", 0) or 0)
-	if segment_count <= 0:
-		return None
-	rec_names = [str(value) for value in list(manifest_payload.get("rec_names", [])) if str(value).strip()]
-	if not rec_names and segment_entries:
-		rec_names = [
-			str(item.get("rec_name"))
-			for item in segment_entries
-			if str(item.get("rec_name", "")).strip()
-		]
-	num_frames_by_segment = [
-		int(value)
-		for value in list(manifest_payload.get("num_frames_by_segment", []))
-	]
-	if not num_frames_by_segment and segment_entries:
-		num_frames_by_segment = [int(item.get("n_samples", 0) or 0) for item in segment_entries]
-	existing_payload = _load_existing_phase_payload(inputs=inputs, paths=paths, phase_name="prepare_raw_binaries")
-	return _build_resumed_phase_payload(
-		phase_name="prepare_raw_binaries",
-		existing_payload=existing_payload,
-		payload_updates={
-			"source_h5_path": str(Path(inputs.source_h5_path or inputs.h5_path).expanduser().resolve()),
-			"resolved_h5_path": str(Path(inputs.h5_path).expanduser().resolve()),
-			"recording_dir": str(paths.raw_binary_dir),
-			"manifest_path": str(paths.raw_binary_manifest_path),
-			"raw_binary_recording_dir": str(paths.raw_binary_dir),
-			"raw_binary_manifest_path": str(paths.raw_binary_manifest_path),
-			"segment_count": int(segment_count),
-			"rec_names": [str(value) for value in rec_names],
-			"num_channels": int(manifest_payload.get("num_channels", 0) or 0),
-			"sampling_frequency_hz": float(manifest_payload.get("sampling_frequency_hz", 0.0) or 0.0),
-			"num_frames_by_segment": [int(value) for value in num_frames_by_segment],
 		},
 	)
 
@@ -2715,8 +2620,6 @@ def _resume_phase_payload_if_complete(
 			paths=paths,
 			recording_metadata_paths=recording_metadata_paths,
 		)
-	if phase_name == "prepare_raw_binaries":
-		return _resume_prepare_raw_binaries_payload_if_complete(inputs=inputs, paths=paths)
 	if phase_name == "preprocess_segments":
 		return _resume_preprocess_segments_payload_if_complete(inputs=inputs, paths=paths)
 	if phase_name == "plot_segment_traces":
@@ -2768,8 +2671,6 @@ def _run_preprocess_phase_sequence(
 	canonical_selected_phase = _normalize_requested_preprocess_phase(selected_phase)
 	outputs: dict[str, str] = {
 		"legacy.preprocess_out_dir": str(paths.legacy_out_dir),
-		"raw_binary_recording_dir": str(paths.raw_binary_dir),
-		"raw_binary_manifest_json": str(paths.raw_binary_manifest_path),
 		"concatenated_recording_dir": str(paths.recording_dir),
 		"preprocessed_recording_dir": str(paths.recording_dir),
 		"concat_manifest_path": str(paths.concat_manifest_path),
@@ -3023,22 +2924,6 @@ def _run_preprocess_phase_sequence(
 						logger=phase_logger,
 						report_step_timers=bool(inputs.phases.save_rec_metadata.report_step_timers),
 					)
-				elif payload is None and phase_name == "prepare_raw_binaries":
-					payload = run_prepare_raw_binaries_core(
-						h5_path=inputs.h5_path,
-						source_h5_path=(inputs.source_h5_path or inputs.h5_path),
-						stream_id=str(inputs.stream_id),
-						recording_dir=paths.raw_binary_dir,
-						manifest_path=paths.raw_binary_manifest_path,
-						overwrite_saved_recording=bool(inputs.overwrite_saved_recording),
-						n_jobs=resolve_inner_worker_count(nested_shape="si_njobs", phase_cpus_per_task=getattr(current_phase_budget("preprocess", "prepare_raw_binaries"), "cpus_per_task", None), yaml_n_jobs_override=None, work_item_count=None),
-						chunk_duration=str(inputs.phases.prepare_raw_binaries.outputs.save_chunk_duration),
-						progress_bar=bool(inputs.phases.prepare_raw_binaries.outputs.save_progress_bar),
-						suppress_h5_plugin_messages=bool(inputs.logging_suppress_h5_plugin_messages),
-						logger=phase_logger,
-					)
-					payload.setdefault("raw_binary_recording_dir", str(paths.raw_binary_dir))
-					payload.setdefault("raw_binary_manifest_path", str(paths.raw_binary_manifest_path))
 				elif payload is None and phase_name == "preprocess_segments":
 					selected_segment_h5_path, selected_source_h5_path, selected_lazy_source = _resolve_preprocess_segments_source_selection(inputs)
 					effective_segment_output_mode = _resolve_preprocess_segments_output_mode(inputs)
@@ -3646,12 +3531,6 @@ def run_preprocess_save_rec_metadata_phase(inputs: PreprocessInputs) -> dict[str
 	from .orchestrators.save_rec_metadata import run_preprocess_save_rec_metadata
 
 	return run_preprocess_save_rec_metadata(inputs)
-
-
-def run_preprocess_prepare_raw_binaries_phase(inputs: PreprocessInputs) -> dict[str, Any]:
-	from .orchestrators.prepare_raw_binaries import run_preprocess_prepare_raw_binaries
-
-	return run_preprocess_prepare_raw_binaries(inputs)
 
 
 def run_preprocess_wipe_src_scratch_phase(inputs: PreprocessInputs) -> dict[str, Any]:

@@ -56,7 +56,6 @@ from .stages.preprocess.api import (
 	run_preprocess_plot_raster_threshold,
 	run_preprocess_plot_segment_channel_layouts,
 	run_preprocess_plot_segment_traces,
-	run_preprocess_prepare_raw_binaries,
 	run_preprocess_preprocess_segments,
 	run_preprocess_save_rec_metadata,
 	run_preprocess_wipe_src_scratch,
@@ -223,17 +222,14 @@ def _preprocess_stage_uses_nested_workers(stage_config: Any) -> bool:
 		return True
 	preprocess_segments_enabled = bool(getattr(getattr(phases, "preprocess_segments", None), "enabled", False))
 	concat_segments_enabled = bool(getattr(getattr(phases, "concat_segments", None), "enabled", False))
-	prepare_raw_binaries_enabled = bool(getattr(getattr(phases, "prepare_raw_binaries", None), "enabled", False))
 	return bool(
-		(prepare_raw_binaries_enabled and _preprocess_stage_phase_in_sequence(stage_config, "prepare_raw_binaries"))
-		or (preprocess_segments_enabled and _preprocess_stage_phase_in_sequence(stage_config, "preprocess_segments"))
+		(preprocess_segments_enabled and _preprocess_stage_phase_in_sequence(stage_config, "preprocess_segments"))
 		or (concat_segments_enabled and _preprocess_stage_phase_in_sequence(stage_config, "concat_segments"))
 	)
 
 
 def _preprocess_substage_uses_nested_workers(stage_name: str) -> bool:
 	return str(stage_name).strip() in {
-		"preprocess.prepare_raw_binaries",
 		"preprocess.preprocess_segments",
 		"preprocess.concat_segments",
 	}
@@ -2604,31 +2600,6 @@ def run_preprocess_save_rec_metadata_from_runtime(
 		config_path=config_path,
 		stage_name="preprocess.save_rec_metadata",
 		runner_fn=run_preprocess_save_rec_metadata,
-		limit_segments_override=limit_segments_override,
-		limit_datasets_override=limit_datasets_override,
-		target_datasets_override=target_datasets_override,
-		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
-		force_restart_override=force_restart_override,
-		force_replot_override=force_replot_override,
-		task_allocation_override=task_allocation_override,
-	)
-
-
-def run_preprocess_prepare_raw_binaries_from_runtime(
-	*,
-	config_path: str,
-	limit_segments_override: int | None = None,
-	limit_datasets_override: int | None = None,
-	target_datasets_override: list[int] | None = None,
-	limit_wells_per_dataset_override: int | None = None,
-	force_restart_override: bool | None = None,
-	force_replot_override: bool | None = None,
-	task_allocation_override: dict[str, Any] | None = None,
-) -> MultiTargetStageResult:
-	return _run_preprocess_substage_from_runtime(
-		config_path=config_path,
-		stage_name="preprocess.prepare_raw_binaries",
-		runner_fn=run_preprocess_prepare_raw_binaries,
 		limit_segments_override=limit_segments_override,
 		limit_datasets_override=limit_datasets_override,
 		target_datasets_override=target_datasets_override,

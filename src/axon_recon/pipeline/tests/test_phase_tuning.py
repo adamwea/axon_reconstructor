@@ -630,7 +630,7 @@ def test_build_phase_tuning_summary_recommends_active_profile_io_slot_decrease_f
         {
             "timestamp": f"2026-05-04T00:00:1{index}+00:00",
             "stage": "preprocess",
-            "phase": "prepare_raw_binaries",
+            "phase": "preprocess_segments",
             "resource_class": "h5_to_binary",
             "source_h5_path": "/src/data.raw.h5",
             "wall_time_s": 10.0,
@@ -650,7 +650,7 @@ def test_build_phase_tuning_summary_recommends_active_profile_io_slot_decrease_f
         resources=resources,
         tuning_config=PhaseTuningConfig(min_observations_for_underuse=5),
         observations=observations,
-        selected_stages=["preprocess.prepare_raw_binaries"],
+        selected_stages=["preprocess.preprocess_segments"],
         run_id="run-a",
         run_root="/out",
         disk_measurements=[

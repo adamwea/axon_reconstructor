@@ -19,7 +19,6 @@ from axon_recon.pipeline.stages.preprocess.models.inputs import (
     PreprocessPlotConcatTracesPhaseConfig,
     PreprocessPlotSegmentChannelLayoutsPhaseConfig,
     PreprocessPlotSegmentTracesPhaseConfig,
-    PreprocessPrepareRawBinariesPhaseConfig,
     PreprocessSaveRecMetadataPhaseConfig,
     PreprocessSegmentsPhaseConfig,
     PreprocessWipeSrcScratchPhaseConfig,
@@ -29,7 +28,6 @@ from axon_recon.pipeline.stages.preprocess.runner import (
     run_preprocess_concat_segments_phase,
     run_preprocess_plot_raster_threshold_phase,
     run_preprocess_plot_segment_channel_layouts_phase,
-    run_preprocess_prepare_raw_binaries_phase,
     run_preprocess_save_rec_metadata_phase,
     run_preprocess_stage,
     run_preprocess_wipe_src_scratch_phase,
@@ -51,7 +49,6 @@ def _write_test_png(path: Path) -> None:
 
 def _full_stage_phases() -> PreprocessPhasesConfig:
     return PreprocessPhasesConfig(
-        prepare_raw_binaries=PreprocessPrepareRawBinariesPhaseConfig(enabled=True),
         save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
     )
 
@@ -148,39 +145,6 @@ def _install_success_fakes(
             "assay_stats_txt": str(assay_stats_path),
             "common_electrodes_path": str(common_electrodes_path),
             "verbose": bool(kwargs["verbose"]),
-        }
-
-    def _fake_run_prepare_raw_binaries_core(**kwargs):
-        _capture("prepare_raw_binaries", kwargs)
-        recording_dir = Path(str(kwargs["recording_dir"]))
-        manifest_path = Path(str(kwargs["manifest_path"]))
-        recording_dir.mkdir(parents=True, exist_ok=True)
-        manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        (recording_dir / "recording.marker").write_text("ok\n", encoding="utf-8")
-        manifest_path.write_text(
-            json.dumps(
-                {
-                    "version": 1,
-                    "stream_id": str(kwargs["stream_id"]),
-                    "recording_dir": str(recording_dir),
-                    "segment_count": 2,
-                    "num_channels": 4,
-                    "sampling_frequency_hz": 10_000.0,
-                    "num_frames_by_segment": [100, 100],
-                }
-            ),
-            encoding="utf-8",
-        )
-        return {
-            "phase": "prepare_raw_binaries",
-            "recording_dir": str(recording_dir),
-            "manifest_path": str(manifest_path),
-            "raw_binary_recording_dir": str(recording_dir),
-            "raw_binary_manifest_path": str(manifest_path),
-            "segment_count": 2,
-            "num_channels": 4,
-            "sampling_frequency_hz": 10_000.0,
-            "num_frames_by_segment": [100, 100],
         }
 
     def _fake_run_preprocess_segments_core(**kwargs):
@@ -333,7 +297,6 @@ def _install_success_fakes(
     monkeypatch.setattr(preprocess_runner, "compute_pipeline_log_file", _fake_compute_pipeline_log_file)
     monkeypatch.setattr(preprocess_runner, "setup_pipeline_logger", _fake_setup_pipeline_logger)
     monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _fake_run_save_rec_metadata_core)
-    monkeypatch.setattr(preprocess_runner, "run_prepare_raw_binaries_core", _fake_run_prepare_raw_binaries_core)
     monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _fake_run_preprocess_segments_core)
     monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _fake_run_plot_segment_traces_core)
     monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _fake_run_concat_segments_core)
@@ -378,7 +341,6 @@ def test_run_preprocess_stage_writes_observability_artifacts(tmp_path: Path, mon
     outputs = dict(summary.get("outputs", {}))
     assert outputs["pipeline_log"] == str(fake_log)
     assert str(fake_log).startswith(str(canonical_out_dir))
-    assert "prepare_raw_binaries_summary_json" in outputs
     assert "preprocess_segments_summary_json" in outputs
     assert "plot_segment_traces_summary_json" in outputs
     assert "plot_segment_channel_layouts_summary_json" in outputs
@@ -480,9 +442,6 @@ def test_run_preprocess_stage_passes_plot_and_segment_controls_to_phase_cores(tm
     assert captured_phase_kwargs["preprocess_segments"]["suppress_h5_plugin_messages"] is True
     assert Path(str(captured_phase_kwargs["save_rec_metadata"]["segment_epochs_path"])) == canonical_out_dir / "segment_epochs.json"
     assert Path(str(captured_phase_kwargs["save_rec_metadata"]["assay_stats_path"])) == canonical_out_dir / "assay_stats_well001.txt"
-    assert Path(str(captured_phase_kwargs["prepare_raw_binaries"]["recording_dir"])) == canonical_out_dir / "raw_binary_recording"
-    assert Path(str(captured_phase_kwargs["prepare_raw_binaries"]["manifest_path"])) == canonical_out_dir / "context" / "raw_binary_manifest.json"
-    assert captured_phase_kwargs["prepare_raw_binaries"]["suppress_h5_plugin_messages"] is True
     assert Path(str(captured_phase_kwargs["plot_segment_traces"]["plot_output_dir"])) == canonical_out_dir
     assert Path(str(captured_phase_kwargs["plot_segment_channel_layouts"]["plot_output_dir"])) == canonical_out_dir
     assert Path(str(captured_phase_kwargs["plot_concat_traces"]["plot_output_dir"])) == canonical_out_dir
@@ -528,7 +487,6 @@ def test_run_preprocess_stage_uses_source_h5_for_preprocess_segments_when_lazy_s
         stream_id="well001",
         mea_output_root=tmp_path,
         phases=PreprocessPhasesConfig(
-            prepare_raw_binaries=PreprocessPrepareRawBinariesPhaseConfig(enabled=False),
             save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, lazy_source="src"),
         ),
@@ -742,7 +700,6 @@ def test_run_preprocess_stage_force_restart_clears_outputs_and_reruns_enabled_ph
     assert not stale_path.exists()
     assert phase_call_order == [
         "save_rec_metadata",
-        "prepare_raw_binaries",
         "preprocess_segments",
         "plot_segment_traces",
         "plot_segment_channel_layouts",
@@ -839,14 +796,14 @@ def test_run_preprocess_stage_logs_phase_start_per_well(tmp_path: Path, monkeypa
         run_preprocess_stage(inputs)
 
     messages = [record.getMessage() for record in caplog.records]
-    assert any("Starting preprocess work for well=well001 phase_count=7 selected_phase=all" in message for message in messages)
+    assert any("Starting preprocess work for well=well001 phase_count=6 selected_phase=all" in message for message in messages)
     assert any(
         "Preprocess phase worker allocation stage=preprocess phase=preprocess_segments well=well001 well_workers=2 n_jobs=12 n_jobs_source=derived phase_n_jobs=12"
         in message
         for message in messages
     )
-    assert any("Starting preprocess phase 1/7 for well=well001 phase=save_rec_metadata" in message for message in messages)
-    assert any("Starting preprocess phase 6/7 for well=well001 phase=concat_segments" in message for message in messages)
+    assert any("Starting preprocess phase 1/6 for well=well001 phase=save_rec_metadata" in message for message in messages)
+    assert any("Starting preprocess phase 5/6 for well=well001 phase=concat_segments" in message for message in messages)
     assert not any("unit_workers" in message for message in messages if "worker allocation" in message)
 
 
@@ -1000,7 +957,6 @@ def test_run_preprocess_stage_resumes_complete_phase_artifacts_without_force_res
         raise AssertionError("phase core should not run when resume artifacts are complete")
 
     monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _explode)
-    monkeypatch.setattr(preprocess_runner, "run_prepare_raw_binaries_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _explode)
@@ -1014,7 +970,6 @@ def test_run_preprocess_stage_resumes_complete_phase_artifacts_without_force_res
 
     for phase_name in (
         "save_rec_metadata",
-        "prepare_raw_binaries",
         "preprocess_segments",
         "plot_segment_traces",
         "plot_segment_channel_layouts",
@@ -1079,7 +1034,6 @@ def test_run_preprocess_stage_reruns_phase_when_resume_artifact_is_incomplete(tm
         raise AssertionError("unexpected phase rerun")
 
     monkeypatch.setattr(preprocess_runner, "run_save_rec_metadata_core", _explode)
-    monkeypatch.setattr(preprocess_runner, "run_prepare_raw_binaries_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_preprocess_segments_core", _explode)
     monkeypatch.setattr(preprocess_runner, "run_plot_segment_traces_core", _tracked_plot_segment_traces_core)
     monkeypatch.setattr(preprocess_runner, "run_concat_segments_core", _explode)
@@ -1613,7 +1567,6 @@ def test_run_preprocess_stage_uses_lazy_output_mode_for_preprocess_segments_when
         stream_id="well001",
         mea_output_root=tmp_path,
         phases=PreprocessPhasesConfig(
-            prepare_raw_binaries=PreprocessPrepareRawBinariesPhaseConfig(enabled=False),
             save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, output_mode="lazy"),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
@@ -1639,7 +1592,6 @@ def test_run_preprocess_stage_keeps_lazy_preprocess_segments_when_downstream_con
         stream_id="well001",
         mea_output_root=tmp_path,
         phases=PreprocessPhasesConfig(
-            prepare_raw_binaries=PreprocessPrepareRawBinariesPhaseConfig(enabled=False),
             save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, output_mode="lazy"),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=True),
@@ -1674,7 +1626,6 @@ def test_run_preprocess_stage_resumes_lazy_preprocess_segments_artifacts_without
         stream_id="well001",
         mea_output_root=tmp_path,
         phases=PreprocessPhasesConfig(
-            prepare_raw_binaries=PreprocessPrepareRawBinariesPhaseConfig(enabled=False),
             save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True, output_mode="lazy"),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
@@ -2062,23 +2013,6 @@ def test_run_preprocess_save_rec_metadata_phase_writes_targeted_summary(tmp_path
     assert payload["outputs"]["assay_stats_txt"] == str(canonical_out_dir / "assay_stats_well001.txt")
 
 
-def test_run_preprocess_prepare_raw_binaries_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
-    _install_success_fakes(monkeypatch, tmp_path)
-
-    inputs = PreprocessInputs(
-        h5_path=tmp_path / "input.raw.h5",
-        stream_id="well001",
-        mea_output_root=tmp_path,
-    )
-
-    payload = run_preprocess_prepare_raw_binaries_phase(inputs)
-
-    assert payload["phase"] == "prepare_raw_binaries"
-    assert Path(str(payload["summary_json"])).exists()
-    assert payload["outputs"]["raw_binary_recording_dir"].endswith("raw_binary_recording")
-    assert payload["outputs"]["raw_binary_manifest_json"].endswith("raw_binary_manifest.json")
-
-
 def test_run_preprocess_plot_segment_channel_layouts_phase_writes_targeted_summary(tmp_path: Path, monkeypatch) -> None:
     _install_success_fakes(monkeypatch, tmp_path)
 
@@ -2107,7 +2041,6 @@ def test_run_preprocess_plot_raster_threshold_phase_writes_targeted_summary(tmp_
         mea_output_root=tmp_path,
         phases=PreprocessPhasesConfig(
             save_rec_metadata=PreprocessSaveRecMetadataPhaseConfig(enabled=True),
-            prepare_raw_binaries=PreprocessPrepareRawBinariesPhaseConfig(enabled=False),
             preprocess_segments=PreprocessSegmentsPhaseConfig(enabled=True),
             plot_segment_traces=PreprocessPlotSegmentTracesPhaseConfig(enabled=False),
             plot_segment_channel_layouts=PreprocessPlotSegmentChannelLayoutsPhaseConfig(enabled=False),

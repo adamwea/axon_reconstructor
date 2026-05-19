@@ -76,10 +76,6 @@ def test_parse_preprocess_stage_config_defaults() -> None:
     assert parsed.phases.save_rec_metadata.segment_epochs_relpath == "segment_epochs.json"
     assert parsed.phases.save_rec_metadata.contiguous_epochs_relpath == "continuous_epochs.json"
     assert parsed.phases.save_rec_metadata.sampling_metadata_relpath == "sampling_rate_metadata.json"
-    assert parsed.phases.prepare_raw_binaries.enabled is True
-    assert parsed.phases.prepare_raw_binaries.summary_json_relpath == "context/prepare_raw_binaries_summary.json"
-    assert parsed.phases.prepare_raw_binaries.rel_output_root == "raw_binary_recording"
-    assert parsed.phases.prepare_raw_binaries.manifest_relpath == "context/raw_binary_manifest.json"
     assert parsed.phases.wipe_src_scratch.enabled is False
     assert parsed.phases.wipe_src_scratch.dry_run is False
     assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is False
@@ -432,16 +428,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
                             "sampling_metadata_relpath": "meta/sampling.json",
                             "common_electrodes_summary_json_relpath": "context/custom_common_summary.json",
                         },
-                        "prepare_raw_binaries": {
-                            "enabled": True,
-                            "summary_json_relpath": "context/custom_prepare_raw_binaries_summary.json",
-                            "rel_output_root": "raw_binary_recording",
-                            "manifest_relpath": "context/custom_raw_binary_manifest.json",
-                            "outputs": {
-                                "save_chunk_duration": "3s",
-                                "save_progress_bar": True,
-                            },
-                        },
                         "wipe_src_scratch": {
                             "enabled": True,
                             "dry_run": True,
@@ -554,12 +540,6 @@ def test_parse_preprocess_stage_config_reads_phase_overrides() -> None:
     assert parsed.phases.save_rec_metadata.segment_epochs_relpath == "meta/segments.json"
     assert parsed.phases.save_rec_metadata.contiguous_epochs_relpath == "meta/contiguous.json"
     assert parsed.phases.save_rec_metadata.sampling_metadata_relpath == "meta/sampling.json"
-    assert parsed.phases.prepare_raw_binaries.enabled is True
-    assert parsed.phases.prepare_raw_binaries.summary_json_relpath == "context/custom_prepare_raw_binaries_summary.json"
-    assert parsed.phases.prepare_raw_binaries.rel_output_root == "raw_binary_recording"
-    assert parsed.phases.prepare_raw_binaries.manifest_relpath == "context/custom_raw_binary_manifest.json"
-    assert parsed.phases.prepare_raw_binaries.outputs.save_chunk_duration == "3s"
-    assert parsed.phases.prepare_raw_binaries.outputs.save_progress_bar is True
     assert parsed.phases.wipe_src_scratch.enabled is True
     assert parsed.phases.wipe_src_scratch.dry_run is True
     assert parsed.phases.wipe_src_scratch.requires_use_scratch_root is True
@@ -785,10 +765,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
                         "        contiguous_epochs_relpath: continuous_epochs.json\n"
                         "        sampling_metadata_relpath: sampling_rate_metadata.json\n"
                         "        common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json\n"
-                        "      prepare_raw_binaries:\n"
-                        "        enabled: true\n"
-                        "        rel_output_root: raw_binary_recording\n"
-                        "        manifest_relpath: context/raw_binary_manifest.json\n"
                         "      wipe_src_scratch:\n"
                         "        enabled: true\n"
                         "        dry_run: true\n"
@@ -870,9 +846,6 @@ def test_load_preprocess_inputs_from_runtime_defaults_and_overrides(tmp_path: Pa
     assert inputs.phases.save_rec_metadata.segment_epochs_relpath == "segment_epochs.json"
     assert inputs.phases.save_rec_metadata.contiguous_epochs_relpath == "continuous_epochs.json"
     assert inputs.phases.save_rec_metadata.sampling_metadata_relpath == "sampling_rate_metadata.json"
-    assert inputs.phases.prepare_raw_binaries.enabled is True
-    assert inputs.phases.prepare_raw_binaries.rel_output_root == "raw_binary_recording"
-    assert inputs.phases.prepare_raw_binaries.manifest_relpath == "context/raw_binary_manifest.json"
     assert inputs.phases.wipe_src_scratch.enabled is True
     assert inputs.phases.wipe_src_scratch.dry_run is True
     assert inputs.phases.wipe_src_scratch.requires_use_scratch_root is True

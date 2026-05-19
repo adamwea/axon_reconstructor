@@ -65,16 +65,6 @@ def load_concat_manifest(manifest_path: Path) -> dict[str, Any]:
 	return dict(payload)
 
 
-def load_raw_binary_manifest(manifest_path: Path) -> dict[str, Any]:
-	resolved = Path(manifest_path).expanduser().resolve()
-	if not resolved.exists():
-		raise FileNotFoundError(f"Raw binary manifest not found: {resolved}")
-	payload = read_json(resolved)
-	if not isinstance(payload, dict):
-		raise RuntimeError(f"Invalid raw binary manifest payload: {resolved}")
-	return dict(payload)
-
-
 def load_recording_metadata(
 	*,
 	segment_epochs_path: Path,

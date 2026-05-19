@@ -13,7 +13,6 @@ from axon_recon.pipeline.runner import (
     run_preprocess_plot_concat_channel_layout_from_runtime,
     run_preprocess_copy_src_to_scratch_from_runtime,
     run_preprocess_from_runtime,
-    run_preprocess_prepare_raw_binaries_from_runtime,
     run_preprocess_plot_concat_traces_from_runtime,
     run_preprocess_plot_raster_threshold_from_runtime,
     run_preprocess_plot_segment_channel_layouts_from_runtime,
@@ -526,15 +525,6 @@ def test_preprocess_debug_limits_select_first_wells_per_dataset(tmp_path: Path) 
             True,
         ),
         (
-            run_preprocess_prepare_raw_binaries_from_runtime,
-            "run_preprocess_prepare_raw_binaries_from_runtime",
-            "run_preprocess_prepare_raw_binaries",
-            "preprocess.prepare_raw_binaries",
-            "prepare_raw_binaries",
-            12,
-            False,
-        ),
-        (
             run_preprocess_wipe_src_scratch_from_runtime,
             "run_preprocess_wipe_src_scratch_from_runtime",
             "run_preprocess_wipe_src_scratch",
@@ -763,7 +753,6 @@ def test_preprocess_phase_from_args_forwards_debug_limits(monkeypatch, tmp_path:
     [
         ("copy_src_to_scratch", "run_preprocess_copy_src_to_scratch_from_runtime", "copy_src_to_scratch"),
         ("save_rec_metadata", "run_preprocess_save_rec_metadata_from_runtime", "save_rec_metadata"),
-        ("prepare_raw_binaries", "run_preprocess_prepare_raw_binaries_from_runtime", "prepare_raw_binaries"),
         ("wipe_src_scratch", "run_preprocess_wipe_src_scratch_from_runtime", "wipe_src_scratch"),
         ("preprocess_segments", "run_preprocess_preprocess_segments_from_runtime", "preprocess_segments"),
         ("plot_segment_traces", "run_preprocess_plot_segment_traces_from_runtime", "plot_segment_traces"),
@@ -1090,7 +1079,6 @@ def test_run_preprocess_from_runtime_uses_phase_sequence_for_scratch_and_worker_
             phase_sequence=("save_rec_metadata",),
             phases=SimpleNamespace(
                 copy_src_to_scratch=SimpleNamespace(enabled=True),
-                prepare_raw_binaries=SimpleNamespace(enabled=True),
                 preprocess_segments=SimpleNamespace(enabled=True),
                 concat_segments=SimpleNamespace(enabled=True),
             ),

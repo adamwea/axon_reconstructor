@@ -118,7 +118,6 @@ STAGE_PHASES: dict[str, tuple[tuple[str, tuple[str, ...]], ...]] = {
 	"preprocess": (
 		("copy_src_to_scratch", ("preprocess_outputs", "context", "copy_src_to_scratch_summary.json")),
 		("save_rec_metadata", ("preprocess_outputs", "context", "recording_metadata_summary.json")),
-		("prepare_raw_binaries", ("preprocess_outputs", "context", "prepare_raw_binaries_summary.json")),
 		("preprocess_segments", ("preprocess_outputs", "context", "segment_recordings_summary.json")),
 		("plot_segment_traces", ("preprocess_outputs", "context", "plot_segment_traces_summary.json")),
 		("plot_segment_channel_layouts", ("preprocess_outputs", "context", "plot_segment_channel_layouts_summary.json")),

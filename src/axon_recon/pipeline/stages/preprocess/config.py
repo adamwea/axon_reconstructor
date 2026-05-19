@@ -30,7 +30,6 @@ from .models.inputs import (
 	PreprocessPlotRasterThresholdPhaseConfig,
 	PreprocessPlotSegmentChannelLayoutsPhaseConfig,
 	PreprocessPlotSegmentTracesPhaseConfig,
-	PreprocessPrepareRawBinariesPhaseConfig,
 	PreprocessReportPreprocessingPhaseConfig,
 	PreprocessSaveRecMetadataPhaseConfig,
 	PreprocessSegmentsPhaseConfig,
@@ -52,9 +51,6 @@ _PREPROCESS_PHASE_ALIASES: dict[str, str] = {
 	"save_recording_metadata": "save_rec_metadata",
 	"recording_metadata": "save_rec_metadata",
 	"save_common_electrodes": "save_rec_metadata",
-	"prepare_raw_binaries": "prepare_raw_binaries",
-	"prepare_raw_binary": "prepare_raw_binaries",
-	"raw_binaries": "prepare_raw_binaries",
 	"preprocess_segments": "preprocess_segments",
 	"save_segment_recordings": "preprocess_segments",
 	"segment_recordings": "preprocess_segments",
@@ -442,35 +438,6 @@ def _parse_plot_raster_threshold_phase_config(
 	)
 
 
-def _parse_prepare_raw_binaries_phase_config(
-	*,
-	raw_cfg: dict[str, Any] | None,
-	defaults: PreprocessPhaseOutputsConfig,
-	resource_class: str | None = None,
-) -> PreprocessPrepareRawBinariesPhaseConfig:
-	phase_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
-	return PreprocessPrepareRawBinariesPhaseConfig(
-		enabled=_as_bool(phase_cfg.get("enabled", phase_cfg.get("enable", True)), True),
-		summary_json_relpath=str(
-			phase_cfg.get("summary_json_relpath", "context/prepare_raw_binaries_summary.json")
-			or "context/prepare_raw_binaries_summary.json"
-		),
-		resource_class=resource_class,
-		rel_output_root=str(
-			phase_cfg.get("rel_output_root", "raw_binary_recording")
-			or "raw_binary_recording"
-		),
-		manifest_relpath=str(
-			phase_cfg.get("manifest_relpath", "context/raw_binary_manifest.json")
-			or "context/raw_binary_manifest.json"
-		),
-		outputs=_parse_phase_outputs_config(
-			raw_cfg=phase_cfg.get("outputs", {}),
-			defaults=defaults,
-		),
-	)
-
-
 def _parse_plot_phase_config(*, raw_cfg: dict[str, Any] | None, defaults: PreprocessPlotConfig) -> PreprocessPlotConfig:
 	plot_cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
 	concat_trace_raw = plot_cfg.get("concat_trace", defaults.concat_trace)
@@ -774,7 +741,6 @@ def parse_preprocess_stage_config(
 
 	copy_phase_cfg = phases_cfg.get("copy_src_to_scratch", {}) if isinstance(phases_cfg.get("copy_src_to_scratch", {}), dict) else {}
 	save_rec_metadata_phase_cfg = phases_cfg.get("save_rec_metadata", {}) if isinstance(phases_cfg.get("save_rec_metadata", {}), dict) else {}
-	prepare_raw_binaries_phase_cfg = phases_cfg.get("prepare_raw_binaries", {}) if isinstance(phases_cfg.get("prepare_raw_binaries", {}), dict) else {}
 	wipe_src_scratch_phase_cfg = phases_cfg.get("wipe_src_scratch", {}) if isinstance(phases_cfg.get("wipe_src_scratch", {}), dict) else {}
 	preprocess_segments_phase_cfg = phases_cfg.get("preprocess_segments", {}) if isinstance(phases_cfg.get("preprocess_segments", {}), dict) else {}
 	plot_segment_traces_phase_cfg = phases_cfg.get("plot_segment_traces", {}) if isinstance(phases_cfg.get("plot_segment_traces", {}), dict) else {}
@@ -823,12 +789,6 @@ def parse_preprocess_stage_config(
 		save_progress_bar=save_progress_bar,
 		print_n_jobs_used=print_n_jobs_used,
 	)
-	prepare_raw_binaries_phase = _parse_prepare_raw_binaries_phase_config(
-		raw_cfg=prepare_raw_binaries_phase_cfg,
-		defaults=segment_outputs_defaults,
-		resource_class=_phase_resource_class(prepare_raw_binaries_phase_cfg, "prepare_raw_binaries"),
-	)
-
 	preprocess_segments_phase = PreprocessSegmentsPhaseConfig(
 		enabled=_as_bool(
 			preprocess_segments_phase_cfg.get(
@@ -1254,7 +1214,6 @@ def parse_preprocess_stage_config(
 		phases=PreprocessPhasesConfig(
 			copy_src_to_scratch=copy_src_to_scratch_phase,
 			save_rec_metadata=save_rec_metadata_phase,
-			prepare_raw_binaries=prepare_raw_binaries_phase,
 			wipe_src_scratch=wipe_src_scratch_phase,
 			preprocess_segments=preprocess_segments_phase,
 			plot_segment_traces=plot_segment_traces_phase,

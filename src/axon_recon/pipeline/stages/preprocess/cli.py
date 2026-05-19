@@ -12,7 +12,6 @@ from .orchestrators import (
 	_run_plot_raster_threshold_from_args,
 	_run_plot_segment_channel_layouts_from_args,
 	_run_plot_segment_traces_from_args,
-	_run_prepare_raw_binaries_from_args,
 	_run_preprocess_segments_from_args,
 	_run_save_rec_metadata_from_args,
 	_run_wipe_src_scratch_from_args,

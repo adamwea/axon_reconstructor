@@ -437,18 +437,6 @@ stages:
         common_electrodes_relpath: common_electrodes.npy
         common_electrodes_summary_json_relpath: context/save_common_electrodes_summary.json
 
-      # TODO Claude: delete this phase entirely. No backwards compat. No fallbacks. No legacy code. Just delete it. At one point I thought this might be helpful, but it's not needed at all.
-      prepare_raw_binaries:
-        enabled: false
-        resource_class: h5_to_binary
-        summary_json_relpath: context/prepare_raw_binaries_summary.json
-        rel_output_root: raw_binary_recording
-        manifest_relpath: context/raw_binary_manifest.json
-        outputs:
-          save_chunk_duration: 1s
-          save_progress_bar: true
-          print_n_jobs_used: true
-
       preprocess_segments:
         enabled: true
         resource_class: preprocess_segments
