@@ -41,7 +41,7 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 ## In-flight
 
-- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-9 + 11-13 shipped (slice 10 plot_raster_threshold quality fix deferred per plan §3). Slice 14 still queued. Next up: slice 14 — auto-restart-from-first-broken logic in stage runners (consumes slice 13's `pipeline/checkpoint.py` module).
+- **Phase roster cleanup plan** (`plans/active/phase_roster_cleanup_plan.md`): slices 1-9 + 11-13 + 14a-14b shipped (slice 10 plot_raster_threshold quality fix deferred per plan §3). Slice 14c still queued. Next up: slice 14c — extend auto-restart-from-first-broken to preprocess/spikesort/reconstruct/analysis full-stage runners (init + cleanup already integrated in 14b).
 - **kssynth + unitlink + unitmatch_phase plans** drafted in `plans/active/`. New sibling packages (`~/dev/pkgs/kssynth/`, `~/dev/pkgs/unitlink/`) don't exist yet. axon_recon analysis-stage `unitmatch` phase doesn't exist yet.
 
 ## Locked decisions from 2026-05-18 pre-loop Q&A

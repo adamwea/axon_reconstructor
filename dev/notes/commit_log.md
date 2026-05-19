@@ -3942,3 +3942,5 @@ cec709b | slice 8 [opus]  | move plot_concat_traces + plot_concat_channel_layout
 2a7a7e4 | slice 11 [opus] | delete --force-replot; rename to --replot with new semantic (plot/report-only); 71 files; smoke OK
 8b76675 | slice 12 [opus] | add --output-root CLI flag (overrides data_config.output_root); 4 new tests; smoke OK
 dbc138f | slice 13 [opus] | checkpoint module + in_progress markers across 17 phase target runners; 31 new tests; smoke OK
+d4758eb | slice 14a [opus]| find_first_broken_phase helper added to checkpoint module; 9 new tests
+b9fdcb0 | slice 14b [opus]| wire auto-restart-from-first-broken into init + cleanup full-stage runners
