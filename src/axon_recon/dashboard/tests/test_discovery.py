@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from ..discovery import iter_manifest_paths_from_config
+from ..discovery import (
+	DataDiscovery,
+	discover_available,
+	iter_manifest_paths_from_config,
+)
 
 
 def _write_yaml(path: Path, payload: str) -> None:
@@ -184,3 +188,143 @@ def test_iter_manifest_paths_skips_missing_manifests(tmp_path: Path) -> None:
 	)
 	manifests = iter_manifest_paths_from_config(config_path=str(runtime_yml))
 	assert manifests == []
+
+
+# --- Slice 3 of dashboard_ui_refinement_plan: discover_available ---
+
+
+def _write_parquet(path: Path, df) -> None:
+	import pandas as pd
+
+	path.parent.mkdir(parents=True, exist_ok=True)
+	df.to_parquet(path, index=False)
+
+
+def _make_manifest_with_tables(
+	well_dir: Path,
+	*,
+	well_id: str,
+	tables: dict[str, "pd.DataFrame"],
+) -> Path:
+	import json as _json
+
+	analysis_dir = well_dir / "analysis_outputs"
+	analysis_dir.mkdir(parents=True, exist_ok=True)
+	tables_meta: dict[str, str] = {}
+	for table_name, df in tables.items():
+		rel = f"tables/{table_name}.parquet"
+		_write_parquet(analysis_dir / rel, df)
+		tables_meta[table_name] = rel
+	manifest = analysis_dir / "manifest.json"
+	manifest.write_text(
+		_json.dumps({"well_id": well_id, "tables": tables_meta}),
+		encoding="utf-8",
+	)
+	return manifest
+
+
+def test_discover_available_empty_input() -> None:
+	out = discover_available([])
+	assert isinstance(out, DataDiscovery)
+	assert out.tables == frozenset()
+	assert out.manifest_count == 0
+
+
+def test_discover_available_aggregates_tables_and_columns(tmp_path: Path) -> None:
+	import pandas as pd
+
+	w0 = tmp_path / "w0"
+	manifest0 = _make_manifest_with_tables(
+		w0,
+		well_id="well000",
+		tables={
+			"units": pd.DataFrame(
+				{
+					"unit_id": [1, 2, 3],
+					"branch_count": [4.0, 5.0, 6.0],
+					"genotype": ["wt", "wt", "ko"],
+				}
+			),
+			"well_summary": pd.DataFrame(
+				{"n_units": [3], "median_isi_ms": [10.5]}
+			),
+		},
+	)
+	w1 = tmp_path / "w1"
+	manifest1 = _make_manifest_with_tables(
+		w1,
+		well_id="well001",
+		tables={
+			"units": pd.DataFrame(
+				{
+					"unit_id": [1, 2],
+					"branch_count": [4.0, 5.0],
+					# different column - tests aggregation
+					"isolation": [0.9, 0.85],
+				}
+			),
+		},
+	)
+
+	out = discover_available([manifest0, manifest1])
+	assert out.tables == frozenset({"units", "well_summary"})
+	assert out.manifest_count == 2
+
+	# units columns are the union across manifests.
+	units_cols = out.columns_by_table["units"]
+	assert "unit_id" in units_cols
+	assert "branch_count" in units_cols
+	assert "genotype" in units_cols
+	assert "isolation" in units_cols
+
+	# Numeric vs categorical classification.
+	assert "branch_count" in out.numeric_columns_by_table["units"]
+	assert "isolation" in out.numeric_columns_by_table["units"]
+	assert "genotype" in out.categorical_columns_by_table["units"]
+	assert "genotype" not in out.numeric_columns_by_table["units"]
+
+
+def test_discover_available_skips_missing_parquet_files(tmp_path: Path) -> None:
+	import json as _json
+	import pandas as pd
+
+	# Manifest references a parquet that doesn't exist on disk — skipped
+	# silently.
+	analysis_dir = tmp_path / "well_x" / "analysis_outputs"
+	analysis_dir.mkdir(parents=True, exist_ok=True)
+	manifest = analysis_dir / "manifest.json"
+	manifest.write_text(
+		_json.dumps(
+			{"well_id": "well_x", "tables": {"units": "tables/does_not_exist.parquet"}}
+		),
+		encoding="utf-8",
+	)
+	out = discover_available([manifest])
+	# Manifest counted (it was valid JSON), but no tables surface.
+	assert out.manifest_count == 1
+	assert out.tables == frozenset()
+
+
+def test_discover_available_numeric_columns_helper(tmp_path: Path) -> None:
+	import pandas as pd
+
+	w0 = tmp_path / "w0"
+	manifest = _make_manifest_with_tables(
+		w0,
+		well_id="w0",
+		tables={
+			"units": pd.DataFrame(
+				{
+					"a": [1.0, 2.0],
+					"b": ["x", "y"],
+					"c": [10, 20],
+				}
+			),
+		},
+	)
+	out = discover_available([manifest])
+	# Sorted for determinism.
+	assert out.numeric_columns("units") == ["a", "c"]
+	assert out.categorical_columns("units") == ["b"]
+	# Unknown table returns empty lists.
+	assert out.numeric_columns("nonexistent") == []
