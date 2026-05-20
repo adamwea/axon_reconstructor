@@ -45,5 +45,4 @@ The collapse to `rmtree` is the destructive cleanup `trackers/tech_debt.md` §"C
 ## Open exceptions / follow-ups
 
 - The current `_cleanup_spikesort_outputs_for_force_restart` allowlist is a stopgap. Long-term `rmtree(stage_output_root)` replaces it. Tracked in `trackers/tech_debt.md` §"Collapse `--force-restart` semantics".
-- `force_replot` is separate today. Its collapse into `--force-restart` with a flag (or its removal) is tracked in the same tech_debt entry.
 - The `phase_roster_cleanup_plan` is the prerequisite that unblocks the destructive collapse — every phase deleted there is one fewer cleanup helper to migrate.
