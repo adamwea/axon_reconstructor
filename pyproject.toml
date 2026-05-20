@@ -62,6 +62,11 @@ full = [
   # MPI bindings.
   "mpi4py",
   # UnitMatchPy — sibling fetched from public upstream parent repo.
+  # When pip resolves this transitively it pulls torch + the nvidia/*
+  # CUDA wheel stack + triton (~5 GiB). For container builds on top of
+  # `kilosort4-base:*_cuda-*` (which ships torch + nvidia/* pre-installed),
+  # use the `full-cuda` extra below + a separate `--no-deps` install of
+  # UnitMatchPy to skip that duplication.
   "UnitMatchPy @ git+https://github.com/EnnyvanBeest/UnitMatch.git#subdirectory=UnitMatchPy",
   # UMPy runtime deps (the Dockerfile installs these in
   # UNITMATCH_RUNTIME_SPEC; declaring here makes the conda env mirror
@@ -73,6 +78,49 @@ full = [
   # SLAy runtime dep (Dockerfile installs marshmallow under
   # SLAY_RUNTIME_SPEC; SLAy itself stays Dockerfile-only via SLAY_SPEC
   # until a public remote is selected).
+  "marshmallow",
+]
+# `full-cuda` is `full` MINUS the UnitMatchPy git URL pin. Use this
+# extra inside a Dockerfile whose base image already ships torch +
+# nvidia/* CUDA wheels + triton (e.g.
+# `docker.io/spikeinterface/kilosort4-base:*_cuda-*`). The Dockerfile
+# then runs a second `pip install --no-deps "UnitMatchPy @ git+..."`
+# step to add UMPy without re-pulling its torch transitive deps.
+#
+# Saves ~5 GiB of duplication in the resulting container vs. using
+# `[full]` directly. The conda-env install path (`pip install
+# -e .[dev,full]`) keeps using `[full]` since the conda env doesn't
+# preinstall torch.
+full-cuda = [
+  # Core scientific stack — pins from Dockerfile.
+  "numpy<2.0",
+  "h5py<4",
+  "tqdm<5",
+  "requests<3",
+  "psutil",
+  "matplotlib<4",
+  "pandas<3.0",
+  "pyarrow",
+  "plotly>=5.18",
+  "dash>=2.14",
+  "dash-ag-grid",
+  "statsmodels",
+  "kaleido",
+  "openpyxl",
+  "scipy<2.0",
+  "scikit-learn<2.0",
+  "pyyaml",
+  "docker",
+  "pypdf",
+  "nvidia-ml-py",
+  "spikeinterface==0.104.3",
+  "axon_velocity==0.1.2",
+  "mpi4py",
+  # UnitMatchPy is installed separately by the Dockerfile via
+  # `pip install --no-deps` — see comment above.
+  "mat73",
+  "mtscomp",
+  "joblib",
   "marshmallow",
 ]
 
