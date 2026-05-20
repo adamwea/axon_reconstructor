@@ -24,6 +24,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from axon_recon.pipeline.stages.reconstruct.phases import kssynth as kssynth_phase
@@ -51,6 +52,30 @@ def _fake_writer_result(unit_ids=(0, 1, 2), n_channels=42):
 	)
 
 
+def _materialize_fake_synth_output(out_folder: Path, *, unit_ids, n_channels=8, n_samples=20):
+	"""Write minimal templates.npy + channel_positions.npy so the slice-4 S4-B
+	postprocess has something to demux. The templates are deterministic but
+	carry a non-zero signal on a SUBSET of channels per unit so the
+	sparsification path is exercised."""
+	out_folder.mkdir(parents=True, exist_ok=True)
+	n_units = len(unit_ids)
+	templates = np.zeros((n_units, n_samples, n_channels), dtype=np.float32)
+	# Each unit gets non-zero signal on channels [unit_idx, unit_idx+2].
+	for i in range(n_units):
+		ch_a = i % n_channels
+		ch_b = (i + 2) % n_channels
+		templates[i, :, ch_a] = np.linspace(-1.0, 1.0, n_samples)
+		templates[i, :, ch_b] = np.linspace(0.5, -0.5, n_samples)
+	positions = np.column_stack(
+		[
+			np.arange(n_channels, dtype=np.float32) * 10.0,
+			np.zeros(n_channels, dtype=np.float32),
+		]
+	)
+	np.save(out_folder / "templates.npy", templates)
+	np.save(out_folder / "channel_positions.npy", positions)
+
+
 def test_kssynth_phase_ok_translates_writer_result_to_summary(
 	monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -67,6 +92,11 @@ def test_kssynth_phase_ok_translates_writer_result_to_summary(
 		captured["analyzers"] = analyzers
 		captured["out_folder"] = out_folder
 		captured["kwargs"] = kwargs
+		# Materialize templates.npy + channel_positions.npy so the slice-4
+		# S4-B postprocess has something to demux.
+		_materialize_fake_synth_output(
+			Path(out_folder), unit_ids=(10, 11, 12, 13), n_channels=128
+		)
 		return _fake_writer_result(unit_ids=(10, 11, 12, 13), n_channels=128)
 
 	import kssynth.api
@@ -82,6 +112,12 @@ def test_kssynth_phase_ok_translates_writer_result_to_summary(
 	assert summary["channel_grid_mode"] == "union"
 	assert summary["policy"] == "spike_count_weighted_mean"
 	assert "spike_times.npy" in summary["files_written"]
+	# Slice 4 S4-B: per-unit files exist for each unit_id.
+	assert summary["per_unit_n_units_written"] == 4
+	per_unit_dir = Path(summary["per_unit_dir"])
+	for unit_id in (10, 11, 12, 13):
+		assert (per_unit_dir / f"unit_{unit_id}" / "merged_template.npy").exists()
+		assert (per_unit_dir / f"unit_{unit_id}" / "merged_channel_locations.npy").exists()
 
 	# kssynth.synthesize was actually called with our 3 analyzers + synth_out_dir.
 	assert len(captured["analyzers"]) == 3
@@ -98,9 +134,11 @@ def test_kssynth_phase_writes_summary_to_disk(
 
 	import kssynth.api
 
-	monkeypatch.setattr(
-		kssynth.api, "synthesize", lambda *, analyzers, out_folder, **_: _fake_writer_result()
-	)
+	def _fake_synthesize(*, analyzers, out_folder, **_):
+		_materialize_fake_synth_output(Path(out_folder), unit_ids=(0, 1, 2))
+		return _fake_writer_result()
+
+	monkeypatch.setattr(kssynth.api, "synthesize", _fake_synthesize)
 
 	summary = kssynth_phase.run_reconstruct_kssynth_phase(SimpleNamespace())
 
@@ -180,3 +218,58 @@ def test_kssynth_phase_reports_error_when_kssynth_missing(
 
 	assert summary["status"] == "error"
 	assert "kssynth import failed" in summary["error"]
+
+
+# ---------------------------------------------------------------------
+# Slice 4 S4-B: per-unit postprocess helper (no monkey-patching needed;
+# the helper is a pure function over disk artifacts).
+# ---------------------------------------------------------------------
+
+
+def test_per_unit_postprocess_writes_sparse_files(tmp_path: Path) -> None:
+	"""Writes per-unit merged_template.npy + merged_channel_locations.npy
+	with sparsification applied (only non-zero channels survive)."""
+
+	synth_out = tmp_path / "synth_sorter_output"
+	_materialize_fake_synth_output(synth_out, unit_ids=(7, 8, 9), n_channels=10, n_samples=15)
+
+	per_unit_dir, n_written = kssynth_phase._write_per_unit_templates_from_synth_output(
+		synth_out_dir=synth_out,
+		unit_ids=(7, 8, 9),
+	)
+
+	assert n_written == 3
+	for unit_id in (7, 8, 9):
+		unit_dir = per_unit_dir / f"unit_{unit_id}"
+		assert (unit_dir / "merged_template.npy").exists()
+		assert (unit_dir / "merged_channel_locations.npy").exists()
+		template = np.load(unit_dir / "merged_template.npy")
+		locs = np.load(unit_dir / "merged_channel_locations.npy")
+		# Sparsified to 2 active channels per unit (the test fixture sets
+		# non-zero signal on exactly 2 channels per unit).
+		assert template.shape == (2, 15)
+		assert locs.shape == (2, 2)
+
+
+def test_per_unit_postprocess_raises_on_missing_templates(tmp_path: Path) -> None:
+	synth_out = tmp_path / "synth_sorter_output"
+	synth_out.mkdir(parents=True, exist_ok=True)
+	# No templates.npy / channel_positions.npy written.
+
+	with pytest.raises(FileNotFoundError, match="missing"):
+		kssynth_phase._write_per_unit_templates_from_synth_output(
+			synth_out_dir=synth_out,
+			unit_ids=(1, 2, 3),
+		)
+
+
+def test_per_unit_postprocess_raises_on_unit_id_length_mismatch(tmp_path: Path) -> None:
+	synth_out = tmp_path / "synth_sorter_output"
+	_materialize_fake_synth_output(synth_out, unit_ids=(1, 2, 3), n_channels=8, n_samples=10)
+
+	# Pass mismatched unit_ids count (5 ids vs 3 templates).
+	with pytest.raises(ValueError, match="unit_ids length"):
+		kssynth_phase._write_per_unit_templates_from_synth_output(
+			synth_out_dir=synth_out,
+			unit_ids=(1, 2, 3, 4, 5),
+		)
