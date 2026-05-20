@@ -69,6 +69,12 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
   **Slice-level discipline going forward**: any slice that adds/removes/upgrades a conda dep MUST update the appropriate artifact pair (pre-plan: env.yml + Dockerfile; post-plan-slice-2: pyproject.toml `[full]` extra; post-plan-slice-6: Dockerfile picks up automatically via `[full]`) AND post a "shifter rebuild needed: X" line under USER INJECTIONS. The loop now picks up that rebuild itself when credentials are in place. Read `guardrails/env_parity.md` for the full contract.
 
+## 📝 User actions queued
+
+Manual items the loop can't or shouldn't do — surfaced here so the user has one place to find them. Loop appends as needed; user prunes when done.
+
+- **[2026-05-19] Delete the smoke-test repo `adamwea/__gh_auth_smoke_test`** on GitHub. Created during DIRECTIVE D pre-execution verification of `gh repo create` (commit `2124d2c`); `gh repo delete` requires the `delete_repo` token scope which the current token doesn't have. Either delete via web UI at https://github.com/adamwea/__gh_auth_smoke_test/settings (bottom of page → "Delete this repository") OR run `gh auth refresh -h github.com -s delete_repo` to add the scope and let the loop clean it up itself in the future. Not blocking anything; just clutter.
+
 ## Shipped this week (2026-05-12 → 2026-05-18)
 
 ### axon_recon repo
