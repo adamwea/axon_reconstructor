@@ -294,7 +294,10 @@ def _run_clear_templates_cache_from_args(args: argparse.Namespace) -> int:
 
 
 def _print_reconstruct_aggregate(agg: object) -> int:
-	from ...execution.results import stage_aggregate_summary_lines
+	from ...execution.results import (
+		stage_aggregate_exit_code,
+		stage_aggregate_summary_lines,
+	)
 
 	for line in stage_aggregate_summary_lines(agg):
 		print(line)
@@ -322,4 +325,4 @@ def _print_reconstruct_aggregate(agg: object) -> int:
 			f"reconstruct_out_dir={result.reconstruction_out_dir} "
 			f"units_processed={len(result.units)} units_ok={units_ok} units_error={units_error}"
 		)
-	return 0
+	return stage_aggregate_exit_code(agg)

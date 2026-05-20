@@ -85,7 +85,10 @@ def _target_datasets_override_from_args(args: argparse.Namespace) -> list[int] |
 def _print_analysis_aggregate(agg: MultiTargetStageResult) -> int:
 	import logging
 
-	from ....execution.results import stage_aggregate_summary_lines
+	from ....execution.results import (
+		stage_aggregate_exit_code,
+		stage_aggregate_summary_lines,
+	)
 
 	LOGGER = logging.getLogger("axon_recon.analysis.cli")
 	for line in stage_aggregate_summary_lines(agg):
@@ -109,7 +112,7 @@ def _print_analysis_aggregate(agg: MultiTargetStageResult) -> int:
 			getattr(result, "manifest_json", None),
 			len(getattr(result, "outputs", {}) or {}),
 		)
-	return 0
+	return stage_aggregate_exit_code(agg)
 
 
 def _run_compute_metrics_from_args(args: argparse.Namespace) -> int:

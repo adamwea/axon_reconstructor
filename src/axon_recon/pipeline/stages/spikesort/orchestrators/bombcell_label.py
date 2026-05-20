@@ -57,7 +57,10 @@ def run_spikesort_bombcell_label_from_runtime(
 
 
 def _print_spikesort_bombcell_aggregate(agg: object) -> int:
-	from ....execution.results import stage_aggregate_summary_lines
+	from ....execution.results import (
+		stage_aggregate_exit_code,
+		stage_aggregate_summary_lines,
+	)
 
 	for line in stage_aggregate_summary_lines(agg):
 		print(line)
@@ -76,7 +79,7 @@ def _print_spikesort_bombcell_aggregate(agg: object) -> int:
 				f"target[{target.dataset_index}:{target.stream_id}] status=error "
 				f"error={item.error or 'unknown'}"
 			)
-	return 0
+	return stage_aggregate_exit_code(agg)
 
 
 def _run_bombcell_label_from_args(args: argparse.Namespace) -> int:

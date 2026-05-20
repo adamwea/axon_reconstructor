@@ -45,3 +45,25 @@ def stage_aggregate_summary_lines(agg: MultiTargetStageResult) -> list[str]:
         f"datasets_succeeded: {len(ok_datasets)}/{len(all_datasets)}",
         f"wells_succeeded: {agg.succeeded_targets}/{agg.total_targets}",
     ]
+
+
+def stage_aggregate_exit_code(agg: MultiTargetStageResult) -> int:
+    """Compute a CLI exit code from a multi-target aggregate.
+
+    Per `trackers/issues.md` §"Stage exits 0 when all targets fail — breaks
+    `afterok` chains": when `succeeded_targets == 0 and total_targets > 0`,
+    the stage produced no useful output and downstream `afterok` chains
+    should NOT proceed. Return non-zero (2) so `sbatch --dependency=afterok`
+    skips the dependent job. The 0-targets case (e.g. phase plan empty or
+    YAML disabled all phases) is still "ok" — nothing to fail at.
+
+    Return codes:
+      0 — succeeded_targets > 0, OR total_targets == 0 (nothing to do).
+      2 — total_targets > 0 AND succeeded_targets == 0 (all targets failed).
+    """
+
+    total = int(getattr(agg, "total_targets", 0) or 0)
+    succeeded = int(getattr(agg, "succeeded_targets", 0) or 0)
+    if total > 0 and succeeded == 0:
+        return 2
+    return 0

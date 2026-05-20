@@ -81,7 +81,10 @@ def _debug_outputs_enabled_for_config(config_path: str) -> bool:
 
 
 def _emit_spikesort_aggregate(agg: object, *, debug_outputs: bool) -> int:
-	from ....execution.results import stage_aggregate_summary_lines
+	from ....execution.results import (
+		stage_aggregate_exit_code,
+		stage_aggregate_summary_lines,
+	)
 
 	lines = list(stage_aggregate_summary_lines(agg))
 	for item in agg.target_results:
@@ -107,7 +110,7 @@ def _emit_spikesort_aggregate(agg: object, *, debug_outputs: bool) -> int:
 		LOGGER.info(line)
 		if bool(debug_outputs):
 			print(line)
-	return 0
+	return stage_aggregate_exit_code(agg)
 
 
 def _print_spikesort_aggregate(agg: object) -> int:

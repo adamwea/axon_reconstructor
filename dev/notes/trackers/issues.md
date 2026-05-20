@@ -241,7 +241,13 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
 
 
 ### Stage exits 0 when all targets fail — breaks `afterok` chains
-- **Status**: open
+- **Status**: SHIPPED 2026-05-19 — `stage_aggregate_exit_code(agg)` in
+  `pipeline/execution/results.py` returns 2 when `total_targets > 0 and
+  succeeded_targets == 0`. All seven `_print_*_aggregate` / `_emit_*_aggregate`
+  CLI exit paths now route through it (spikesort.sort, spikesort.merge,
+  spikesort.bombcell_label, spikesort.bombcell_label_pass2,
+  spikesort.summarize_sort, reconstruct.*, analysis.compute_metrics). Unit
+  contract pinned by `pipeline/tests/test_stage_aggregate_exit_code.py`.
 - **Tags**: infra, mpi, scheduling, exit_code
 - **Repro**: NERSC run 52897375 (axon-spikesort, 2026-05-13). All 36 spikesort
   targets failed with `SpikesortGpuOversubscriptionError` (the per-node guard bug
