@@ -401,6 +401,16 @@ Add `from dataclasses import is_dataclass` to the imports if missing. This unblo
 
 ### Slice 9 — Templates `spikeinterface_extract` compat audit
 
+**Status**: SHIPPED 2026-05-19 in commit `67e8b34` ("parallelism slice 9 —
+`max_spikes_per_unit=None` recomputes to expand"). All 4 listed
+`test_build_unit_source_payload_*` tests now pass, plus the additional 6
+sibling tests in the same module (10 of 24 in the file all green).
+Root cause was the `_loaded_analyzer_extensions_satisfy_requested_payload`
+short-circuit incorrectly accepting a finite-cap cached extension when the
+caller asked for `max_spikes_per_unit=None` (= all waveforms). Fix landed
+the helper that forces recompute under that condition. See commit body for
+full diff details.
+
 **Goal**: the four `test_build_unit_source_payload_*` failures in `stages/reconstruct/templates/tests/test_spikeinterface_extract.py` exercise the `compat_only_kwargs` retry path that guards against version drift in `spikeinterface.SortingAnalyzer.compute(...)`. They've been failing since before slice 11. Don't delete — the `build_unit_source_payload` path is load-bearing for analyzers and extract_partial_templates. This slice diagnoses and fixes.
 
 **A. Inventory the 4 tests**:
