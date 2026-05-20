@@ -104,6 +104,35 @@ phase itself doesn't need to know about kssynth.
 ## Slice execution order
 
 ### Slice 1 — `phases/kssynth.py` scaffold
+
+**Split into two sub-slices to de-risk the analyzer-loading contract.**
+
+#### Slice 1a — SHIPPED 2026-05-20 (commit `70021da`)
+- Created `src/axon_recon/pipeline/stages/reconstruct/phases/kssynth.py`
+  with entry `run_reconstruct_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]`.
+- Output constants pinned: `KSSYNTH_OUTPUT_RELDIR = "synth_sorter_output"`,
+  `KSSYNTH_SUMMARY_RELPATH = "synth_sorter_output/kssynth_summary.json"`.
+- `_resolve_kssynth_output_dirs` wraps existing `_resolve_build_templates_context`.
+- v1a body: validates the `kssynth` import path, writes a stub summary JSON
+  marked `status: scaffold_only` (or `error` on ImportError), returns the
+  dict. No analyzer loading, no `kssynth.synthesize` call yet.
+- 3 unit tests in `tests/test_kssynth_phase.py` (monkey-patch
+  `_resolve_kssynth_output_dirs` to avoid the heavy `TemplatesInputs`
+  fixture machinery): scaffold_only happy path, summary-JSON-on-disk
+  contract, ImportError → error status.
+- Phase NOT wired into `phase_sequence`; unreachable from CLI.
+
+#### Slice 1b — pending
+- Replace v1a body with real analyzer-loading + `kssynth.synthesize(...)`
+  call. Use `_discover_cached_analyzer_sources` + a simple loader (NOT
+  the full `_materialize_cached_analyzers_by_source` machinery, which is
+  entangled with build_templates' BuildTemplatesContext / source manifests).
+- Summary JSON becomes `{status: ok|error, n_units: int, n_analyzers: int,
+  ...params}` with real counts.
+- Tests evolve: mock `kssynth.synthesize` and assert the WriterResult →
+  summary translation. Real-data smoke deferred to slice 3.
+
+**Original spec (preserved for traceability):**
 - Create `src/axon_recon/pipeline/stages/reconstruct/phases/kssynth.py`
   with a single `run_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]`
   entry point that, in v1, calls `kssynth.synthesize(...)` with the
