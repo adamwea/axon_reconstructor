@@ -440,10 +440,35 @@ class ReconstructionClearTemplatesCachePhaseConfig:
 
 
 @dataclass(frozen=True)
+class ReconstructionKssynthPhaseConfig:
+	"""Config for the recon-stage `kssynth` phase (Era 3 slice 2).
+
+	Phase calls `kssynth.synthesize(analyzers, out_folder, ...)` to fuse
+	per-segment SortingAnalyzers into a KS-shaped `synth_sorter_output/`
+	directory. Output lives under
+	`<well>/recon_outputs/synth_sorter_output/`. See
+	`plans/active/kssynth_recon_integration_plan.md` for the full
+	migration story.
+	"""
+
+	enabled: bool = False
+	summary_json_relpath: str = "synth_sorter_output/kssynth_summary.json"
+	resource_class: str | None = None
+	# kssynth.synthesize knobs (defaults match the kssynth library spec).
+	channel_grid: str = "union"
+	aggregation: str = "spike_count_weighted_mean"
+	tolerance_um: float = 1.0
+	dtype: str = "int16"
+	treat_zero_as_missing: bool = True
+	clobber: bool = True
+
+
+@dataclass(frozen=True)
 class ReconstructionPhasesConfig:
 	clear_templates_cache: ReconstructionClearTemplatesCachePhaseConfig = field(
 		default_factory=ReconstructionClearTemplatesCachePhaseConfig
 	)
+	kssynth: ReconstructionKssynthPhaseConfig = field(default_factory=ReconstructionKssynthPhaseConfig)
 	axon_velocity_gtrs: ReconstructionGenerateGtrsPhaseConfig = field(default_factory=ReconstructionGenerateGtrsPhaseConfig)
 	plot_recons: ReconstructionPlotReconsPhaseConfig = field(default_factory=ReconstructionPlotReconsPhaseConfig)
 	plot_branch_propagations: ReconstructionPlotBranchPropagationsPhaseConfig = field(

@@ -863,3 +863,96 @@ def test_load_config_reads_reconstruct_phase_blocks_and_overrides_stage_defaults
 	assert inputs.per_unit_outputs.circle_recon.output.write_png is True
 	assert inputs.per_unit_outputs.circle_recon.output.relpath == "phase_circle"
 	assert inputs.per_unit_outputs.circle_recon.display.color_scheme == "Set1"
+
+
+def test_load_config_reconstruct_parses_kssynth_phase(tmp_path: Path) -> None:
+	"""Parser populates `ReconstructionKssynthPhaseConfig` from YAML
+	(Era 3 slice 2a)."""
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct:
+			    phases:
+			      kssynth:
+			        enable: true
+			        channel_grid: intersection
+			        aggregation: mean
+			        tolerance_um: 2.5
+			        dtype: float32
+			        treat_zero_as_missing: false
+			        clobber: false
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	phase = inputs.phases.kssynth
+	assert phase.enabled is True
+	assert phase.channel_grid == "intersection"
+	assert phase.aggregation == "mean"
+	assert phase.tolerance_um == 2.5
+	assert phase.dtype == "float32"
+	assert phase.treat_zero_as_missing is False
+	assert phase.clobber is False
+	# Default summary path stays put when YAML doesn't override it.
+	assert phase.summary_json_relpath == "synth_sorter_output/kssynth_summary.json"
+
+
+def test_load_config_reconstruct_kssynth_phase_defaults_when_missing(tmp_path: Path) -> None:
+	"""When the `kssynth` block is absent, defaults populate as expected
+	and `enabled` is False (the phase is opt-in)."""
+	data_path = tmp_path / "data.yml"
+	data_path.write_text(
+		dedent(
+			"""
+			output_root: /tmp/out
+			datasets:
+			  - raw_data_h5_path: /tmp/input.raw.h5
+			    include_in_runtime: true
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	runtime_path = tmp_path / "runtime.yml"
+	runtime_path.write_text(
+		dedent(
+			f"""
+			data: {data_path}
+			stages:
+			  reconstruct: {{}}
+			"""
+		).strip()
+		+ "\n",
+		encoding="utf-8",
+	)
+
+	inputs = load_reconstruction_inputs_from_runtime(config_path=str(runtime_path))
+	phase = inputs.phases.kssynth
+	assert phase.enabled is False
+	assert phase.channel_grid == "union"
+	assert phase.aggregation == "spike_count_weighted_mean"
+	assert phase.tolerance_um == 1.0
+	assert phase.dtype == "int16"
+	assert phase.treat_zero_as_missing is True
+	assert phase.clobber is True

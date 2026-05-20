@@ -41,6 +41,7 @@ from .models.inputs import (
 	ReconstructionPlotUnitSummaryPhaseConfig,
 	ReconstructionPlotReconsPhaseConfig,
 	ReconstructionClearTemplatesCachePhaseConfig,
+	ReconstructionKssynthPhaseConfig,
 	ReconstructionReconGridDisplayConfig,
 	ReconstructionReconGridOutputConfig,
 	ReconstructionReconGridRenderConfig,
@@ -745,6 +746,11 @@ def parse_reconstruction_stage_config(
 		if isinstance(phases_cfg.get("clear_templates_cache", {}), dict)
 		else {}
 	)
+	kssynth_cfg = (
+		phases_cfg.get("kssynth", {})
+		if isinstance(phases_cfg.get("kssynth", {}), dict)
+		else {}
+	)
 	report_full_chip_layout_cfg = (
 		phases_cfg.get("report_full_chip_layout", {})
 		if isinstance(phases_cfg.get("report_full_chip_layout", {}), dict)
@@ -1302,6 +1308,28 @@ def parse_reconstruction_stage_config(
 				clear_templates_cache_cfg.get("keep_full_channels_templates", False),
 				False,
 			),
+		),
+		kssynth=ReconstructionKssynthPhaseConfig(
+			enabled=_phase_enabled(kssynth_cfg, False),
+			summary_json_relpath=str(
+				kssynth_cfg.get(
+					"summary_json_relpath",
+					"synth_sorter_output/kssynth_summary.json",
+				)
+				or "synth_sorter_output/kssynth_summary.json"
+			),
+			resource_class=_phase_resource_class(kssynth_cfg, "kssynth"),
+			channel_grid=str(kssynth_cfg.get("channel_grid", "union") or "union"),
+			aggregation=str(
+				kssynth_cfg.get("aggregation", "spike_count_weighted_mean")
+				or "spike_count_weighted_mean"
+			),
+			tolerance_um=float(kssynth_cfg.get("tolerance_um", 1.0) or 1.0),
+			dtype=str(kssynth_cfg.get("dtype", "int16") or "int16"),
+			treat_zero_as_missing=_as_bool(
+				kssynth_cfg.get("treat_zero_as_missing", True), True
+			),
+			clobber=_as_bool(kssynth_cfg.get("clobber", True), True),
 		),
 		axon_velocity_gtrs=ReconstructionGenerateGtrsPhaseConfig(
 			enabled=_phase_enabled(axon_velocity_gtrs_cfg, True),
