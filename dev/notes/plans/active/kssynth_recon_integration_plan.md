@@ -176,14 +176,27 @@ runner wiring) for safer integration.
   absent block keeps defaults (enabled=False, opt-in).
 - 686 tests pass (108 recon + 574 pipeline + 4 skipped).
 
-#### Slice 2b — pending
-- `stages/reconstruct/runner.py`: add the CLI subcommand
-  `reconstruct.kssynth` analogous to `reconstruct.build_templates`.
-  The dispatch routes to
-  `_print_reconstruct_aggregate(run_kssynth_from_runtime(...))`.
-- `cli.py`: add the alias in `_RECONSTRUCT_PHASE_CLI_ALIASES`.
-- Tests: CLI sequence test that invokes `reconstruct.kssynth` with a
-  stub runner returning a fake `MultiTargetStageResult`.
+#### Slice 2b — SHIPPED 2026-05-20 (commit `a1d62a4`)
+- 6-file plumbing chain mirroring `reconstruct.build_templates`:
+  - `stages/reconstruct/runner.py`: bridge wrapper
+    `run_reconstruct_templates_kssynth_phase` validates
+    `inputs.templates_inputs` + dispatches to inner phase fn.
+  - `stages/reconstruct/api.py`: `run_reconstruct_templates_kssynth`
+    wraps the bridge with `_run_with_quiet_unexpected_plot_logs`.
+  - `pipeline/runner.py`: `run_reconstruct_templates_kssynth_from_runtime`
+    routes through `_run_reconstruct_substage_from_runtime` with
+    `stage_name="reconstruct.kssynth"`.
+  - `stages/reconstruct/cli.py`: `_run_reconstruct_kssynth_from_args`
+    routes the parsed Namespace.
+  - `pipeline/cli.py`: dispatch table maps `reconstruct.kssynth`;
+    5 aliases (`recon.kssynth`, `recon.templates_kssynth`,
+    `reconstruction.kssynth`, `reconstruction.templates_kssynth`,
+    `reconstruct.templates_kssynth`).
+- Tests: 6 new alias↔canonical pairs in `test_cli_stage_sequence.py`
+  parametrize block. All pass.
+- The CLI subcommand IS now invokable directly. With `enabled: false`
+  the runtime should treat it as a no-op; slice 3 verifies on real
+  data.
 
 ### Slice 3 — YAML wire-in + smoke
 - `debug_NERSC/debug.runtime.yml` + `debug_local/debug.runtime.yml`:
