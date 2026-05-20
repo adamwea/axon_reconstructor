@@ -199,19 +199,46 @@ runner wiring) for safer integration.
   data.
 
 ### Slice 3 — YAML wire-in + smoke
+
+Split into 3a (YAML wire-in) and 3b (login-node smoke; needs a real
+analyzer cache).
+
+#### Slice 3a — SHIPPED 2026-05-20 (commit `6f519b8`)
 - `debug_NERSC/debug.runtime.yml` + `debug_local/debug.runtime.yml`:
-  add `stages.reconstruct.phases.kssynth: { enabled: false, ... }`
-  block with resource_class + rel_output_root + summary_json_relpath
-  defaults; leave `phase_sequence` untouched.
-- Run `axon-recon stages reconstruct.kssynth --config debug/debug.runtime.yml
+  added `stages.reconstruct.phases.kssynth: { enabled: false, ... }`
+  blocks with all slice-2a knobs (channel_grid, aggregation,
+  tolerance_um, dtype, treat_zero_as_missing, clobber) and
+  resource_class=template_build + summary_json_relpath defaults.
+  `phase_sequence` untouched — the phase is opt-in via the
+  `enabled` knob.
+- Status + phase_tuning tests stay green. Broader recon + pipeline
+  sweep also green.
+- Pre-existing analyzed_data on pscratch
+  (`/pscratch/.../260326/M08073/AxonTracking/000208/well000/recon_outputs/`)
+  has an empty `cache/` dir — no segment-analyzer cache available
+  for an immediate smoke. Slice 3b is deferred until `reconstruct.analyzers`
+  has run on at least one well (the smoke is a two-step: analyzers first,
+  then kssynth).
+
+#### Slice 3b — pending (needs analyzer cache or user-initiated run)
+- Confirm an analyzer cache exists at
+  `<well>/recon_outputs/cache/analyzers/segments/`. If not: user runs
+  `axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml
   --target-dataset N --limit-wells 1 --task-backend local_affinity`
-  on one well; confirm `synth_sorter_output/` materializes with the
-  expected files. Login-node smoke (cap 64 procs).
-- Visual diagnostic: capture the first `synth_sorter_output/` directory
-  listing + `kssynth_summary.json` contents into
-  `/pscratch/sd/a/adammwea/dev_outputs/kssynth_recon_integration/slice3/`.
-  Add a SOFT-gate entry to `memory/diagnostics_to_review.md` — the
-  output's "schema looks right" is user-verifiable.
+  on M08073/well000/DIV36 first.
+- Then run `axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml
+  --target-dataset N --limit-wells 1 --task-backend local_affinity`
+  (requires temporarily setting `kssynth.enabled: true` OR adding a
+  `--force-enable kssynth` CLI override — design TBD).
+- Confirm `<well>/recon_outputs/synth_sorter_output/` materializes
+  with the expected files (spike_times.npy, spike_clusters.npy,
+  cluster_KSLabel.tsv, cluster_group.tsv, channel_map.npy,
+  channel_positions.npy, params.py, templates.npy, kssynth_summary.json).
+- Visual diagnostic: capture the directory listing + `kssynth_summary.json`
+  contents into
+  `/pscratch/sd/a/adammwea/dev_outputs/kssynth_recon_integration/slice3b/`.
+  Add a SOFT-gate entry to `memory/diagnostics_to_review.md` for
+  user review.
 
 ### Slice 4 — downstream phase repointing
 - `plot_templates_v2`, `report_templates`, `axon_velocity_gtrs` each have
