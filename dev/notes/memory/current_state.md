@@ -33,8 +33,37 @@ User-authored directives that override plan / tier order until satisfied. Read F
      2. ✅ `podman push docker.io/adammwea/axon-recon:pipeline-v2` completed (12.8 GB; mostly delta against the previous push, so only ~13 blobs needed copying).
      3. ✅ `shifterimg pull docker:adammwea/axon-recon:pipeline-v2` completed; perlmutter shifter registry now `READY` at hash `9cdca44d9b` (2026-05-19T21:56:42) — replaces `32638ea26b` (2026-05-18T04:57:38).
      4. ✅ In-container smoke verified: `shifter --image=adammwea/axon-recon:pipeline-v2 python` — UnitMatchPy (+ bayes_functions, overlord, utils), torch 2.7.1+cu118 with CUDA True, spikeinterface 0.104.3, axon_velocity, numpy 1.26.4, scipy 1.16.0, sklearn 1.7.0, joblib 1.5.1, mat73 ALL import cleanly. axon_recon itself imports cleanly (note: the baked-in version is the snapshot AT BUILD TIME — `stage_aggregate_exit_code` shipped in `a8a87c4` AFTER the build, so the container's frozen copy doesn't have it yet; will be picked up on the NEXT shifter rebuild).
-     5. ⚠️ **KNOWN GAP — SLAy missing from new image**: `import slay` raises `ModuleNotFoundError`. The old image at `32638ea26b` had SLAy installed via the now-removed `SLAY_SPEC` ARG. `env_install_unification_plan` slice 6 (Dockerfile collapse to `pip install .[full-cuda]`) dropped that ARG without adding SLAy to the `[full]`/`[full-cuda]` extras; the plan's top-status acknowledges this as remaining open item (c): "decide on SLAy's install path (currently editable-only via `install_dev_siblings.sh`)". `axon_recon` consumes SLAy at runtime via `importlib.import_module("slay.run")` in `stages/spikesort/runner.py:2008,2018`, so the `merge_SLAy` phase will fail with ImportError on this image. SLAy has a public remote at `git@github.com:adamwea/SLAy.git` — once the user decides, adding `"SLAy @ git+https://github.com/adamwea/SLAy.git"` to `[full]` + `[full-cuda]` and rebuilding closes the gap.
-     6. kssynth + unitlink also remain ImportError per USER INJECTION #4 (GH-remotes hold) — same shape, awaiting user direction.
+     5. ⚠️ **KNOWN GAP — SLAy missing from new image**: `import slay` raises `ModuleNotFoundError`. The old image at `32638ea26b` had SLAy installed via the now-removed `SLAY_SPEC` ARG. `env_install_unification_plan` slice 6 (Dockerfile collapse to `pip install .[full-cuda]`) dropped that ARG without adding SLAy to the `[full]`/`[full-cuda]` extras. `axon_recon` consumes SLAy at runtime via `importlib.import_module("slay.run")` in `stages/spikesort/runner.py:2008,2018`, so the `merge_SLAy` phase will fail with ImportError on this image. **RESOLVED via DIRECTIVE D below** — SLAy already has public remote `git@github.com:adamwea/SLAy.git`.
+     6. kssynth + unitlink also remain ImportError per the original USER INJECTION #4 (GH-remotes hold). **RESOLVED via DIRECTIVE D below** — user lifted the hold; loop creates the remotes itself via `gh repo create` and pushes.
+
+   - **⭐ DIRECTIVE D (2026-05-19, AUTHORIZED — loop owns this)**: close the three "in-image" gaps (SLAy, kssynth, unitlink) so the shifter image actually runs the full pipeline. **User authorizations granted with this directive**:
+     - **(D1) Sibling-repo git pushes are AUTHORIZED**, scoped to: (a) pushing existing local commits to existing remotes, AND (b) creating new GitHub remotes via `gh repo create` for kssynth + unitlink. The standing "no git push" rule still applies to `axon_recon` itself — only sibling repos are being lifted.
+     - **(D2) Push to WELL-NAMED BRANCHES**, not `main` (except for the inaugural publication of a brand-new repo where `main` IS the named branch). User will review and merge to main themselves.
+     - **(D3) USER INJECTION #4 (GH-remotes hold for kssynth + unitlink) is REVOKED.** Replaced by this directive — loop creates the remotes when ready.
+
+     **Environment audit (2026-05-19 22:37 PDT — pre-execution verification):**
+     - `gh` CLI at `~/.local/bin/gh`, authenticated as `adamwea` with `repo` scope (can `gh repo create`).
+     - SSH to `git@github.com` succeeds via `~/.ssh/id_ed25519_adamwea`.
+     - `git@github.com:adamwea/SLAy.git` exists; local `main` has 2 unpushed commits (`f7c2173` aux-tsv sync, `426ba71` assertion relax) on top of upstream's `e77dab1`.
+     - `~/dev/pkgs/kssynth` exists locally on `main`, NO upstream — needs `gh repo create`.
+     - `~/dev/pkgs/unitlink` exists locally on `main`, NO upstream — needs `gh repo create`.
+
+     **Loop execution sequence (slice-by-slice; each step is its own commit + commit_log entry):**
+     1. **Push SLAy fixes to a named branch.** `cd ~/dev/pkgs/SLAy && git checkout -b claude/merge-fixes-2026-05 && git push -u origin claude/merge-fixes-2026-05`. Branch name should reflect content; this one covers the auto-merge assertion relax + aux-tsv sync. Record branch name + URL in the SLAy commit_log (separate from axon_recon's commit_log; SLAy keeps its own at `~/dev/pkgs/SLAy/dev/notes/commit_log.md` if one exists, otherwise commit body alone).
+     2. **Create kssynth remote + push.** `cd ~/dev/pkgs/kssynth && gh repo create adamwea/kssynth --private --source=. --remote=origin --push`. The `--push` flag publishes `main` (v1-complete content) to the new remote in one operation. Record the URL.
+     3. **Create unitlink remote + push.** Same form: `cd ~/dev/pkgs/unitlink && gh repo create adamwea/unitlink --private --source=. --remote=origin --push`.
+     4. **Capture commit SHAs** for each sibling's `main` (`git rev-parse origin/main`) — these become the version pins in pyproject.toml.
+     5. **Edit `pyproject.toml`**: add to `[full]` AND `[full-cuda]` extras (both — they must stay in sync):
+        ```
+        "SLAy @ git+https://github.com/adamwea/SLAy.git@<sha>",
+        "kssynth @ git+https://github.com/adamwea/kssynth.git@<sha>",
+        "unitlink @ git+https://github.com/adamwea/unitlink.git@<sha>",
+        ```
+        Use specific commit SHAs (not branch names) for reproducibility. SLAy's pin is the tip of `main` (NOT the unmerged feature branch — the runtime needs the published-and-stable code path; merge happens later when user reviews).
+        - **Subtle**: SLAy's main does NOT yet contain the merge fixes (they're on the feature branch). For the immediate rebuild to also include those fixes, either (a) pin to the feature branch tip SHA (`f7c2173`) directly, OR (b) user merges the PR before rebuild, OR (c) accept that the shifter image doesn't have the merge fixes yet. Default choice: pin to feature-branch SHA `f7c2173` — the fixes are needed for the new image to be production-equivalent to the old one. Document this choice in the commit message so user can update later when the PR merges.
+     6. **Sanity-check pyproject locally**: `pip install -e .[dev,full-cuda]` should succeed from a clean conda env (might require `--force-reinstall` of the siblings since their version pins changed). Run the existing test suite.
+     7. **Rebuild shifter image**: `podman build` → `podman push` → `shifterimg pull` → in-container smoke verifying `import slay; import kssynth; import unitlink` all succeed.
+     8. Update this USER INJECTIONS entry to `✅ DIRECTIVE D SHIPPED` once round 2 of the shifter rebuild completes and the import chain is verified in-container. Then promote the "siblings live in `[full]`/`[full-cuda]` as git URL pins" rule into the env_parity guardrail (it's already there as the target shape; just needs a "current shape" update to match).
 
    - **✅ DIRECTIVE C PROMOTED TO GUARDRAIL (2026-05-19 22:33 PDT)**: docker.io authfile persistence is now codified in `guardrails/env_parity.md` §"Sub-rules" 1 under "Docker.io authfile MUST live at `$HOME/.config/containers/auth.json` on NERSC". The shifter round at 21:56 PDT confirmed no auth interruptions, satisfying the promotion criterion. Directive C's full body (debugging + verification log) is preserved in commit `eb3b290` for future archeology.
 
