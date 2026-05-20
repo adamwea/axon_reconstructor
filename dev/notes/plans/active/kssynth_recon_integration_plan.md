@@ -240,40 +240,46 @@ analyzer cache).
   Add a SOFT-gate entry to `memory/diagnostics_to_review.md` for
   user review.
 
-### Slice 4 — downstream phase repointing
+### Slice 4 — downstream phase repointing (S4-B postprocess)
 
-**Design audit (2026-05-20, loop iteration after slice 3a)**:
+**SHIPPED 2026-05-20 (commit `d08719d`) — S4-B strategy chosen**:
+- `phases/kssynth.py` now postprocesses kssynth's KS-shaped output into
+  per-unit `merged_template.npy` + `merged_channel_locations.npy` files
+  matching the `build_templates` layout, under
+  `synth_sorter_output/per_unit/unit_<id>/`.
+- New helper `_write_per_unit_templates_from_synth_output` reads
+  `templates.npy` (n_units, n_samples, n_channels) +
+  `channel_positions.npy` (n_channels, 2), then for each unit:
+  transposes to (n_channels, n_samples) and SPARSIFIES — only channels
+  with any non-zero sample survive, matching build_templates'
+  "only-contributing-channels" semantic.
+- `run_reconstruct_kssynth_phase` calls the postprocess after
+  synthesize; non-fatal on failure (synthesize's KS-shaped output is
+  still on disk). Summary JSON gains `per_unit_dir` +
+  `per_unit_n_units_written` fields.
+- 8 tests pass in `test_kssynth_phase.py` (5 existing + 3 new for the
+  postprocess helper: sparsification on fixture, missing-templates
+  error, unit_id/template length mismatch).
+- **Downstream phases need no changes** — `plot_templates_v2`,
+  `report_templates`, `axon_velocity_gtrs` already read
+  `merged_units_dir/unit_<id>/merged_template.npy`. Once slice 5 flips
+  `kssynth.enabled: true` AND the user repoints those consumers'
+  `templates_dir` config to `synth_sorter_output/per_unit/`, the
+  pipeline runs.
+
+**Design audit (preserved for traceability)**:
 - `plot_templates_v2`'s analyzer-side code (e.g. `phases/plot_templates_v2.py:243`)
   resolves templates dirs via `templates_runner._resolve_templates_dirs(...)`
   which expects the `merged_units_dir/unit_<id>/merged_template.npy` layout
   produced by `build_templates`. kssynth produces a KS-shaped
-  `sorter_output/` (spike_times.npy + spike_clusters.npy + templates.npy
-  + channel_map.npy + ...) — a DIFFERENT shape entirely.
+  `sorter_output/` — a DIFFERENT shape entirely.
 - Two viable repointing strategies:
-  - **(S4-A) Conversion layer in downstream phases**: each consumer
-    gets a `templates_source` YAML toggle. When `kssynth` is selected,
-    the phase reads `synth_sorter_output/templates.npy` (shape
-    `(n_units, n_samples, n_channels)`) and demuxes it into per-unit
-    slices on the fly. Adds complexity to each consumer.
-  - **(S4-B) Postprocess step in kssynth**: extend the recon-stage
-    `kssynth` phase to ALSO write per-unit `merged_template.npy` in
-    the build_templates-compatible layout (just `templates.npy` sliced
-    + saved per-unit). Then downstream phases need no changes; just
-    repoint their input dir to `synth_sorter_output/per_unit/`.
-- **Recommendation**: S4-B is lower-risk for the downstream code.
-  The per-unit demux is mechanical (slicing a numpy array + writing
-  N files). The kssynth WriterResult already provides `unit_ids` and
-  the templates path; this is just an io helper.
-- Either strategy means slice 4 is multi-file substantial work and
-  benefits from its own iteration with a fresh context.
+  - (S4-A) Conversion layer in downstream phases (templates_source toggle).
+  - (S4-B) Postprocess step in kssynth (CHOSEN — lower-risk for downstream).
 
-**Original spec (preserved)**:
-- `plot_templates_v2`, `report_templates`, `axon_velocity_gtrs` each have
-  a "where to read templates from" config field. Add a YAML toggle
-  `templates_source: build_templates | kssynth` (default
-  `build_templates` for back-compat) and wire each phase to read from
-  either `templates_cache/` (old) or `synth_sorter_output/` (new).
-- Tests: parametrized unit tests cover both modes.
+**Original 1-sentence spec (preserved)**: `plot_templates_v2`,
+`report_templates`, `axon_velocity_gtrs` each get a YAML toggle
+`templates_source: build_templates | kssynth`.
 
 ### Slice 5 — enable in YAML + retire predecessor phases
 - Flip `kssynth.enabled: true` in both debug YAMLs.
