@@ -122,15 +122,27 @@ phase itself doesn't need to know about kssynth.
   contract, ImportError → error status.
 - Phase NOT wired into `phase_sequence`; unreachable from CLI.
 
-#### Slice 1b — pending
-- Replace v1a body with real analyzer-loading + `kssynth.synthesize(...)`
-  call. Use `_discover_cached_analyzer_sources` + a simple loader (NOT
-  the full `_materialize_cached_analyzers_by_source` machinery, which is
-  entangled with build_templates' BuildTemplatesContext / source manifests).
-- Summary JSON becomes `{status: ok|error, n_units: int, n_analyzers: int,
-  ...params}` with real counts.
-- Tests evolve: mock `kssynth.synthesize` and assert the WriterResult →
-  summary translation. Real-data smoke deferred to slice 3.
+#### Slice 1b — SHIPPED 2026-05-20 (commit `4957ae0`)
+- `_resolve_kssynth_output_dirs` returns `(well_out_dir, templates_out_dir,
+  synth_out_dir)` — third element added so the output path is computed
+  once at the top of the entry function.
+- New helper `_load_segment_analyzers` wraps
+  `templates.runner._load_templates_phase_analyzers` (the same loader
+  `build_templates` uses) and drops the `(source_name, analyzer)`
+  tuples → list[Any] matching kssynth.synthesize's signature.
+- `run_reconstruct_kssynth_phase` calls `kssynth.api.synthesize` with
+  default options (channel_grid="union",
+  aggregation="spike_count_weighted_mean"). Returns the translated
+  `WriterResult` → summary JSON: n_units (from unit_ids), n_channels,
+  files_written, channel_grid_mode, policy, n_analyzers.
+- Three error paths: ImportError, analyzer-load exception, synthesize
+  exception — each writes `status: error` with the cause + partial
+  state.
+- 5 tests in `test_kssynth_phase.py` (all pass): ok path summary
+  translation, summary persistence, synthesize exception, loader
+  exception, ImportError path.
+- Phase still unwired in YAML; unreachable from CLI. Real-data smoke is
+  slice 3.
 
 **Original spec (preserved for traceability):**
 - Create `src/axon_recon/pipeline/stages/reconstruct/phases/kssynth.py`
