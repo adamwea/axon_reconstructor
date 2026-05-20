@@ -147,6 +147,10 @@ One commit per slice unless noted. `claude:` prefix.
 - Goal: "ideally we see all the channels across all the segments, and in each plotted segment division on the raster, we should see channels turn on and off as they drop in and out of the recording."
 
 ### Slice 11 — `--force-replot` deletion + `--replot` rename
+
+**Status**: SHIPPED in commit `2a7a7e4` (followed by `2776f88` commit_log +
+memory update). `grep -rn "force_replot" src/` returns 0 hits.
+
 - Mechanical: replace `--force-replot` with `--replot` everywhere. Delete `_FORCE_REPLOT_OVERRIDE` / `set_force_replot_override` if they exist; introduce `_REPLOT_OVERRIDE` if needed (only if a process-wide override is currently used).
 - Grep audit: `grep -rn "force.replot\|force_replot" src/ dev/` — zero hits in non-archive code after the slice.
 - Tests: update any test asserting `--force-replot` behavior to assert `--replot` instead. Delete tests that test the OLD semantic of "reuse computed outputs but rebuild plots only when stale" — the new `--replot` is "always rebuild plot phases, orthogonal to staleness". Some test rewriting is needed; lean on `guardrails/force_restart.md` for the post-change contract.
