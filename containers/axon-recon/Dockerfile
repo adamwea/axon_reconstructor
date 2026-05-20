@@ -8,14 +8,21 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # env_install_unification slice 6: the per-sibling SPEC ARGs
 # (AXON_RECON_RUNTIME_SPEC, AXON_VELOCITY_SPEC, SPIKEINTERFACE_SPEC,
 # UNITMATCH_SPEC, UNITMATCH_RUNTIME_SPEC, SLAY_SPEC, SLAY_RUNTIME_SPEC,
-# MPI4PY_SPEC) were replaced by `pip install -e .[full]`. pyproject.toml's
-# `[full]` extra is now the single source of truth for pip deps.
-# Kilosort + CUDA inherit from the base image; NERSC/HPC plumbing
-# (openmpi-bin, observability apt packages, Maxwell HDF5 plugin)
+# MPI4PY_SPEC) were replaced by `pip install .[full-cuda]`. pyproject.toml's
+# `[full-cuda]` extra is now the single source of truth for pip deps
+# inside the kilosort4-base CUDA image (skips the duplicate torch +
+# nvidia/* stack that `[full]` would pull via UnitMatchPy's git URL
+# transitive deps — ~5 GiB savings).
+# Kilosort + CUDA + torch + nvidia/* inherit from the base image; NERSC/HPC
+# plumbing (openmpi-bin, observability apt packages, Maxwell HDF5 plugin)
 # stays here because conda/pyproject can't express it.
 ARG AXON_RECON_OBSERVABILITY_APT_PACKAGES="time sysstat procps"
 ARG AXON_RECON_MPI_APT_PACKAGES="openmpi-bin libopenmpi-dev"
-ARG AXON_RECON_INSTALL_EXTRAS="dev,full"
+ARG AXON_RECON_INSTALL_EXTRAS="dev,full-cuda"
+# Git URL pin for UnitMatchPy — installed with --no-deps after
+# `pip install .[full-cuda]` so the base-image's torch satisfies UMPy
+# at runtime without reinstalling the CUDA stack.
+ARG UNITMATCH_GIT_URL="git+https://github.com/EnnyvanBeest/UnitMatch.git#subdirectory=UnitMatchPy"
 ARG MAXWELL_HDF5_PLUGIN_URL="https://share.mxwbio.com/d/7f2d1e98a1724a1b8b35/files/?p=%2FLinux%2Flibcompression.so&dl=1"
 ARG MAXWELL_HDF5_PLUGIN_DIR="/usr/local/lib/plugin"
 
@@ -49,19 +56,25 @@ RUN rm -rf /tmp/axon-recon-cache \
 COPY . /opt/axon_recon
 
 # Step 3: install axon_recon plus the requested extras (default
-# `dev,full`). pyproject.toml's `[full]` extra now pulls the full
-# scientific stack, axon_velocity, spikeinterface, mpi4py, UnitMatchPy
-# (git URL @ EnnyvanBeest/UnitMatch subdirectory=UnitMatchPy), and the
-# sibling runtime deps (mat73, mtscomp, joblib, marshmallow).
+# `dev,full-cuda`). pyproject.toml's `[full-cuda]` extra pulls the full
+# scientific stack, axon_velocity, spikeinterface, mpi4py + the
+# sibling runtime deps (mat73, mtscomp, joblib, marshmallow). It
+# DELIBERATELY OMITS the UnitMatchPy git URL pin to skip the duplicate
+# torch + nvidia/* CUDA wheel stack that would otherwise be pulled
+# transitively (the base image already has them).
+#
+# Step 4 then installs UnitMatchPy with `--no-deps` so UMPy is
+# importable but doesn't trigger torch reinstall.
 #
 # kssynth + unitlink remain Dockerfile-uninstalled (per USER INJECTION
-# #4 in current_state.md). They'll be added to `[full]` once their GH
-# remotes exist.
+# #4 in current_state.md). They'll be added to `[full]`/`[full-cuda]`
+# once their GH remotes exist.
 RUN if [ -n "${AXON_RECON_INSTALL_EXTRAS}" ]; then \
   python -m pip install ".[${AXON_RECON_INSTALL_EXTRAS}]"; \
   else \
   python -m pip install .; \
   fi \
+  && python -m pip install --no-deps "${UNITMATCH_GIT_URL}" \
   && chmod +x /opt/axon_recon/containers/axon-recon/entrypoint.sh \
   && chmod +x /opt/axon_recon/containers/axon-recon/smoke_cli.sh \
   && ln -sf /opt/axon_recon/containers/axon-recon/entrypoint.sh /usr/local/bin/axon-recon-entrypoint \
