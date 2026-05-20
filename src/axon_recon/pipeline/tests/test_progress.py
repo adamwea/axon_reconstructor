@@ -73,7 +73,7 @@ def test_pipeline_progress_skips_tqdm_logging_redirect_for_rich_handler(monkeypa
             return None
 
     class _Bar:
-		fp = object()
+        fp = object()
 
         def update(self, amount: int) -> None:
             return None
@@ -81,12 +81,12 @@ def test_pipeline_progress_skips_tqdm_logging_redirect_for_rich_handler(monkeypa
         def close(self) -> None:
             return None
 
-	class _FakeTqdm:
-		def __call__(self, *args: object, **kwargs: object) -> _Bar:
-			return _Bar()
+    class _FakeTqdm:
+        def __call__(self, *args: object, **kwargs: object) -> _Bar:
+            return _Bar()
 
-		def write(self, message: str, file: object | None = None) -> None:
-			writes.append((message, file))
+        def write(self, message: str, file: object | None = None) -> None:
+            writes.append((message, file))
 
     @contextmanager
     def _fake_redirect() -> Iterator[None]:
@@ -96,7 +96,7 @@ def test_pipeline_progress_skips_tqdm_logging_redirect_for_rich_handler(monkeypa
     root = logging.getLogger()
     original_handlers = list(root.handlers)
     root.handlers = [RichHandler()]
-	bar_tqdm = _FakeTqdm()
+    bar_tqdm = _FakeTqdm()
     monkeypatch.setattr(progress_module, "_tqdm", bar_tqdm)
     monkeypatch.setattr(progress_module, "_logging_redirect_tqdm", _fake_redirect)
     progress = PipelineProgress(ProgressSpec(label="test", total=1, unit="item", enabled=True))
