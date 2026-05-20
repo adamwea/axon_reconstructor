@@ -79,14 +79,23 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
   `6a6e8c6 filter unit_locations plots to good/non_soma_good`.
 
 ### NAS mount `/mnt/ben-shalom_nas/` periodically stale
-- **Status**: open (environment, not code)
+- **Status**: largely resolved 2026-05-19 by container preflight softening
+  (see tech_debt §"Soften container preflight when `publish_outputs: false`"
+  SHIPPED). Remaining edge case: `publish_outputs: true` runs against a
+  stale NAS mount still fail at the rw-mkdir preflight, but that's a real
+  "the NAS is gone" problem and can't be papered over.
 - **Tags**: infra, container
 - **Repro**: `ls /mnt/ben-shalom_nas/` returns "Resource temporarily unavailable";
   `axon-recon-container` preflight fails with `cannot create writable output_root
   path /mnt/ben-shalom_nas/analysis/...`.
-- **Impact**: container launches blocked when the share is stale. Affects every
-  stage invocation that flows through the wrapper.
-- **Workaround**: use the documented bypass form:
+- **Current behavior** (post-fix, `container_cli.py:660-683`): when
+  `publish_outputs: false` is set in the runtime config and `output_root` /
+  `output_root_2` paths don't exist, the preflight skips those mounts
+  silently — the run proceeds. When `publish_outputs: true`, the preflight
+  still requires the path to be writable, since the run will actually try
+  to write there.
+- **Workaround for the remaining `publish_outputs: true` case**: use the
+  documented bypass form:
   ```
   axon-recon-container \
     --no-config-mounts \
@@ -95,11 +104,8 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
     --gpus all \
     stages <stage> --config debug/debug.runtime.yml ...
   ```
-- **Suggested fix**: lower-priority since `publish_outputs: false` means the run
-  doesn't actually need the NAS path — only the preflight check does. Soften
-  the preflight so unreachable `output_root` is a warning-and-skip rather than
-  a hard failure when `publish_outputs: false` is set in the runtime config.
-- **See also**: workaround validated in conversation 2026-05-11.
+- **See also**: workaround validated in conversation 2026-05-11; preflight
+  softening committed 2026-05-19 (see commit_log).
 
 
 ### Multi-rank stage summary shows per-rank slice only
