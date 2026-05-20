@@ -93,6 +93,22 @@ governing artifact for a given concern shifts.
    attempting a build that will fail at push time. NEVER use `docker` —
    Perlmutter has `podman` only.
 
+   **Docker.io authfile MUST live at `$HOME/.config/containers/auth.json`**
+   on NERSC. The default rootless authfile path
+   (`$XDG_RUNTIME_DIR/containers/auth.json` = `/run/user/<uid>/containers/`)
+   is tmpfs and gets garbage-collected by systemd-logind when all SSH
+   sessions to a login node disconnect, OR when the user switches between
+   login nodes (each has its own `/run/user/`). The persistent fix
+   (DIRECTIVE C, shipped 2026-05-19): `~/.config/containers/auth.json`
+   exists at `chmod 600`; `~/.bashrc` exports
+   `REGISTRY_AUTH_FILE="$HOME/.config/containers/auth.json"`;
+   `~/.config/containers/containers.conf` has
+   `[engine] auth_file = "/global/homes/<user>/.config/containers/auth.json"`
+   as a fallback for non-interactive shells. With this setup,
+   `podman login --get-login docker.io` survives session disconnects;
+   user-initiated `podman login docker.io` only needs to happen on actual
+   password change.
+
 2. **Sibling-package install** (`SLAy`, `UnitMatchPy`, `kssynth`, `unitlink`):
    - **Target shape, production (non-editable)**: add to
      `pyproject.toml`'s `[full]` extra as a git URL pin (e.g.
