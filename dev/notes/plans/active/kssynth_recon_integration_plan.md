@@ -157,13 +157,30 @@ phase itself doesn't need to know about kssynth.
   asserting the I/O contract.
 
 ### Slice 2 — wire `kssynth` into the recon-stage config + CLI dispatch
-- `stages/reconstruct/config.py`: add `KssynthPhaseConfig` dataclass
-  mirroring the existing `BuildTemplatesPhaseConfig` shape (resource_class,
-  rel_output_root, summary_json_relpath, force_restart flags, debug
-  limits, etc.).
+
+Split into 2a (config dataclass + YAML parser) + 2b (CLI dispatch +
+runner wiring) for safer integration.
+
+#### Slice 2a — SHIPPED 2026-05-20 (commit `d06a51c`)
+- `models/inputs.py`: new `ReconstructionKssynthPhaseConfig` with
+  `enabled`, `summary_json_relpath`, `resource_class`, plus the
+  `kssynth.synthesize` knobs (`channel_grid`, `aggregation`,
+  `tolerance_um`, `dtype`, `treat_zero_as_missing`, `clobber`).
+  Defaults match the kssynth library spec. Field added to
+  `ReconstructionPhasesConfig` between `clear_templates_cache` and
+  `axon_velocity_gtrs`.
+- `config.py`: import + new `kssynth_cfg = …` block parallels the other
+  phase-block helpers; constructor reads each knob with `_as_bool` /
+  float / str coercions and defaults.
+- 2 new tests in `test_config.py`: populated YAML block sets all knobs,
+  absent block keeps defaults (enabled=False, opt-in).
+- 686 tests pass (108 recon + 574 pipeline + 4 skipped).
+
+#### Slice 2b — pending
 - `stages/reconstruct/runner.py`: add the CLI subcommand
-  `reconstruct.kssynth` analogous to `reconstruct.build_templates`. The
-  dispatch routes to `_print_reconstruct_aggregate(run_kssynth_from_runtime(...))`.
+  `reconstruct.kssynth` analogous to `reconstruct.build_templates`.
+  The dispatch routes to
+  `_print_reconstruct_aggregate(run_kssynth_from_runtime(...))`.
 - `cli.py`: add the alias in `_RECONSTRUCT_PHASE_CLI_ALIASES`.
 - Tests: CLI sequence test that invokes `reconstruct.kssynth` with a
   stub runner returning a fake `MultiTargetStageResult`.
