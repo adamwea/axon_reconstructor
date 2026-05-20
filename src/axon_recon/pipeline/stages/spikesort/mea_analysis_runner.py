@@ -1,9 +1,20 @@
-"""Spikesorting stage runner.
+"""Spikesort `mea_analysis` engine runner — docker-based external sorter codepath.
+
+Selected at runtime when `inputs.sort_engine == "mea_analysis"` (see
+`stages/spikesort/runner.py::_run_sort`). Parallel implementation to
+`core/local_spikeinterface.py` (the in-process SpikeInterface engine). This
+file owns the docker container lifecycle for KS / external sorters that
+need a containerized runtime.
 
 Contract:
 - preprocessing has already saved a SpikeInterface recording at:
     <MEA_OUTPUT_ROOT>/<relative_pattern>/<well>/preprocess_outputs/preprocessed_recording
 - this stage loads that recording and runs MEA_Analysis sorting/analyzer/reports.
+
+Historical note: previously named `legacy_runner.py`; renamed 2026-05-19 to
+make the file's identity grep-friendly. The `LEGACY_SPIKESORTING_OUTPUTS_DIRNAME`
+constant still uses "legacy" because it refers to a historical on-disk
+subdir name (`stg2_spikesorting_outputs`), not the runner.
 """
 
 from __future__ import annotations
