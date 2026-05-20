@@ -23,6 +23,16 @@ ARG AXON_RECON_INSTALL_EXTRAS="dev,full-cuda"
 # `pip install .[full-cuda]` so the base-image's torch satisfies UMPy
 # at runtime without reinstalling the CUDA stack.
 ARG UNITMATCH_GIT_URL="git+https://github.com/EnnyvanBeest/UnitMatch.git#subdirectory=UnitMatchPy"
+# Git URL pin for SLAy (DIRECTIVE D, 2026-05-19) — installed with
+# `--no-deps` after `pip install .[full-cuda]` because SLAy's pyproject
+# declares `numpy>=2.2.6` which conflicts with axon_recon's `numpy<2.0`
+# (spikeinterface/kilosort4 stack). SLAy's actual numpy usage doesn't
+# need 2.x features; the pin is from author's dev env only.
+# Feature-branch SHA `f7c2173` carries the unmerged merge-fixes PR
+# (https://github.com/adamwea/SLAy/pull/1) so the rebuilt image is
+# production-equivalent to the pre-slice-6 shifter image immediately.
+# Re-pin to origin/main tip when the PR merges.
+ARG SLAY_GIT_URL="git+https://github.com/adamwea/SLAy.git@f7c2173ab9d3932c41da42edb8b39fd00a6f6b49"
 ARG MAXWELL_HDF5_PLUGIN_URL="https://share.mxwbio.com/d/7f2d1e98a1724a1b8b35/files/?p=%2FLinux%2Flibcompression.so&dl=1"
 ARG MAXWELL_HDF5_PLUGIN_DIR="/usr/local/lib/plugin"
 
@@ -75,6 +85,7 @@ RUN if [ -n "${AXON_RECON_INSTALL_EXTRAS}" ]; then \
   python -m pip install .; \
   fi \
   && python -m pip install --no-deps "${UNITMATCH_GIT_URL}" \
+  && python -m pip install --no-deps "${SLAY_GIT_URL}" \
   && chmod +x /opt/axon_recon/containers/axon-recon/entrypoint.sh \
   && chmod +x /opt/axon_recon/containers/axon-recon/smoke_cli.sh \
   && ln -sf /opt/axon_recon/containers/axon-recon/entrypoint.sh /usr/local/bin/axon-recon-entrypoint \

@@ -77,15 +77,13 @@ full = [
   "joblib",
   # SLAy runtime dep (marshmallow is SLAy's only non-stdlib transitive dep).
   "marshmallow",
-  # Siblings (DIRECTIVE D, 2026-05-19): SLAy + kssynth + unitlink now
-  # ship from adamwea-owned GitHub remotes. SHAs pin to specific commits
-  # for reproducibility:
-  #   - SLAy pin = `f7c2173` (tip of `claude/merge-fixes-2026-05`, contains
-  #     the unmerged merge-fixes PR https://github.com/adamwea/SLAy/pull/1).
-  #     When the PR merges to main, repin to `origin/main` tip.
-  #   - kssynth + unitlink pin to current `origin/main` (v1-feature-complete
-  #     tips that were just published via inaugural `gh repo create`).
-  "SLAy @ git+https://github.com/adamwea/SLAy.git@f7c2173ab9d3932c41da42edb8b39fd00a6f6b49",
+  # Siblings (DIRECTIVE D, 2026-05-19): kssynth + unitlink ship from
+  # adamwea-owned GitHub remotes. SHAs pin to specific commits for
+  # reproducibility (current main tips, v1-feature-complete).
+  # SLAy is installed separately by the Dockerfile with `--no-deps`
+  # (same pattern as UnitMatchPy) because SLAy's `numpy>=2.2.6` pin
+  # conflicts with axon_recon's `numpy<2.0` (spikeinterface stack).
+  # The conda env installs SLAy editably via tools/install_dev_siblings.sh.
   "kssynth @ git+https://github.com/adamwea/kssynth.git@5c02df36ec198ceca638cd716189d0689e77d20a",
   "unitlink @ git+https://github.com/adamwea/unitlink.git@c066a34ea5f2fbca8f47ee6d73946cf0c2a3e5d0",
 ]
@@ -134,7 +132,8 @@ full-cuda = [
   # Siblings (DIRECTIVE D, 2026-05-19): mirror the [full] pins exactly so
   # the conda env (which uses `[full]`) and the shifter image (which uses
   # `[full-cuda]`) ship identical sibling versions.
-  "SLAy @ git+https://github.com/adamwea/SLAy.git@f7c2173ab9d3932c41da42edb8b39fd00a6f6b49",
+  # SLAy is installed by the Dockerfile via `pip install --no-deps`
+  # because of the numpy<2.0 vs numpy>=2.2.6 conflict — see [full] above.
   "kssynth @ git+https://github.com/adamwea/kssynth.git@5c02df36ec198ceca638cd716189d0689e77d20a",
   "unitlink @ git+https://github.com/adamwea/unitlink.git@c066a34ea5f2fbca8f47ee6d73946cf0c2a3e5d0",
 ]
