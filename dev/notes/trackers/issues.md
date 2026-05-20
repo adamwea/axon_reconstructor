@@ -221,11 +221,9 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
   - ✅ `pytest src/axon_recon/pipeline/stages/analysis/tests/` — 74/74 pass
     after the schema bump. The column-tuple equality assertions absorbed
     the new `treatment` field automatically as predicted.
-  - ✅ `pytest src/axon_recon/dashboard/tests/` — 124/125 pass after the
-    new column was threaded through. The single failure
-    (`test_image_exports_produce_non_zero_content_for_each_format`) is a
-    missing-kaleido issue in the conda env (image export dependency),
-    unrelated to the treatment field.
+  - ✅ `pytest src/axon_recon/dashboard/tests/` — 124 passed + 1 skipped
+    (kaleido importorskip) after the new column was threaded through.
+    No treatment-field-related failures.
 - **Still to validate** (deferred — needs real outputs):
   - End-to-end analysis stage run: `units.parquet` and `well_summary.parquet`
     should each contain a `treatment` column populated with the configured
