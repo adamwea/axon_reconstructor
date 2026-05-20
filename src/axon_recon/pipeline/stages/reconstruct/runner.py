@@ -1261,6 +1261,21 @@ def run_reconstruct_templates_build_templates_phase(inputs: ReconstructionInputs
 	return run_reconstruct_templates_build_templates_phase(inputs.templates_inputs)
 
 
+def run_reconstruct_templates_kssynth_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
+	"""Bridge wrapper for the new `kssynth` phase (Era 3 slice 2b).
+
+	Mirrors the `_phase` wrappers above: validates `inputs.templates_inputs`,
+	then dispatches to the inner phase function in `phases/kssynth.py`.
+	"""
+	from axon_recon.pipeline.stages.reconstruct.phases.kssynth import (
+		run_reconstruct_kssynth_phase,
+	)
+
+	if inputs.templates_inputs is None:
+		raise ValueError("reconstruct.kssynth requires templates_inputs to be populated on ReconstructionInputs")
+	return run_reconstruct_kssynth_phase(inputs.templates_inputs)
+
+
 # Short aliases used by the slice 2 acceptance check. These mirror the canonical
 # `run_reconstruct_templates_<phase>_phase` shims above without the
 # ``templates_`` infix, so external scripts can import either form.

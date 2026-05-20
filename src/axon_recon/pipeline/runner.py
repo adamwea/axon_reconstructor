@@ -76,6 +76,7 @@ from .stages.reconstruct.api import (
 	run_reconstruct_report_summaries,
 	run_reconstruct_templates_analyzers,
 	run_reconstruct_templates_build_templates,
+	run_reconstruct_templates_kssynth,
 	run_reconstruct_templates_compute_template_similarity,
 	run_reconstruct_templates_extract_partial_templates,
 	run_reconstruct_templates_plot_templates_v2,
@@ -5507,6 +5508,44 @@ def run_reconstruct_templates_build_templates_from_runtime(
 		config_path=config_path,
 		stage_name="reconstruct.build_templates",
 		runner_fn=run_reconstruct_templates_build_templates,
+		unit_id_override=unit_id_override,
+		unit_ids_override=unit_ids_override,
+		unit_limit_override=unit_limit_override,
+		limit_segments_override=limit_segments_override,
+		limit_datasets_override=limit_datasets_override,
+		target_datasets_override=target_datasets_override,
+		limit_wells_per_dataset_override=limit_wells_per_dataset_override,
+		force_restart_override=force_restart_override,
+		replot_override=replot_override,
+		task_allocation_override=task_allocation_override,
+	)
+
+
+def run_reconstruct_templates_kssynth_from_runtime(
+	*,
+	config_path: str,
+	unit_id_override: int | None = None,
+	unit_ids_override: list[int] | None = None,
+	unit_limit_override: int | None = None,
+	limit_segments_override: int | None = None,
+	limit_datasets_override: int | None = None,
+	target_datasets_override: list[int] | None = None,
+	limit_wells_per_dataset_override: int | None = None,
+	force_restart_override: bool | None = None,
+	replot_override: bool | None = None,
+	task_allocation_override: dict[str, Any] | None = None,
+) -> MultiTargetStageResult:
+	"""CLI-runtime entry for the recon-stage `kssynth` phase (Era 3 slice 2b).
+
+	Mirrors `run_reconstruct_templates_build_templates_from_runtime` — calls
+	the shared `_run_reconstruct_substage_from_runtime` dispatcher with
+	`stage_name="reconstruct.kssynth"` and the `run_reconstruct_templates_kssynth`
+	api wrapper.
+	"""
+	return _run_reconstruct_substage_from_runtime(
+		config_path=config_path,
+		stage_name="reconstruct.kssynth",
+		runner_fn=run_reconstruct_templates_kssynth,
 		unit_id_override=unit_id_override,
 		unit_ids_override=unit_ids_override,
 		unit_limit_override=unit_limit_override,

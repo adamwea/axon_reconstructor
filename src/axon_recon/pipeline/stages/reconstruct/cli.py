@@ -17,6 +17,7 @@ from ...runner import (
 	run_reconstruct_report_summaries_from_runtime,
 	run_reconstruct_templates_analyzers_from_runtime,
 	run_reconstruct_templates_build_templates_from_runtime,
+	run_reconstruct_templates_kssynth_from_runtime,
 	run_reconstruct_templates_compute_template_similarity_from_runtime,
 	run_reconstruct_templates_extract_partial_templates_from_runtime,
 	run_reconstruct_templates_plot_templates_v2_from_runtime,
@@ -239,6 +240,10 @@ def _run_reconstruct_extract_partial_templates_from_args(args: argparse.Namespac
 
 def _run_reconstruct_build_templates_from_args(args: argparse.Namespace) -> int:
 	return _print_reconstruct_aggregate(run_reconstruct_templates_build_templates_from_runtime(**_reconstruct_runtime_kwargs(args)))
+
+
+def _run_reconstruct_kssynth_from_args(args: argparse.Namespace) -> int:
+	return _print_reconstruct_aggregate(run_reconstruct_templates_kssynth_from_runtime(**_reconstruct_runtime_kwargs(args)))
 
 
 def _run_reconstruct_compute_template_similarity_from_args(args: argparse.Namespace) -> int:
