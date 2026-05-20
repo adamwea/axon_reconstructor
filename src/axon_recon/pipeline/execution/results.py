@@ -60,6 +60,19 @@ def stage_aggregate_exit_code(agg: MultiTargetStageResult) -> int:
     Return codes:
       0 — succeeded_targets > 0, OR total_targets == 0 (nothing to do).
       2 — total_targets > 0 AND succeeded_targets == 0 (all targets failed).
+
+    Note: in MPI mode each rank computes this against its own partition
+    slice (no gather across ranks; see `stage_aggregate_summary_lines`).
+    `srun` propagates `max(rank_exit_codes)` to slurm. So the exit code is
+    conservative-asymmetric: if any single rank's partition fully fails,
+    the whole stage reports 2 even when other ranks succeeded. In the
+    common all-targets-fail case (the bug this fix was for — systemic
+    environment / code failures hit every rank), every rank returns 2 and
+    srun exits 2. The asymmetric false-positive case (1 of N ranks fully
+    fails) blocks `afterok` chains correctly-from-a-data-completeness lens
+    (the failed partition's outputs are missing) but could be tightened
+    once the multi-rank gather lands (tracker §"Multi-rank stage summary
+    shows per-rank slice only").
     """
 
     total = int(getattr(agg, "total_targets", 0) or 0)
