@@ -733,6 +733,9 @@ def test_categorical_columns_includes_recon_status_and_string_cols() -> None:
 
 def test_image_exports_produce_non_zero_content_for_each_format() -> None:
 	"""Direct kaleido export shapes used by the download endpoints."""
+	import pytest as _pytest
+
+	_pytest.importorskip("kaleido", reason="kaleido optional dep required for plotly image export")
 	from ..app import _IMAGE_MIME_BY_FORMAT, build_scatter
 
 	df = _two_group_units_df()
