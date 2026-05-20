@@ -250,8 +250,9 @@ broken behavior) and `roadmap.md` (which is new ambitions).
   - Equivalent per-phase flags + per-phase cleanup heuristics in
     `stages/preprocess/runner.py`, `stages/reconstruct/runner.py`,
     `stages/analysis/runner.py`.
-  - `force_replot` is a sibling escape hatch with its own partial-cleanup
-    semantics; same blast radius.
+  - ~~`force_replot` is a sibling escape hatch with its own partial-cleanup
+    semantics; same blast radius.~~ (SHIPPED 2026-05-19 in phase_roster slice 11,
+    commit `2a7a7e4`: `--force-replot` deleted, `--replot` is the replacement.)
 - **Why it's debt**: today, `--force-restart` means N different things
   depending on which phase reads which YAML flag. Some phases delete only
   some sub-paths, some preserve "partial" caches (model caches, snapshot dirs,
@@ -275,8 +276,10 @@ broken behavior) and `roadmap.md` (which is new ambitions).
     from code, the YAML, and the tests. No fallback paths. No backward-compat
     shims. Phases that need a fresh cache just rebuild it from scratch every
     time — disk I/O is the right tax for the simplicity dividend.
-  - `force_replot` likely gets the same treatment (collapse into
-    force-restart-with-a-flag or remove entirely).
+  - ~~`force_replot` likely gets the same treatment (collapse into
+    force-restart-with-a-flag or remove entirely).~~ (SHIPPED — removed entirely
+    in `2a7a7e4`; `--replot` is the replacement, which is orthogonal to
+    `--force-restart` rather than being absorbed into it.)
   - Delete every `*_delete_outputs_on_force_restart` / `*_overwrite_on_force_restart`
     YAML knob and every `getattr(stage_config, "..._on_force_restart", ...)`
     call site. The phase output dir IS the unit of restart granularity.
