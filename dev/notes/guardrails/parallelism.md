@@ -35,3 +35,8 @@ Per the YAML active profile (`perlmutter_gpu` has `cpus_per_task: 16`, `perlmutt
 ## Open exceptions / follow-ups
 
 - `resources.profiles` itself is on the kill list (see `trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`"). Once it's gone, the resolver's `phase_cpus_per_task` hint comes from srun/cgroup-derived state instead of YAML. The contract above is written to survive that transition: it just reads from a different source.
+
+- **`task_allocation.{ram_gb_per_task, shm_gb_per_task}` are LIVE, just unset by default.** Both fields are `None` in `default.runtime.yml:61-62` and the active debug YAMLs, but they ARE consumed in `cpu_allocation.py:670, 674` via `_capacity_limit_from_float(budget=…, demand=…)`. When set to a positive float they cap `effective_task_limit` per node alongside `cpu_capacity_tasks` (`cpu_allocation.py:682-685`):
+  - `ram_gb_per_task` is per-task RAM demand; budget is `resource_profile.ram_gb`.
+  - `shm_gb_per_task` is per-task `/dev/shm` demand; budget is the node's available shm (queried at allocation time, with a warning at `cpu_allocation.py:905` if unavailable).
+  Do NOT delete these fields as "dead" — they're the only knob for RAM-bound or SHM-bound phases (multi-binary writers, large preprocess buffers) to be throttled below `cpu_capacity_tasks`. If YAML sets them positively, the limit applies; if not, only CPU capacity bounds tasks-per-node. Cross-ref: `pipeline/resources.py:106-107` (field defs), `pipeline/resources.py:397-405` (parser), `tests/test_cpu_allocation.py:252-253, 651` (consumer tests pin the cap path + warning).

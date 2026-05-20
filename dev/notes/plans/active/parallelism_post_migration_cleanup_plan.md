@@ -297,6 +297,12 @@ List the imported symbols. For each, decide:
 
 ### Slice 6 — Drop unused `task_allocation.ram_gb_per_task` / `shm_gb_per_task` fields
 
+**Status**: SHIPPED 2026-05-19 via **path C** (consumer exists; documented).
+`cpu_allocation.py:670, 674` does consume both fields via `_capacity_limit_from_float`,
+gating `effective_task_limit` per node alongside CPU capacity (`cpu_allocation.py:682-685`).
+Documented in `guardrails/parallelism.md` "Open exceptions / follow-ups" with cross-refs
+to the field defs, parser, and consumer tests. Fields and YAML keys remain. No code change.
+
 **Goal**: `TaskAllocationConfig` carries `ram_gb_per_task` and `shm_gb_per_task` fields (`resources.py:102-103`). YAML sets them to `null`. Verify whether any code reads them; if not, drop.
 
 **A. Verify**:
