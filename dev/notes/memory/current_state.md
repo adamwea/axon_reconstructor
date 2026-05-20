@@ -28,10 +28,10 @@ User-authored directives that override plan / tier order until satisfied. Read F
      - Final image size: **12.8 GiB** (down from the projected 17-20 GiB; matches the predicted 12-14 GiB target).
      - Tag: `docker.io/adammwea/axon-recon:pipeline-v2` (image ID `5f464e4e037d`).
 
-   - **🛠 NEXT — BLOCKED ON DOCKER.IO LOGIN (2026-05-19 19:00 PDT)**:
-     1. ❌ `podman push docker.io/adammwea/axon-recon:pipeline-v2` FAILED with `requested access to the resource is denied`. Verified: `podman login --get-login docker.io` now returns "Error: not logged into docker.io" — the token that was active at 16:56 PDT has expired (~2hr token lifetime on docker.io). The image is built locally at 12.8 GiB and ready to push; only the auth state needs refreshing.
-     2. **USER ACTION REQUIRED**: run `podman login docker.io` interactively (password input required). Then the loop will retry the push + shifterimg pull + smoke on the next iteration.
-     3. After push: `shifterimg pull docker:adammwea/axon-recon:pipeline-v2` — pulls into the NERSC shifter registry. Replaces previous `32638ea26b` (2026-05-18 04:57:38 build).
+   - **🛠 NEXT — PUSH IN PROGRESS (2026-05-19 21:47 PDT)**:
+     1. ✅ User re-logged in to docker.io as `adammwea` (verified via `podman login --get-login docker.io`).
+     2. 🔄 `podman push docker.io/adammwea/axon-recon:pipeline-v2` running in background since 21:47 PDT — 12.8 GB image, expected duration 10-30 min on NERSC network. Image ID `5f464e4e037d` confirmed still in local podman storage on pscratch graphroot.
+     3. After push completes: `shifterimg pull docker:adammwea/axon-recon:pipeline-v2` — pulls into the NERSC shifter registry. Replaces previous `32638ea26b` (2026-05-18 04:57:38 build).
      4. In-container smoke: `shifter --image=adammwea/axon-recon:pipeline-v2 python -c "import UnitMatchPy.bayes_functions"` to confirm the import chain. kssynth + unitlink will remain ImportError until GH remotes are created and added to `[full]`/`[full-cuda]` per USER INJECTION #4.
 
   **Slice-level discipline going forward**: any slice that adds/removes/upgrades a conda dep MUST update the appropriate artifact pair (pre-plan: env.yml + Dockerfile; post-plan-slice-2: pyproject.toml `[full]` extra; post-plan-slice-6: Dockerfile picks up automatically via `[full]`) AND post a "shifter rebuild needed: X" line under USER INJECTIONS. The loop now picks up that rebuild itself when credentials are in place. Read `guardrails/env_parity.md` for the full contract.
