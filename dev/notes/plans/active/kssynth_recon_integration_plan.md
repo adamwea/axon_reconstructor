@@ -241,6 +241,33 @@ analyzer cache).
   user review.
 
 ### Slice 4 — downstream phase repointing
+
+**Design audit (2026-05-20, loop iteration after slice 3a)**:
+- `plot_templates_v2`'s analyzer-side code (e.g. `phases/plot_templates_v2.py:243`)
+  resolves templates dirs via `templates_runner._resolve_templates_dirs(...)`
+  which expects the `merged_units_dir/unit_<id>/merged_template.npy` layout
+  produced by `build_templates`. kssynth produces a KS-shaped
+  `sorter_output/` (spike_times.npy + spike_clusters.npy + templates.npy
+  + channel_map.npy + ...) — a DIFFERENT shape entirely.
+- Two viable repointing strategies:
+  - **(S4-A) Conversion layer in downstream phases**: each consumer
+    gets a `templates_source` YAML toggle. When `kssynth` is selected,
+    the phase reads `synth_sorter_output/templates.npy` (shape
+    `(n_units, n_samples, n_channels)`) and demuxes it into per-unit
+    slices on the fly. Adds complexity to each consumer.
+  - **(S4-B) Postprocess step in kssynth**: extend the recon-stage
+    `kssynth` phase to ALSO write per-unit `merged_template.npy` in
+    the build_templates-compatible layout (just `templates.npy` sliced
+    + saved per-unit). Then downstream phases need no changes; just
+    repoint their input dir to `synth_sorter_output/per_unit/`.
+- **Recommendation**: S4-B is lower-risk for the downstream code.
+  The per-unit demux is mechanical (slicing a numpy array + writing
+  N files). The kssynth WriterResult already provides `unit_ids` and
+  the templates path; this is just an io helper.
+- Either strategy means slice 4 is multi-file substantial work and
+  benefits from its own iteration with a fresh context.
+
+**Original spec (preserved)**:
 - `plot_templates_v2`, `report_templates`, `axon_velocity_gtrs` each have
   a "where to read templates from" config field. Add a YAML toggle
   `templates_source: build_templates | kssynth` (default
