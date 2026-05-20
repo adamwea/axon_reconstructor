@@ -255,6 +255,20 @@ Classify each hit as: `delete`, `replace-with-budget-manager`, `keep-as-runtime-
 
 ### Slice 4 — Audit `legacy_runner.py` and either rename or carve
 
+**Status**: SHIPPED 2026-05-19 via **path A** (rename). The file IS active
+production code for the `mea_analysis` sort engine (the docker-based external
+sorter codepath; `runner.py:10840-10897` invokes it when `sort_engine ==
+"mea_analysis"`). Renamed `legacy_runner.py` → `mea_analysis_runner.py` to
+match its actual purpose. Both importers updated:
+- `stages/reconstruct/templates/core/unit_labels.py` (constants import)
+- `stages/spikesort/runner.py` (class + function import aliased to
+  `LegacySpikeSortingInputs` / `run_legacy_spikesorting_stage`; aliases kept
+  because they distinguish the docker codepath from the in-process
+  `local_spikeinterface` engine at call sites)
+The on-disk constant `LEGACY_SPIKESORTING_OUTPUTS_DIRNAME` kept its name
+because it specifically refers to a historical on-disk subdir name
+(`stg2_spikesorting_outputs`), not the runner.
+
 **Goal**: the file at `stages/spikesort/legacy_runner.py` is 700 lines and has two active importers (`reconstruct/templates/core/unit_labels.py`, `spikesort/runner.py`). The "legacy" name implies dead code, but it's not. This slice clarifies the picture.
 
 **A. Inventory** what each importer actually consumes:

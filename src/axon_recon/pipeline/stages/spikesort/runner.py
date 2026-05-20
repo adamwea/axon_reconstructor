@@ -23,7 +23,7 @@ from axon_recon.pipeline.mpi_adapter import (
 	current_mpi_context,
 )
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
-from axon_recon.pipeline.stages.spikesort.legacy_runner import (
+from axon_recon.pipeline.stages.spikesort.mea_analysis_runner import (
 	SpikeSortingInputs as LegacySpikeSortingInputs,
 	run_spikesorting_stage as run_legacy_spikesorting_stage,
 )
