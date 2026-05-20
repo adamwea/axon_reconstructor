@@ -18,10 +18,6 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
   - (B) **Nested hierarchical X-axis** — render primary × secondary × tertiary as compound x-tick labels (e.g. `wt | DIV10 | media_a`, `wt | DIV10 | media_b`, …). Scales to higher cardinality; keeps the comparison axis intact; visually busier. Plotly supports this via `category_orders` + multi-level group_col.
   - **Recommendation**: ship (B) first because it's the lower-risk extension of the existing box-plot rendering (slice 6 already renders nested groups for secondary; tertiary is just another dimension to fold into the category sort). Add (A) later as an opt-in `tertiary_mode: facet` knob if users want it. **User input wanted**: confirm (B)-first, or override to (A) if you want small-multiples as the default. **Resolution criterion**: user picks one; loop ships that slice 7.
 
-## Test-suite latent failures (revealed by hygiene passes)
-
-- **`test_progress.py::test_pipeline_progress_skips_tqdm_logging_redirect_for_rich_handler`**: pre-existing TabError fixed in commit `34ef166`, which unblocked module collection but exposed a latent assertion failure: `progress._bar.fp` is None after the with-block (line 111). Root cause: `__exit__` resets `self._bar = None` (`execution/progress.py:94`), so the assertion at test_progress.py:111 — `assert writes == [("", progress._bar.fp)]` — references a None attribute. **Resolution criterion**: capture the bar's `fp` inside the with-block (e.g. via a fixture or by reading `_FakeTqdm`'s captured bar), or rewrite the assertion to match the post-exit None state. Low priority — only one of 4 tests in the module; doesn't gate any plan.
-
 ## Per-slice empirical findings
 
 - **resources.profiles elimination — per-srun-flag fallback when slot is missing**: when `--cpus-per-task` is passed on the command line, does the resolver use that directly, or compute from `os.sched_getaffinity(0)`? Both are reasonable; pick during the implementation slice. See `trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`".

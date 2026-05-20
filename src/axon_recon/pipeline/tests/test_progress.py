@@ -108,7 +108,11 @@ def test_pipeline_progress_skips_tqdm_logging_redirect_for_rich_handler(monkeypa
         root.handlers = original_handlers
 
     assert entered == []
-    assert writes == [("", progress._bar.fp)]
+    # `_Bar.fp` is a class-level sentinel that every `_Bar()` instance shares;
+    # `progress._bar` is None after `__exit__` (execution/progress.py:94), so
+    # we have to reach for the class attr to get the same object the
+    # `_FakeTqdm.write(..., file=…)` call captured.
+    assert writes == [("", _Bar.fp)]
 
 
 def test_runtime_distribution_advances_target_progress() -> None:
