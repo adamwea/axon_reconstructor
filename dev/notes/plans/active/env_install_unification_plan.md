@@ -1,6 +1,6 @@
 # Env-install unification plan
 
-> **Status (2026-05-19)**: ✅ **v1 COMPLETE — slices 1-8 SHIPPED.**
+> **Status (2026-05-19)**: ✅ **v1 COMPLETE — slices 1-8 SHIPPED + shifter rebuild SHIPPED.**
 >
 > Shipped commits:
 > - Slice 1 audit: `274b62e` (`env_install_unification_audit.md`)
@@ -8,14 +8,28 @@
 > - Slice 3 environment.yml shrink: `b571824`
 > - Slice 4 `install_dev_siblings.sh`: `2939194`
 > - Slice 5 `setup_env.sh`: `ba290a8`
-> - Slice 6 Dockerfile collapse: `7d7ced1` (**shifter rebuild needed** — see `current_state.md` USER INJECTIONS)
+> - Slice 6 Dockerfile collapse: `7d7ced1`
 > - Slice 7 `deps/` .gitignore: `03ce49c`
 > - Slice 8 README docs: `f743abe`
 >
-> The remaining open items are: (a) user-initiated shifter rebuild;
+> Shifter rebuild result (2026-05-19 21:56 PDT, commit `8c3e7c2`): image
+> `adammwea/axon-recon:pipeline-v2` now READY in NERSC shifter registry
+> at hash `9cdca44d9b` (down from 17-20 GiB projected to 12.8 GiB actual,
+> per the DIRECTIVE B `[full]` → `[full-cuda]` split). In-container smoke
+> verified UMPy/torch+CUDA/spikeinterface/axon_velocity/transitives all
+> import. See `current_state.md` USER INJECTIONS for the full record.
+>
+> The remaining open items are:
+> (a) ~~user-initiated shifter rebuild~~ — DONE (loop-driven 2026-05-19).
 > (b) lift the `kssynth` / `unitlink` GH-remotes hold (USER INJECTION #4)
-> and add them to `[full]`; (c) decide on SLAy's install path
-> (currently editable-only via `install_dev_siblings.sh`).
+>     and add them to `[full]`.
+> (c) decide on SLAy's install path. The new shifter image is MISSING
+>     SLAy — `env_install_unification` slice 6's Dockerfile collapse
+>     dropped the `SLAY_SPEC` ARG without adding SLAy to `[full]`/`[full-cuda]`.
+>     `merge_SLAy` will ImportError on the new image until this is closed.
+>     SLAy has a public remote at `git@github.com:adamwea/SLAy.git`; adding
+>     `"SLAy @ git+https://github.com/adamwea/SLAy.git"` to both extras +
+>     rebuilding the shifter image closes the gap. Same shape as (b).
 
 ## Motivation
 
