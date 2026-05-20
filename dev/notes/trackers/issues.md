@@ -217,6 +217,15 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
   - Callback wiring inspected: 1 ID + 1 dropdown + 3 Input + 2 State + 5
     function signatures + 5 `_build_filter_spec_from_state` calls all
     threaded.
+- **Now validated** (loop run 2026-05-19, axon_recon conda env):
+  - ✅ `pytest src/axon_recon/pipeline/stages/analysis/tests/` — 74/74 pass
+    after the schema bump. The column-tuple equality assertions absorbed
+    the new `treatment` field automatically as predicted.
+  - ✅ `pytest src/axon_recon/dashboard/tests/` — 124/125 pass after the
+    new column was threaded through. The single failure
+    (`test_image_exports_produce_non_zero_content_for_each_format`) is a
+    missing-kaleido issue in the conda env (image export dependency),
+    unrelated to the treatment field.
 - **Still to validate** (deferred — needs real outputs):
   - End-to-end analysis stage run: `units.parquet` and `well_summary.parquet`
     should each contain a `treatment` column populated with the configured
@@ -226,12 +235,6 @@ fix shape. Distinct from `roadmap.md` (which is about new ambitions) and
     Treatment dropdown lists `baseline_pre_treatment` and
     `post_treatment_2h_unspecified` (plus the implicit unset bucket); each
     selection narrows the units table + histogram + box + scatter views.
-  - `analysis/tests/test_runner.py` still passes after schema bump (column
-    tuple equality assertions should adapt automatically because the test
-    fixtures don't set treatment → column ends up NaN, and the assertion
-    is `list(df.columns) == list(_UNITS_TABLE_COLUMNS)`).
-  - `dashboard/tests/test_filters.py` and `test_app.py` still pass with the
-    new column threaded through.
 - **Suggested check sequence** when the user runs `pytest` in their env:
   ```
   pytest src/axon_recon/pipeline/stages/analysis/tests/ -q
