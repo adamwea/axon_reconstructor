@@ -41,7 +41,6 @@ def test_parse_defaults() -> None:
 	assert parsed.manifest_relpath == "manifest.json"
 	assert parsed.tables_relpath == "tables"
 	assert parsed.recon_output_rel_root == "recon_outputs"
-	assert parsed.debug_mode_enabled is False
 	assert parsed.well_metadata_lookup == {}
 
 

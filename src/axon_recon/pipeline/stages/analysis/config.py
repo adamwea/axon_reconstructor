@@ -107,14 +107,6 @@ class AnalysisStageConfig:
 	phase_sequence: tuple[str, ...]
 	compute_metrics_enabled: bool
 	compute_metrics_resource_class: str | None
-	debug_mode_enabled: bool
-	debug_limit_datasets: int | None
-	debug_limit_wells: int | None
-	debug_limit_wells_per_dataset: int | None
-	compute_metrics_debug_mode_enabled: bool
-	compute_metrics_debug_limit_datasets: int | None
-	compute_metrics_debug_limit_wells: int | None
-	compute_metrics_debug_limit_wells_per_dataset: int | None
 	recon_output_rel_root: str
 	manifest_relpath: str
 	tables_relpath: str
@@ -172,12 +164,6 @@ def parse_analysis_stage_config(
 		phase_name="analysis.propagation_video",
 	)
 
-	debug_mode_cfg = _as_section(stage_cfg.get("debug_mode", {}))
-	debug_mode_enabled = _as_bool(debug_mode_cfg.get("enabled", None), False)
-
-	compute_metrics_debug_cfg = _as_section(compute_metrics_phase_cfg.get("debug_mode", {}))
-	compute_metrics_debug_enabled = _as_bool(compute_metrics_debug_cfg.get("enabled", None), False)
-
 	output_rel_root = _normalize_output_rel_root(stage_cfg.get("output_rel_root", None))
 	phase_sequence = _normalize_analysis_phase_sequence(stage_cfg.get("phase_sequence", None))
 
@@ -213,22 +199,6 @@ def parse_analysis_stage_config(
 		phase_sequence=phase_sequence,
 		compute_metrics_enabled=compute_metrics_enabled,
 		compute_metrics_resource_class=compute_metrics_resource_class,
-		debug_mode_enabled=debug_mode_enabled,
-		debug_limit_datasets=_as_optional_positive_int(debug_mode_cfg.get("limit_datasets", None)),
-		debug_limit_wells=_as_optional_positive_int(debug_mode_cfg.get("limit_wells", None)),
-		debug_limit_wells_per_dataset=_as_optional_positive_int(
-			debug_mode_cfg.get("limit_wells_per_dataset", None)
-		),
-		compute_metrics_debug_mode_enabled=compute_metrics_debug_enabled,
-		compute_metrics_debug_limit_datasets=_as_optional_positive_int(
-			compute_metrics_debug_cfg.get("limit_datasets", None)
-		),
-		compute_metrics_debug_limit_wells=_as_optional_positive_int(
-			compute_metrics_debug_cfg.get("limit_wells", None)
-		),
-		compute_metrics_debug_limit_wells_per_dataset=_as_optional_positive_int(
-			compute_metrics_debug_cfg.get("limit_wells_per_dataset", None)
-		),
 		recon_output_rel_root=recon_output_rel_root,
 		manifest_relpath=manifest_relpath,
 		tables_relpath=tables_relpath,
