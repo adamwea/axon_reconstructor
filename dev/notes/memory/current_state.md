@@ -93,6 +93,17 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 - **[2026-05-21] ✅ PROMOTED 2026-05-21 to `guardrails/loop_cadence.md`** (commit pending). Loop heartbeat reason format + shorter default cadence — the format ("Next iteration in {N}s — {sentence}") + ladder (90s active / 120s between-slices / 300s audit / 600-1200s blocked) is now locked into the guardrail doc. User-side follow-up: update the `/loop` prompt template to bake in the cadence ladder so future re-pastes inherit it (the loop can't edit the user's standing /loop prompt).
 
+- **[2026-05-21] Real-data smoke log discipline**: New file `dev/notes/trackers/smoke_log.md` is the canonical log of smoke tests on REAL data + the bugs they reveal + how they get solved. The loop MUST append an entry whenever:
+  - A login-node smoke on **real data** completes (pass OR fail) — even uneventful regression checks
+  - A user-initiated `salloc`/`sbatch` run completes and the loop has access to the output dir
+  - A HARD-gate visual diagnostic is reviewed and approved/rejected
+  - **Do NOT log**: dry-run smokes, unit tests, synthetic-fixture smokes. Those don't count as data validation; they go in commit messages and the dry-run rollout plan.
+  - **Format**: see the schema at the top of `smoke_log.md` — short headered fields (smoke command / cohort / commit / outcome / what ran / quantitative result / bugs revealed → fixed-in-commit / diagnostics link / baseline-established? / status).
+  - **Why**: per user 2026-05-21 "let's start keeping a log of smoke tests using real data and the bugs they reveal and how they get solved." Passing unit tests is necessary but not sufficient — the user wants a separate, persistent record of what's actually been validated on data so future loop iterations don't treat "tests green" as equivalent to "feature works on M08073/well000."
+  - **Immediate application**: kssynth slice 5's HARD-gate 176-template regression run (when it ships — currently gated on slice 3b being executable; 3b's dry-run short-path above is wiring-only, NOT a smoke_log entry) WILL be the first new real-data smoke entry. Any analyzers-cache-required smoke that user/loop runs to unblock slice 3b's REAL-data version (vs. dry-run) also counts.
+  - **Backfilled at creation**: 2 historical entries seeded (2026-05-18 known-good baseline + 2026-05-18 Job 53089489 multi-well sweep) so the schema has examples and future regressions have a comparable.
+  - **Promote when stable**: once the loop has appended ≥3 entries spontaneously across different slices (NOT counting the backfilled seeds), promote the rule into the CLAUDE.md slice protocol (alongside "visual diagnostics") and delete this injection.
+
 ## 📝 User actions queued
 
 Manual items the loop can't or shouldn't do — surfaced here so the user has one place to find them. Loop appends as needed; user prunes when done.
