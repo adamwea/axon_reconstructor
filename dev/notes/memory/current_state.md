@@ -118,6 +118,42 @@ User-authored directives that override plan / tier order until satisfied. Read F
   - **Why**: per user 2026-05-21 audit: "Generally, was hoping to see more diagnostic plots... unless we truly haven't done any slices that warrant it." Audit found 5 dashboard slices shipped without diagnostics — loop has been under-filing. The diagnostics file is the audit trail that closes the gap between "tests green" and "the picture looks right."
   - **Promote when stable**: once 3+ slices (post-2026-05-21) have correctly filed diagnostics under R1/R2 without prompting, promote the rule into CLAUDE.md §"Visual diagnostics" (amend the existing section) and delete this injection.
 
+- **🛑 [2026-05-21 — CRITICAL behavioral injection] STOP-AND-ASK discipline for diagnostics (next 3 attempts MANDATORY)**: The first Radivojevic SOFT-gate diagnostic attempt failed on 3 user-explicit requirements (use plot_recons / pick high-branch unit / produce comparison) because the loop **improvised around friction** instead of stopping to ask. New mandatory behavior:
+
+  **(B1) When blocked on or facing friction with an EXPLICIT user instruction about a surface area, the loop MUST STOP and write a focused question to `open_questions.md` rather than improvising a substitute approach.** Specifically — the loop is FORBIDDEN from:
+   - Building new plotting code in a sibling repo when the user said "use existing plot_recons"
+   - Substituting a different unit/cluster/well when the user picked the target
+   - Producing a single-algorithm output when the user asked for a comparison
+   - Reducing scope on an explicit deliverable to make the immediate iteration succeed
+
+  **(B2) For the NEXT 3 diagnostic-generation iterations, the loop MUST PAUSE BEFORE GENERATING EACH DIAGNOSTIC and wait for explicit user greenlight on the execution plan.** The pause writes the plan to `open_questions.md` as "🛑 PRE-DIAGNOSTIC GATE N — confirm this plan before I execute" with:
+   - Exact input data path
+   - Exact code path that will produce the visual (existing-phase reuse vs new code)
+   - Exact comparator (if applicable) and how it's being rendered
+   - Expected output layout
+   - Any sub-steps where the loop anticipates friction
+  Loop does NOT begin diagnostic generation until that gate is RESOLVED by the user. After 3 successful pre-gated diagnostics, this discipline relaxes back to "file as you go" — by then the loop has demonstrated it's internalized the lesson.
+
+  **(B3) Root-cause analysis preserved for the loop to read** (so this isn't an opaque rule):
+  - **What happened**: User asked for "side-by-side axon_velocity_gtrs vs radivojevic_recon comparison via plot_recons, high-branch unit, plenty of branches". Loop:
+    - Hit data-layout block (no `merged_template.npy` on disk because kssynth heavy hadn't run) → substituted kilosort cluster 67 (sparse, ~12 channels, NOT high-branch) instead of stopping
+    - Hit shape-mismatch friction integrating with plot_recons' expected on-disk inputs → built `render_reconstruction_png()` in the sibling repo instead of writing the adapter
+    - Filed a SOFT-gate diagnostic that answered ZERO of the user's actual questions (no comparison, wrong unit, wrong rendering path)
+  - **Why it's the wrong response**: Improvising-around-friction produces an artifact that LOOKS like progress but doesn't satisfy the deliverable. Loop spent ~80 min producing the wrong thing when a 1-line "blocked — should I run kssynth heavy first, or use kilosort substitute?" would have saved that time AND produced the right thing on the first try.
+  - **Why "use existing plot_recons" specifically matters**: rendering both algorithms via the SAME code path is what makes the comparison fair. If we use plot_recons for axon_velocity_gtrs and a new renderer for radivojevic, the visual differences could be from the rendering, not the algorithm. Identical rendering isolates algorithmic differences.
+
+  **(B4) The concrete plan for the next radivojevic comparison diagnostic** (this is what the loop must confirm via gate B2 before executing):
+  1. Run kssynth slice 3b heavy on M08073/well000 (via `--input-root` plumbing already shipped) → produces `merged_template.npy` + `merged_channel_locations.npy` per post-merge unit at `dev_outputs/kssynth_slice3b/.../per_unit/unit_<id>/`. ETA ~5-15 min for analyzers cache + 30s kssynth.
+  2. Identify the actual high-branch post-merge unit. Earlier scan identified `unit_0598` as the 9-branch reference; CONFIRM this still maps to a post-merge unit in kssynth's output (kssynth's unit IDs may differ — needs cross-check via cluster_KSLabel or equivalent). If the mapping is unclear, STOP AND ASK rather than picking a substitute unit.
+  3. Run `radivojevic2023_recon_algo.reconstruct()` on the chosen unit's merged_template. Tune Stage 2 knobs if runtime requires (already empirically: upsample_factor=2 + pixel_um=10.0 ≈ 0.8s).
+  4. Build an **ADAPTER** (not a new renderer) that converts `ReconstructionResult` → the on-disk artifact shape `plot_recons` (axon_recon's existing phase) expects. Audit what plot_recons reads first — it's in `pipeline/stages/reconstruct/phases/` somewhere. If the shape mismatch is fundamental (e.g. plot_recons expects gtr.pkl-shaped axon_velocity output), STOP AND ASK — do not invent a new renderer.
+  5. Invoke `plot_recons` against BOTH outputs (axon_velocity_gtrs's existing reference output + radivojevic_recon's adapted output) on the SAME unit. Produces two PNGs from the SAME rendering code.
+  6. Compose `comparison.png` side-by-side.
+  7. File HARD-gate entry in `diagnostics_to_review.md` with all 3 artifacts (radivojevic PNG / axon_velocity PNG / composite). File real-data smoke entry in `smoke_log.md`.
+  8. PAUSE for user review.
+
+  **Promote when stable**: after 3 pre-gated diagnostics ship with no user complaints about deviation-from-explicit-instruction, promote (B1) — the "no improvising around explicit instructions" rule — into a guardrail and delete (B2)/(B3)/(B4) since the cohort of attempts will have proven the behavior is internalized.
+
 ## 📝 User actions queued
 
 Manual items the loop can't or shouldn't do — surfaced here so the user has one place to find them. Loop appends as needed; user prunes when done.

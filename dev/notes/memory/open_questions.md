@@ -21,6 +21,67 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
   (commit `ab56f64`). Both modes are reachable from the UI and the
   image export. **Marked for deletion** at next audit-pass.
 
+## 🛑 PRE-DIAGNOSTIC GATE 1 — confirm plan before next radivojevic diagnostic attempt (USER MANDATE 2026-05-21)
+
+**Per USER INJECTION 2026-05-21 (B2) — the next 3 diagnostic-generation iterations are GATED.** Loop does NOT begin diagnostic generation until the user explicitly confirms the plan below.
+
+**Background**: First Radivojevic SOFT-gate diagnostic failed on 3 user-explicit requirements because the loop improvised around friction instead of stopping to ask. User feedback: "yea i think for generating these next few diagnostics, i need the loop to stop and ask more carefully i guess. Include all your notes for the loop to read, and we'll try again." Full root-cause analysis is in `current_state.md` USER INJECTION (B3).
+
+**Proposed execution plan for the next diagnostic attempt** (apples-to-apples radivojevic vs axon_velocity_gtrs comparison via existing plot_recons):
+
+1. **Run kssynth slice 3b heavy** on M08073/well000:
+   ```
+   axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml \
+     --target-dataset 260326 --limit-wells 1 --task-backend local_affinity \
+     --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
+     --output-root /pscratch/sd/a/adammwea/dev_outputs/radivojevic_apples_to_apples/
+   axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
+     --target-dataset 260326 --limit-wells 1 --task-backend local_affinity \
+     --force-enable kssynth \
+     --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
+     --output-root /pscratch/sd/a/adammwea/dev_outputs/radivojevic_apples_to_apples/
+   ```
+   ETA ~5-15 min for analyzers cache + ~30s for kssynth. Produces `synth_sorter_output/per_unit/unit_<N>/merged_template.npy` + `merged_channel_locations.npy` for every post-merge unit.
+
+2. **Identify the high-branch unit**. Earlier scan identified `unit_0598` as the 9-branch reference. The kssynth-produced per_unit/ directory's unit ID may or may not match the reference's `unit_0598` numbering — needs cross-check. **If the mapping is unclear, STOP AND ASK** rather than substituting a different unit.
+
+3. **Run radivojevic on the chosen unit's merged_template**:
+   ```python
+   merged_template = np.load(".../per_unit/unit_<N>/merged_template.npy")
+   channel_positions = np.load(".../per_unit/unit_<N>/merged_channel_locations.npy")
+   result = radivojevic2023_recon_algo.reconstruct(
+       merged_template,  # shape (n_active_channels, n_samples)
+       channel_positions_um=channel_positions,
+       sampling_rate_hz=10_000.0,  # MaxTwo
+       upsample_factor=2,
+       pixel_um=10.0,
+       noise_estimator='window',
+       noise_window=(0, 15),
+   )
+   ```
+   Tune knobs if runtime requires (empirical baseline: 0.8s with these settings on cluster 67).
+
+4. **Build an ADAPTER (NOT a new renderer)** that converts `ReconstructionResult` → the on-disk artifact shape `plot_recons` (axon_recon's existing phase) reads. **First step: audit plot_recons** — locate it under `pipeline/stages/reconstruct/phases/`, read its input contract, identify whether it consumes (a) `gtr.pkl`-like axon_velocity output, (b) a structured numpy/parquet layout, (c) something else. Document the adapter design BEFORE writing code. **If the shape mismatch is fundamental (e.g. plot_recons hardcoded to consume gtr.pkl), STOP AND ASK** — do not invent a new renderer.
+
+5. **Invoke plot_recons twice** — once on axon_velocity_gtrs's existing reference output for the same unit, once on radivojevic_recon's adapted output. Two PNGs, SAME rendering code.
+
+6. **Compose `comparison.png` side-by-side**.
+
+7. **File HARD-gate diagnostic** in `diagnostics_to_review.md` with: radivojevic PNG / axon_velocity PNG / composite + a `run_summary.json` documenting unit choice, knobs, runtimes.
+
+8. **File real-data smoke entry** in `smoke_log.md` (entry #4 — first apples-to-apples comparison).
+
+9. **PAUSE for user review.** That's GATE 1 satisfied + the actual user-review gate.
+
+**Anticipated friction points** (where the loop is most likely to face the kind of friction that previously triggered improvisation):
+- A) Unit-ID mapping (step 2): kssynth unit IDs may not align with the existing `unit_0598` reference numbering. The temptation to "just pick any unit" or "use the first high-channel-count unit" is exactly what step B1 forbids.
+- B) plot_recons input shape (step 4): plot_recons may expect a specific on-disk structure that radivojevic doesn't natively produce. The temptation to "write a quick renderer in the sibling repo" is exactly what B1 forbids.
+- C) Empty or unexpected kssynth output (step 1): if kssynth produces fewer units than expected, or the per_unit/ dir is empty, the temptation to "fall back to kilosort templates" is exactly what B1 forbids.
+
+For each, the correct response is: write a focused question to this file under "PRE-DIAGNOSTIC GATE 1 — friction encountered" and PAUSE.
+
+**Resolution criterion**: user reads this plan and either (a) greenlights as-is, (b) tweaks specific steps, or (c) redirects entirely. Loop does not execute step 1 until this gate has a `✅ USER APPROVED <date>` mark above the gate's title.
+
 ## 🔴 IMMEDIATE — Radivojevic diagnostic MUST include PNG renderings (USER FEEDBACK 2026-05-21)
 
 User feedback on the first SOFT-gate filing: "I see the recon output but its npy and tsv files." The diagnostic landed with npy + tsv only — that's not a visual diagnostic, that's data dumps. The strict diagnostic rule (USER INJECTION 2026-05-21) requires user-visible rendering — and rendering means PNG, not arrays.
