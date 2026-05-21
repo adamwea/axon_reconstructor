@@ -265,6 +265,64 @@ def test_reconstruct_phase_resolver_handles_templates_phases() -> None:
 	assert _reconstruct_stage_phase_runner("clear_templates_cache") is run_reconstruct_clear_templates_cache_phase
 
 
+def test_reconstruct_phase_resolver_handles_kssynth_phase() -> None:
+	"""Slice 4d (kssynth_recon_integration_plan): kssynth is recognized by
+	the normalizer + enabled-check + runner-lookup so it can participate in
+	`phase_sequence` (slice 5 enables it). Canonical name is bare `kssynth`
+	because the config lives on `inputs.phases.kssynth` (outer recon phases),
+	not on the templates substage tree.
+	"""
+
+	from axon_recon.pipeline.stages.reconstruct.runner import (
+		_reconstruct_stage_phase_enabled,
+		_reconstruct_stage_phase_resource_class,
+		run_reconstruct_templates_kssynth_phase,
+	)
+	from axon_recon.pipeline.stages.reconstruct.models.inputs import (
+		ReconstructionInputs,
+		ReconstructionKssynthPhaseConfig,
+		ReconstructionPhasesConfig,
+	)
+
+	# Normalizer accepts all three documented forms.
+	assert _normalize_reconstruct_stage_phase_name("kssynth") == "kssynth"
+	assert _normalize_reconstruct_stage_phase_name("templates.kssynth") == "kssynth"
+	assert _normalize_reconstruct_stage_phase_name("templates_kssynth") == "kssynth"
+
+	# Runner lookup returns the bridge wrapper.
+	assert _reconstruct_stage_phase_runner("kssynth") is run_reconstruct_templates_kssynth_phase
+
+	# Enabled-check reads `inputs.phases.kssynth.enabled`.
+	disabled_inputs = ReconstructionInputs(
+		h5_path=Path("/dev/null"),
+		stream_id="w0",
+		mea_output_root=Path("/dev/null"),
+		phases=ReconstructionPhasesConfig(kssynth=ReconstructionKssynthPhaseConfig(enabled=False)),
+	)
+	enabled_inputs = ReconstructionInputs(
+		h5_path=Path("/dev/null"),
+		stream_id="w0",
+		mea_output_root=Path("/dev/null"),
+		phases=ReconstructionPhasesConfig(kssynth=ReconstructionKssynthPhaseConfig(enabled=True)),
+	)
+	assert _reconstruct_stage_phase_enabled(disabled_inputs, "kssynth") is False
+	assert _reconstruct_stage_phase_enabled(enabled_inputs, "kssynth") is True
+	# Aliases route through the enabled check correctly.
+	assert _reconstruct_stage_phase_enabled(enabled_inputs, "templates.kssynth") is True
+	assert _reconstruct_stage_phase_enabled(enabled_inputs, "templates_kssynth") is True
+
+	# Resource class lookup honors the phase's resource_class field.
+	rc_inputs = ReconstructionInputs(
+		h5_path=Path("/dev/null"),
+		stream_id="w0",
+		mea_output_root=Path("/dev/null"),
+		phases=ReconstructionPhasesConfig(
+			kssynth=ReconstructionKssynthPhaseConfig(enabled=True, resource_class="template_build")
+		),
+	)
+	assert _reconstruct_stage_phase_resource_class(rc_inputs, "kssynth") == "template_build"
+
+
 def test_reconstruct_clear_templates_cache_phase_uses_templates_output_root(monkeypatch, tmp_path: Path) -> None:
 	from axon_recon.pipeline.stages.reconstruct.core import clear_templates_cache
 

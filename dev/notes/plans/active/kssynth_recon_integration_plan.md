@@ -1,6 +1,6 @@
 # kssynth recon-stage integration plan
 
-> **Status (2026-05-21)**: slices 0/1a/1b/2a/2b/3a/4/4c SHIPPED.
+> **Status (2026-05-21)**: slices 0/1a/1b/2a/2b/3a/4/4c/4d SHIPPED.
 > Slice 3b (login-node smoke) pending — needs analyzer cache.
 > Slice 5 (enable + retire predecessors) destructive — gated on slice 3b.
 > Companion to `ks_synthesizer_package_plan.md` slice 9 (which delegated
@@ -282,6 +282,35 @@ analyzer cache).
 **Original 1-sentence spec (preserved)**: `plot_templates_v2`,
 `report_templates`, `axon_velocity_gtrs` each get a YAML toggle
 `templates_source: build_templates | kssynth`.
+
+### Slice 4d — wire kssynth into recon phase_sequence resolution — SHIPPED
+
+**SHIPPED 2026-05-21** — slice 2b only wired the substage CLI
+(`reconstruct.kssynth`); the full-stage `phase_sequence` resolution
+path silently dropped `kssynth` because `_normalize_reconstruct_stage_phase_name`
+didn't recognize it and `_reconstruct_stage_phase_enabled` fell through
+to `return False` for unknown phases.
+
+- `_normalize_reconstruct_stage_phase_name`: 3 new aliases — `kssynth`,
+  `templates.kssynth`, `templates_kssynth` all normalize to bare
+  `kssynth`. No `templates_` prefix because the config lives at
+  `inputs.phases.kssynth` (outer recon-stage phases), not at
+  `inputs.templates_inputs.phases` (templates substage).
+- `_reconstruct_stage_phase_enabled`: new branch reads
+  `inputs.phases.kssynth.enabled`.
+- `_reconstruct_stage_phase_resource_class`: new branch returns
+  `_resource_class(inputs.phases.kssynth)`.
+- `_reconstruct_stage_phase_runner`: new branch returns
+  `run_reconstruct_templates_kssynth_phase` (the existing slice-2b
+  bridge wrapper).
+- `_display_reconstruct_stage_phase_name`: no alias entry needed —
+  bare `kssynth` is already the user-facing name.
+- 1 new test `test_reconstruct_phase_resolver_handles_kssynth_phase`
+  covers normalizer (3 forms), enabled-check (true/false + 3 aliases),
+  runner lookup, resource_class lookup. Recon-stage sweep stays green.
+
+**Unblocks slice 5's enable step** — now slice 5 can add `kssynth` to
+`phase_sequence` and the full-stage path will route correctly.
 
 ### Slice 4c — `_load_merged_unit` accepts V2 filename layout — SHIPPED
 

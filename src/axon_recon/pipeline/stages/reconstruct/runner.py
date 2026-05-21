@@ -1408,6 +1408,14 @@ def _normalize_reconstruct_stage_phase_name(raw: Any) -> str:
 		"templates.extract_partial_templates": "templates_extract_partial_templates",
 		"build_templates": "templates_build_templates",
 		"templates.build_templates": "templates_build_templates",
+		# kssynth replaces extract_partial_templates + build_templates in slice 5.
+		# It's exposed at the recon stage's `phases.kssynth.enabled`, not on the
+		# templates substage's phases tree — so it normalizes to a bare `kssynth`
+		# (no `templates_` prefix) even though `templates.kssynth` is accepted
+		# as an alias for users who follow the build_templates naming pattern.
+		"kssynth": "kssynth",
+		"templates.kssynth": "kssynth",
+		"templates_kssynth": "kssynth",
 		"compute_template_similarity": "templates_compute_template_similarity",
 		"templates.compute_template_similarity": "templates_compute_template_similarity",
 		"plot_templates_v2": "templates_plot_templates_v2",
@@ -1437,6 +1445,8 @@ def _reconstruct_stage_phase_enabled(inputs: ReconstructionInputs, phase_name: s
 		)
 	if phase == "templates_build_templates":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.build_templates.enabled)
+	if phase == "kssynth":
+		return bool(inputs.phases.kssynth.enabled)
 	if phase == "templates_compute_template_similarity":
 		return bool(inputs.templates_inputs is not None and inputs.templates_inputs.phases.compute_template_similarity.enabled)
 	if phase == "templates_plot_templates_v2":
@@ -1489,6 +1499,8 @@ def _reconstruct_stage_phase_resource_class(inputs: ReconstructionInputs, phase_
 		)
 	if phase == "templates_build_templates":
 		return None if inputs.templates_inputs is None else _resource_class(inputs.templates_inputs.phases.build_templates)
+	if phase == "kssynth":
+		return _resource_class(inputs.phases.kssynth)
 	if phase == "templates_compute_template_similarity":
 		return (
 			None
@@ -1582,6 +1594,8 @@ def _reconstruct_stage_phase_runner(phase_name: str):
 		return run_reconstruct_templates_extract_partial_templates_phase
 	if phase == "templates_build_templates":
 		return run_reconstruct_templates_build_templates_phase
+	if phase == "kssynth":
+		return run_reconstruct_templates_kssynth_phase
 	if phase == "templates_compute_template_similarity":
 		return run_reconstruct_templates_compute_template_similarity_phase
 	if phase == "templates_plot_templates_v2":
