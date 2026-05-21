@@ -93,15 +93,33 @@ Not all items are independent. Some constraints:
 One commit per slice unless noted. `claude:` prefix.
 
 ### Slice 1 — pure deletions (legacy reconstruct phases)
+
+**Status**: SHIPPED — verified 2026-05-21 via grep audit. No
+`stages.reconstruct.plot_templates` (v1), `per_unit_processing`, or
+`reports` PHASE references remain in src/. The `core/plot_templates.py`
+module survives but only as a utility (exports `propagation_outputs_requested`);
+the v1 phase wiring is fully gone. The `per_unit_processing` references
+in `templates/config.py:278,310` are explanatory comments ("legacy
+resolution has been retired") not active code.
+
 - Delete `plot_templates`, `per_unit_processing`, `reports` phases from `stages/reconstruct/templates/runner.py`, the YAML, tests, and any downstream callers. Use `grep -rn "plot_templates\b\|per_unit_processing\b\|reports[. ]" src/ dev/` to find references.
 - Each deleted phase is its own commit (3 commits in this slice) — bisectability.
 - No new behavior; mechanical removal.
 
 ### Slice 2 — preprocess pure deletions
+
+**Status**: SHIPPED — verified 2026-05-21 via grep audit. No
+`prepare_raw_binaries`, `report_preprocessing`, or
+`cleanup_preprocessing_outputs` references in src/preprocess/.
+
 - Delete `prepare_raw_binaries`, `report_preprocessing`, `cleanup_preprocessing_outputs` phases entirely. (1 commit each.)
 - These are already `enabled: false`. Removing the phase entirely is the destructive step.
 
 ### Slice 3 — `generate_gtrs` → `axon_velocity_gtrs` rename
+
+**Status**: SHIPPED — verified 2026-05-21. Runner function is now
+`run_axon_velocity_gtrs_phase` at `core/axon_velocity_gtrs.py:102`.
+
 - Single mechanical commit. Touches:
   - YAML phase block + phase_sequence references
   - The phase's runner function name
