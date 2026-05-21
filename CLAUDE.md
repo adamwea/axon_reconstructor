@@ -18,10 +18,11 @@
 4. **Run targeted tests** for the modules touched. Pre-existing failures don't count against the slice; new failures block the commit.
 5. **Run a smoke test** when required (see §below). Use `--dry-run` for fast wiring confirmation when applicable (see `guardrails/dry_run.md`).
 6. **Generate visual diagnostics when the slice's claim depends on them** (see §"Visual diagnostics" below). Save under `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/`. Add an entry to `dev/notes/memory/diagnostics_to_review.md` BEFORE commit.
-7. **Commit** with a `claude:` subject prefix; descriptive body explaining what changed and why. Include a `Co-Authored-By: Claude Opus 4.7 …` line. If the slice added a diagnostic entry, reference it in the commit body.
-8. **Append a line to `dev/notes/commit_log.md`** noting the slice + the plan/tracker it advanced.
-9. **Update memory** if the slice changed anything in `current_state.md` or resolved an `open_questions.md` item.
-10. **Update guardrails** if you discovered a new invariant or clarified an existing one — same `claude:` commit prefix.
+7. **Update YAML hygiene as you go.** Any slice that touches phase code, CLI flags, config schema, or phase wiring MUST update both `dev/debug_NERSC/debug.runtime.yml` AND `dev/debug_NERSC/debug.data.yml` so they remain an accurate mechanical source of truth for what the pipeline runs. Remove dead phase blocks, dead `resource_class` entries, dead CLI flag defaults; add new keys for new phases/flags; clear `# TODO Claude:` annotations once their target is resolved. (Promoted from USER INJECTIONS 2026-05-21.)
+8. **Commit** with a `claude:` subject prefix; descriptive body explaining what changed and why. Include a `Co-Authored-By: Claude Opus 4.7 …` line. If the slice added a diagnostic entry, reference it in the commit body.
+9. **Append a line to `dev/notes/commit_log.md`** noting the slice + the plan/tracker it advanced.
+10. **Update memory** if the slice changed anything in `current_state.md` or resolved an `open_questions.md` item.
+11. **Update guardrails** if you discovered a new invariant or clarified an existing one — same `claude:` commit prefix.
 
 ## Visual diagnostics
 
@@ -150,4 +151,7 @@ Don't update it when:
 | **Real-data smoke log** | `dev/notes/trackers/smoke_log.md` | Append-only log of completed real-data smokes (login-node or salloc) with bug→fix chains. |
 | **Commit log** | `dev/notes/commit_log.md` | After every `claude:` commit |
 | **Loop prompts** (autonomous-mode `/loop` invocations) | `dev/notes/loop_prompts/*.md` | When authorizations change or directives ship |
+| **Real-data smoke log** | `dev/notes/trackers/smoke_log.md` | After every smoke on real data (login-node or salloc) |
+| **Salloc smokes queued** (interactive-allocation work) | `dev/notes/trackers/salloc_smokes_queued.md` | Loop appends as needed; user runs; entry deleted on completion |
+| **Diagnostics pending review** | `dev/notes/memory/diagnostics_to_review.md` | Whenever a slice files a soft- or hard-gate visual diagnostic |
 | **Archive** (old guardrails, handoffs) | `dev/notes/archive/` | Don't touch unless rescuing context |

@@ -24,8 +24,25 @@ on `current_state.md` discovery.
 
 ## Current — Round 7 (2026-05-21)
 
+> **⚠️ PAUSED 2026-05-21 — planning/refinement stage.** Loop is paused on
+> real-data smoke testing + new phase implementations + /loop-prompt round
+> bumps. See `dev/notes/memory/current_state.md` 🛑 PAUSED header for the
+> scope of what's allowed (audit/refinement work) vs what's not (smokes,
+> new slice execution). User lifts the pause via a new USER INJECTION.
+
 ```
 EXTENDED AUTONOMOUS MODE (round 7) — relaxed stop conditions.
+
+**🛑 PAUSE NOTICE**: this round is currently in a planning/refinement
+pause per `current_state.md` 🛑 PAUSED section. Loop may continue to
+audit plans, retire injections, refine docs, write/run tests, fix
+inconsistencies surfaced by the proactive plan audit — but MUST NOT:
+- Kick off real-data smokes
+- Ship new phase implementations
+- Bump the /loop prompt without explicit user direction
+- Execute any open question's "✅ USER APPROVED option N" path that
+  produces real-data outputs or new phase code
+Pause lifts only via a NEW USER INJECTION saying so.
 
 Read /global/homes/a/adammwea/dev/pkgs/axon_recon/CLAUDE.md and follow its
 entry protocol. Read dev/notes/memory/current_state.md ⚡ USER INJECTIONS

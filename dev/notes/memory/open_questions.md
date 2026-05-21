@@ -6,7 +6,34 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 Per USER INJECTION 2026-05-21 (A1-A5), the loop proactively audits active plans + trackers for logical inconsistencies, stale assumptions, dead slices, redundant work, scope drift, inefficient orderings, and resource mismatches. Each finding here is a multiple-choice question. Cap: 5 open findings at any time.
 
-### Finding #1 — `resources.profiles` elimination not yet executed; profile clamping still active in smokes (user-flagged 2026-05-21)
+### Finding #1 — ✅ RESOLVED 2026-05-21: USER PICKED OPTION 2 (spin up resources_profiles_elimination plan)
+
+**Resolution**: Loop wrote `plans/active/resources_profiles_elimination_plan.md` (15:58 PDT). Slice 0 reverts paper-overs `1982a31` + `322e8fe` (parallelism slice 9.5 + topology clamp). Slices 1-5 stand up the env-only resolver, retire YAML `profiles` block + `--profile` flag, re-audit sbatches/docs, and run real-data smoke verification.
+
+**Plan coherence audit (Step 2 of 2026-05-21 refinement pass)** — the two open plans touching resource code don't conflict but DO need explicit execution order:
+
+| Order | Plan + slice | Why before next item |
+|---|---|---|
+| 1 | `resources_profiles_elimination` slice 0 | Revert paper-overs before touching anything else (clean baseline) |
+| 2 | `resources_profiles_elimination` slice 1 | Stand up env-supply resolver (no call sites switched yet) |
+| 3 | `resources_profiles_elimination` slice 2 | Make `build_task_allocation_plan` env-only; remove profile clamping. AFTER this, `_budget.cpus_per_task` reads env not YAML. |
+| 4 | `parallelism_post_migration_cleanup` slice 2 | Route `inputs.n_jobs` call sites through `resolve_inner_worker_count(phase_cpus_per_task=_budget.cpus_per_task)`. Order matters: shipping THIS first uses profile-clamped budgets (which user flagged as wrong); shipping AFTER resources_profiles slice 2 uses env-derived budgets (what user wants). |
+| 5 | `parallelism_post_migration_cleanup` slice 1 | Retire `resolve_stage_parallelism` + `StageParallelism.well_workers`. Independent of order with resources_profiles; can ship anytime. |
+| 6 | `resources_profiles_elimination` slice 3 | Delete YAML `profiles` block + `--profile` flag + `_ACTIVE_PROFILE_OVERRIDE`. Final removal. |
+| 7 | `resources_profiles_elimination` slice 4 | Re-audit sbatches + docs (drop `--profile perlmutter_gpu` from every sbatch script) |
+| 8 | `resources_profiles_elimination` slice 5 | Real-data smoke verification (the user's worker-count-validation discipline lives in this slice — that's where the gap closes) |
+| 9 | `parallelism_post_migration_cleanup` slice 10 | Update `parallelism_agent_guardrails.md` to post-cleanup vocabulary. LAST because it captures the final-state vocabulary. |
+
+**Action items from this audit**:
+- Add a `**See also**: resources_profiles_elimination_plan.md slices 0-3 must ship before this slice` line to parallelism slice 2.
+- Add a `**See also**: parallelism_post_migration_cleanup_plan.md slice 2 ships AFTER this slice (uses env-derived budget once this slice lands)` line to resources_profiles slice 2.
+- Mark parallelism slice 9.5 as `SUPERSEDED BY resources_profiles_elimination_plan slice 0 (revert)`.
+
+These edits land as part of this refinement pass (no plan-execution implied — the pause stays until user lifts it).
+
+Original 4-option block preserved below for archeology.
+
+### Finding #1 — original body (resources.profiles elimination not yet executed)
 
 **Observation**: User flagged 2026-05-21 that recent smokes show profile-based clamping still active and clamping INCORRECTLY (specifically: cpus_per_task=N from `--profile perlmutter_cpu` yields actual n_jobs=1 in MPI workers via the `inputs.n_jobs`-fallback path). Quote: "Profile was still clamping, and incorrectly."
 

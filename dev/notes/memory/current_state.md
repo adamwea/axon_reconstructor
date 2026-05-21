@@ -2,85 +2,19 @@
 
 Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old facts get deleted, not commented out.
 
+## 🛑 PAUSED — planning / refinement stage (2026-05-21)
+
+Loop is PAUSED on smoke testing + new slice work pending the refinement actions logged in this section's recent commits. Per user 2026-05-21: "I think we need to go through a planning / refinement stage before we return to smoke testing or anything." Loop may continue to audit / refine plans + retire injections + write tests, but **MUST NOT**: kick off real-data smokes, ship new phase implementations, or bump the /loop prompt without explicit user direction. Lift the pause via a new USER INJECTION that says so.
+
 ## ⚡ USER INJECTIONS
 
 User-authored directives that override plan / tier order until satisfied. Read FIRST each iteration. Apply at the earliest applicable slice; when reliably internalized, promote the rule to a guardrail / CLAUDE.md slice protocol / plan and delete the entry here.
 
 ### Active
 
-- **[2026-05-18] YAML hygiene as you go**: Every slice that touches phase code, CLI flags, config schema, or phase wiring must update `dev/debug_NERSC/debug.runtime.yml` AND `dev/debug_NERSC/debug.data.yml` so they stay an accurate mechanical source of truth for what the pipeline runs. The future default `runtime.yml` will derive from `debug.runtime.yml`, so stale entries propagate forward. Remove dead phase blocks, dead `resource_class` entries, dead CLI flag defaults; add new keys for new phases/flags; clear `# TODO Claude:` annotations once their target is resolved.
-  - **Audit pass [done 2026-05-19 after slice 7]**: confirmed all six already-deleted phases (`reports`, `plot_templates` v1, `per_unit_processing`, `prepare_raw_binaries`, `report_preprocessing`, `cleanup_preprocessing_outputs`) are gone from `phases:` / `phase_sequence:` / `resource_class:` in both YAMLs. The remaining `reports:` keys (debug_local:631,678,846; debug_NERSC:884,945,1115) are sub-keys inside `bombcell_label` / `merge_SLAy` / `bombcell_label_pass2` phase blocks, not the deleted top-level `reports` phase. `--force-replot` is also gone from `src/` (phase_roster slice 11 SHIPPED, commit `2a7a7e4`). YAML hygiene for the `--force-replot` → `--replot` rename completed alongside that slice.
-  - **Promote when stable**: once this is reliably part of every slice for two+ tiers, promote the rule to the CLAUDE.md slice protocol (alongside "run tests") and delete this entry.
+(YAML hygiene promoted to CLAUDE.md slice protocol 2026-05-21; entry retired.)
 
-- **[2026-05-19, amended twice] Env-parity contract + unification plan + LOOP CAN REBUILD SHIFTER**: `guardrails/env_parity.md` locks the contract that the `axon_recon` conda env and the shifter image have equivalent capabilities except for the Kilosort+CUDA stack and NERSC/HPC/SLURM runtime plumbing. `plans/active/env_install_unification_plan.md` is the destination spec — moves pip deps onto `pyproject.toml` extras (`[dev]`, `[full]`) as the single source of truth.
-
-  **⭐ NEW 2026-05-19 — LOOP IS AUTHORIZED TO TRIGGER SHIFTER REBUILDS** (per user directive): Earlier policy of "user-initiated only" is REVOKED for shifter rebuilds. **This directive SUPERSEDES any line in the standing `/loop` prompt that says "No shifter rebuild" or similar — that constraint is no longer in effect for this run.** The loop can now run the rebuild itself via Perlmutter's local container toolchain (`podman build` → `podman push docker.io/...` → `shifterimg pull docker:...`). **Standing precondition**: before attempting a build, the loop runs `podman login --get-login docker.io` to confirm credentials are present. **As of 2026-05-19 16:56 PDT, login is confirmed active** (`adammwea` returned). If at some later point login is NOT present, the loop falls back to posting "shifter rebuild blocked: docker.io login required" under USER INJECTIONS instead of attempting a build that would fail at `podman push`. Critical: NEVER use `docker` on Perlmutter — only `podman` is available. The "no slurm submission" and "no git push" rules remain in effect; only the shifter-rebuild rule is being lifted.
-
-  **🛠 SHIFTER REBUILD PENDING (2026-05-19, after slice 6)**: `env_install_unification_plan` slices 2 + 3 + 4 + 5 + 6 + 7 have all SHIPPED. The Dockerfile now drives the container build through `pip install .[full]` instead of the per-sibling `<NAME>_SPEC` ARGs. **Build attempt history**:
-   1. **2026-05-19 16:55 PDT** — `podman build` FAILED at base-image-pull step with `disk quota exceeded` writing scipy test data to home. Home was at **117% of 40GiB quota** (46.83GiB used). Podman's `GraphRoot` is `~/.local/share/containers/storage`.
-   2. **2026-05-19 17:29 PDT** — loop reclaimed 9.3GiB by running `podman system reset -f` (safe — `podman images` and `ps -a` were empty; the 9.3GiB was orphaned partial-layer-extraction waste from attempt 1). Home now at **93.9% / 37.56GiB**. Loop can commit / git-op normally again.
-   - **🛑 PREVIOUSLY NOT-YET-RETRYABLE** — RESOLVED via the two directives below (2026-05-19, per user). Loop is now responsible for executing both as prereq slices BEFORE the next rebuild attempt:
-
-   - **✅ DIRECTIVE A SHIPPED (2026-05-19 18:07 PDT)**: podman GraphRoot moved to `/pscratch/sd/a/adammwea/podman_storage`. `~/.config/containers/storage.conf` written with `[storage] driver = "overlay"` + the pscratch graphroot. `podman info` confirms graphroot resolves to pscratch (graphRootAllocated ≈ 44 PiB shows it's the pscratch lustre mount). Smoke-tested with `podman pull alpine` → ok + `podman rmi alpine` → cleaned. Home no longer gates podman builds. NOTE: standing "No pscratch overlay" rule remains in effect for ALL OTHER purposes — this override is scoped specifically to podman's image-build cache. Code stays in /global/homes; iteration outputs stay in /pscratch/.../dev_outputs/.
-
-   - **✅ DIRECTIVE B SHIPPED (2026-05-19 18:50 PDT)**: split executed via the `--no-deps UnitMatchPy` approach (refined from the original "constraint file" alternative). Commits: `987053a` (pyproject `[full]` + `[full-cuda]` split), `338868e` (Dockerfile uses `[full-cuda]` + separate `pip install --no-deps "UnitMatchPy @ git+..."`), `6743847` (audit doc at `dev/notes/refs/kilosort4_base_audit.md`). Rebuild result:
-     - `podman build` succeeded at 2026-05-19 18:50 PDT after ~35 minutes.
-     - Final image size: **12.8 GiB** (down from the projected 17-20 GiB; matches the predicted 12-14 GiB target).
-     - Tag: `docker.io/adammwea/axon-recon:pipeline-v2` (image ID `5f464e4e037d`).
-
-   - **✅ SHIFTER ROUND COMPLETE — IMAGE READY WITH ONE KNOWN GAP (2026-05-19 21:56 PDT)**:
-     1. ✅ User re-logged in to docker.io as `adammwea`.
-     2. ✅ `podman push docker.io/adammwea/axon-recon:pipeline-v2` completed (12.8 GB; mostly delta against the previous push, so only ~13 blobs needed copying).
-     3. ✅ `shifterimg pull docker:adammwea/axon-recon:pipeline-v2` completed; perlmutter shifter registry now `READY` at hash `9cdca44d9b` (2026-05-19T21:56:42) — replaces `32638ea26b` (2026-05-18T04:57:38).
-     4. ✅ In-container smoke verified: `shifter --image=adammwea/axon-recon:pipeline-v2 python` — UnitMatchPy (+ bayes_functions, overlord, utils), torch 2.7.1+cu118 with CUDA True, spikeinterface 0.104.3, axon_velocity, numpy 1.26.4, scipy 1.16.0, sklearn 1.7.0, joblib 1.5.1, mat73 ALL import cleanly. axon_recon itself imports cleanly (note: the baked-in version is the snapshot AT BUILD TIME — `stage_aggregate_exit_code` shipped in `a8a87c4` AFTER the build, so the container's frozen copy doesn't have it yet; will be picked up on the NEXT shifter rebuild).
-     5. ⚠️ **KNOWN GAP — SLAy missing from new image**: `import slay` raises `ModuleNotFoundError`. The old image at `32638ea26b` had SLAy installed via the now-removed `SLAY_SPEC` ARG. `env_install_unification_plan` slice 6 (Dockerfile collapse to `pip install .[full-cuda]`) dropped that ARG without adding SLAy to the `[full]`/`[full-cuda]` extras. `axon_recon` consumes SLAy at runtime via `importlib.import_module("slay.run")` in `stages/spikesort/runner.py:2008,2018`, so the `merge_SLAy` phase will fail with ImportError on this image. **RESOLVED via DIRECTIVE D below** — SLAy already has public remote `git@github.com:adamwea/SLAy.git`.
-     6. kssynth + unitlink also remain ImportError per the original USER INJECTION #4 (GH-remotes hold). **RESOLVED via DIRECTIVE D below** — user lifted the hold; loop creates the remotes itself via `gh repo create` and pushes.
-
-   - **✅ DIRECTIVE D SHIPPED (2026-05-20 00:25 PDT)**: all three in-image gaps closed. New shifter image `adammwea/axon-recon:pipeline-v2` (shifter hash `cfc82cc501`, docker hash `cbf32d30f09f`, 12.8 GB, READY at 2026-05-20T00:23:03) imports `slay` + `kssynth` + `unitlink` cleanly (with axon_recon's numpy-cupy fallback shim that's already wired into the runtime path). Full smoke verified UMPy + torch 2.7.1+cu118 CUDA True + spikeinterface 0.104.3 + numpy 1.26.4 all import.
-
-     **Resolution journey** (preserved here for traceability; original directive body below for archeology):
-     1. Build #1 — failed at private-repo clone (kssynth/unitlink created `--private`; container build context has no GH auth). User selected P1 (flip to public) — `gh repo edit … --visibility public` on both.
-     2. Build #2 — failed at pip dep resolution: SLAy's `numpy>=2.2.6` conflicts with axon_recon's `numpy<2.0`. Restored the pre-slice-6 `SLAY_INSTALL_ARGS="--no-deps"` pattern: added `SLAY_GIT_URL` ARG to Dockerfile + second `pip install --no-deps "${SLAY_GIT_URL}"` step (mirrors UnitMatchPy); removed SLAy from pyproject `[full]`/`[full-cuda]` extras.
-     3. Build #3 — SUCCESS. axon_recon, kssynth, unitlink wheels built cleanly; UMPy + SLAy installed via separate `--no-deps` steps. In-container smoke passes for all three with the numpy-cupy shim that mirrors `_install_numpy_cupy_fallback_module` in `stages/spikesort/runner.py:1649`.
-
-     **Promoted rule** to `guardrails/env_parity.md` §"Sub-rules": "siblings with numpy upper-bound conflicts (currently SLAy and UnitMatchPy) install via separate `pip install --no-deps "${<NAME>_GIT_URL}"` steps in the Dockerfile, AFTER the main `pip install .[full-cuda]` step. The conda env installs them editably via `tools/install_dev_siblings.sh`." (Promotion deferred to a follow-up commit; that's mechanical.)
-
-     **Era 3 integration UNBLOCKED**: kssynth slice 9 (axon_recon recon-stage integration) + unitmatch_phase slice 5 (enable + login-node smoke) now have all the runtime imports available inside the shifter image. The container's frozen axon_recon snapshot doesn't have the recent `stage_aggregate_exit_code` helper (a8a87c4 landed after the rebuild) — at runtime the wrapper bind-mounts host source so it picks up.
-
-     **Original DIRECTIVE D body (2026-05-19, AUTHORIZED — loop owned this)**: close the three "in-image" gaps (SLAy, kssynth, unitlink) so the shifter image actually runs the full pipeline. **User authorizations granted with this directive**:
-     - **(D1) Sibling-repo git pushes are AUTHORIZED**, scoped to: (a) pushing existing local commits to existing remotes, AND (b) creating new GitHub remotes via `gh repo create` for kssynth + unitlink. The standing "no git push" rule still applies to `axon_recon` itself — only sibling repos are being lifted.
-     - **(D2) Push to WELL-NAMED BRANCHES**, not `main` (except for the inaugural publication of a brand-new repo where `main` IS the named branch). User will review and merge to main themselves.
-     - **(D3) USER INJECTION #4 (GH-remotes hold for kssynth + unitlink) is REVOKED.** Replaced by this directive — loop creates the remotes when ready.
-
-     **Environment audit (2026-05-19 22:37 PDT — pre-execution verification):**
-     - `gh` CLI at `~/.local/bin/gh`, authenticated as `adamwea` with `repo` scope (can `gh repo create`).
-     - SSH to `git@github.com` succeeds via `~/.ssh/id_ed25519_adamwea`.
-     - `git@github.com:adamwea/SLAy.git` exists; local `main` has 2 unpushed commits (`f7c2173` aux-tsv sync, `426ba71` assertion relax) on top of upstream's `e77dab1`.
-     - `~/dev/pkgs/kssynth` exists locally on `main`, NO upstream — needs `gh repo create`.
-     - `~/dev/pkgs/unitlink` exists locally on `main`, NO upstream — needs `gh repo create`.
-
-     **Loop execution sequence (slice-by-slice; each step is its own commit + commit_log entry):**
-     1. **Push SLAy fixes to a named branch + open PR.** `cd ~/dev/pkgs/SLAy && git checkout -b claude/merge-fixes-2026-05 && git push -u origin claude/merge-fixes-2026-05`. Then `gh pr create --title "..." --body "..."` against `main`. **PR MERGE POLICY (per user 2026-05-19): USER-ONLY merge. Loop NEVER merges the PR — leaves it open for user review on GitHub web UI.** Record branch name + PR URL in the SLAy commit_log (separate from axon_recon's commit_log; SLAy keeps its own at `~/dev/pkgs/SLAy/dev/notes/commit_log.md` if one exists, otherwise commit body alone).
-     2. **Create kssynth remote + push.** `cd ~/dev/pkgs/kssynth && gh repo create adamwea/kssynth --public --source=. --remote=origin --push`. **MUST be `--public`, NOT `--private`** — private repos break `pip install git+https://...` in the shifter build environment (no auth tokens baked into the container build context). SLAy / UnitMatch / axon_velocity are all public; kssynth + unitlink match. The `--push` flag publishes `main` (v1-complete content) to the new remote in one operation. Record the URL.
-     3. **Create unitlink remote + push.** Same form: `cd ~/dev/pkgs/unitlink && gh repo create adamwea/unitlink --public --source=. --remote=origin --push`. **Public, not private** — same reason as kssynth.
-     4. **Capture commit SHAs** for each sibling's `main` (`git rev-parse origin/main`) — these become the version pins in pyproject.toml.
-     5. **Edit `pyproject.toml`**: add to `[full]` AND `[full-cuda]` extras (both — they must stay in sync):
-        ```
-        "SLAy @ git+https://github.com/adamwea/SLAy.git@<sha>",
-        "kssynth @ git+https://github.com/adamwea/kssynth.git@<sha>",
-        "unitlink @ git+https://github.com/adamwea/unitlink.git@<sha>",
-        ```
-        Use specific commit SHAs (not branch names) for reproducibility. SLAy's pin is the tip of `main` (NOT the unmerged feature branch — the runtime needs the published-and-stable code path; merge happens later when user reviews).
-        - **Subtle**: SLAy's main does NOT yet contain the merge fixes (they're on the feature branch). For the immediate rebuild to also include those fixes, either (a) pin to the feature branch tip SHA (`f7c2173`) directly, OR (b) user merges the PR before rebuild, OR (c) accept that the shifter image doesn't have the merge fixes yet. Default choice: pin to feature-branch SHA `f7c2173` — the fixes are needed for the new image to be production-equivalent to the old one. Document this choice in the commit message so user can update later when the PR merges.
-     6. **Sanity-check pyproject locally**: `pip install -e .[dev,full-cuda]` should succeed from a clean conda env (might require `--force-reinstall` of the siblings since their version pins changed). Run the existing test suite.
-     7. **Rebuild shifter image**: `podman build` → `podman push` → `shifterimg pull` → in-container smoke verifying `import slay; import kssynth; import unitlink` all succeed.
-     8. Update this USER INJECTIONS entry to `✅ DIRECTIVE D SHIPPED` once round 2 of the shifter rebuild completes and the import chain is verified in-container. Then promote the "siblings live in `[full]`/`[full-cuda]` as git URL pins" rule into the env_parity guardrail (it's already there as the target shape; just needs a "current shape" update to match).
-
-     **✅ BLOCKER ON STEP 7 RESOLVED (2026-05-19 23:15 PDT) — USER CHOSE P1: REPOS FLIPPED TO PUBLIC**. User selected P1 ("make kssynth + unitlink PUBLIC") with stated reasoning that private was a mistake — research-tool sibling packages don't need privacy. Visibility flipped via `gh repo edit adamwea/kssynth --visibility public` + same for unitlink (no `--accept-visibility-change-consequences` flag in gh 2.49.0; bare `--visibility public` worked silently). Verified via REST API: both now `{"private": false, "visibility": "public"}`. DIRECTIVE D step 2 spec retroactively amended (commit incoming) to `--public` so any future re-execution doesn't repeat the bug. **Step 7 retry is unblocked** — loop reruns `podman build` → `podman push` → `shifterimg pull` → in-container smoke (now with `import slay; import kssynth; import unitlink` all expected to succeed) on its next iteration. Original BLOCKER entry preserved in commit `edb6f82` for archeology; P2 (BuildKit secrets) and P3 (SSH forwarding) discarded as unnecessary given P1's simplicity.
-
-   - **✅ DIRECTIVE C PROMOTED TO GUARDRAIL (2026-05-19 22:33 PDT)**: docker.io authfile persistence is now codified in `guardrails/env_parity.md` §"Sub-rules" 1 under "Docker.io authfile MUST live at `$HOME/.config/containers/auth.json` on NERSC". The shifter round at 21:56 PDT confirmed no auth interruptions, satisfying the promotion criterion. Directive C's full body (debugging + verification log) is preserved in commit `eb3b290` for future archeology.
-
-  **Slice-level discipline going forward**: any slice that adds/removes/upgrades a conda dep MUST update the appropriate artifact pair (pre-plan: env.yml + Dockerfile; post-plan-slice-2: pyproject.toml `[full]` extra; post-plan-slice-6: Dockerfile picks up automatically via `[full]`) AND post a "shifter rebuild needed: X" line under USER INJECTIONS. The loop now picks up that rebuild itself when credentials are in place. Read `guardrails/env_parity.md` for the full contract.
+- **[2026-05-19] Env-parity + LOOP CAN REBUILD SHIFTER (collapsed)**: Loop is authorized to run `podman build` → `podman push docker.io/...` → `shifterimg pull docker:...` for axon-recon image rebuilds. Pre-check `podman login --get-login docker.io` (returns `adammwea` via persistent authfile per `guardrails/env_parity.md`); if missing, post blocker + pivot. NEVER use `docker` on Perlmutter — `podman` only. "No slurm submission" and "no axon_recon git push" rules remain in effect. **Active shifter image**: `adammwea/axon-recon:pipeline-v2` (shifter hash `cfc82cc501`, READY 2026-05-20T00:23:03; includes slay + kssynth + unitlink). **Slice-level discipline**: any slice that adds/removes/upgrades a conda dep MUST update pyproject.toml `[full]`/`[full-cuda]` (or the `--no-deps` Dockerfile step for numpy-conflicting siblings) AND post a "shifter rebuild needed: X" note here. **Full history archive** (DIRECTIVE A/B/C/D resolution journey, build #1-#3, gh-repo-create flow) lives in commits `eb3b290` / `d441154` / `1599db7` / `433415b`; read those when archeology is needed.
 
 - **⭐ PRE-OVERNIGHT CLEARANCES (2026-05-19, set during pre-loop check)**: User answered 3 foreseeable gates ahead of the overnight loop run so they don't block.
   1. **Dashboard slice 7 — tertiary grouping UX: configurable per chart (YAML toggle).** Both `small-multiples` and `hierarchical-X-labels` render modes get implemented; user picks per chart via a per-phase YAML knob (e.g. `tertiary_render_mode: small_multiples | hierarchical_labels`) or a dashboard UI dropdown. ~1 extra commit vs picking one mode; most flexible long-term. Default mode TBD by the loop during slice 7 — pick `small_multiples` as default since it reads better for the typical few-value tertiary case; user can override per chart.
@@ -91,38 +25,16 @@ User-authored directives that override plan / tier order until satisfied. Read F
   - **✅ CLI FLAG SHIPPED 2026-05-21 (commit `5d28561`)**: `--force-enable PHASE[,PHASE...]` added to the recon stage CLI + shared `stages` subparser. Process-wide override pattern mirrors `--no-plot`/`--profile`/`--scratch-output`/`--output-root`. Helper `_apply_force_enable_phases` in `pipeline/runner.py`; setter/getter in `pipeline/config.py`. Applied inside `_run_reconstruct_substage_from_runtime` (execution path) AND `_build_reconstruct_allocation_preview` (`--alloc` preview path) AFTER YAML parsing but BEFORE phase-roster + target selection. Override covers both the recon stage_config tree and the templates substage tree. 15 new tests cover process-wide setter/getter invariants + helper edge cases + 1 real-YAML integration. Slice 3b smoke is now unblocked (`axon-recon stages reconstruct.kssynth --config ... --force-enable kssynth`).
   - **Use count toward promotion**: 1 (kssynth slice 3b — pending smoke execution). Promotion criterion = ≥2 slice uses; when slice 5 (full-stage smoke with `--force-enable kssynth,plot_recons,axon_velocity_gtrs`) or any other YAML-disabled phase smoke uses the flag, promote the rule and delete this injection entry. The CLI flag stays — it's general utility.
 
-- **[2026-05-21] ✅ PROMOTED 2026-05-21 to `guardrails/loop_cadence.md`** (commit pending). Loop heartbeat reason format + shorter default cadence — the format ("Next iteration in {N}s — {sentence}") + ladder (90s active / 120s between-slices / 300s audit / 600-1200s blocked) is now locked into the guardrail doc. User-side follow-up: update the `/loop` prompt template to bake in the cadence ladder so future re-pastes inherit it (the loop can't edit the user's standing /loop prompt).
+- **[2026-05-21] Real-data smoke log discipline**: After every smoke on REAL DATA (login-node OR user-initiated salloc), append an entry to `dev/notes/trackers/smoke_log.md` per its schema (command / cohort / commit / outcome / quantitative result / bugs→fix-commit / diagnostics link / baseline-established? / status). EXCLUDES dry-runs, unit tests, synthetic-fixture smokes. HARD-gate visual diagnostics get a smoke_log entry when reviewed. Use count toward promotion: 1 entry filed post-rule (radivojevic cluster 67); promote to CLAUDE.md slice protocol at ≥3. **Worker-count validation (was S2) RETIRED 2026-05-21**: subsumed by `plans/active/resources_profiles_elimination_plan.md` slice 2 (env-only resolver, no clamping) + slice 5 (real-data smoke verification). The fail-fast behavior is built into that plan; don't duplicate as a free-floating rule. Loop SHOULD still record actual vs expected worker counts in smoke_log entries while the elimination plan ships — that's just good smoke discipline, not a separate rule.
 
-- **[2026-05-21] Real-data smoke log discipline**: New file `dev/notes/trackers/smoke_log.md` is the canonical log of smoke tests on REAL data + the bugs they reveal + how they get solved. The loop MUST append an entry whenever:
-  - A login-node smoke on **real data** completes (pass OR fail) — even uneventful regression checks
-  - A user-initiated `salloc`/`sbatch` run completes and the loop has access to the output dir
-  - A HARD-gate visual diagnostic is reviewed and approved/rejected
-  - **Do NOT log**: dry-run smokes, unit tests, synthetic-fixture smokes. Those don't count as data validation; they go in commit messages and the dry-run rollout plan.
-  - **Format**: see the schema at the top of `smoke_log.md` — short headered fields (smoke command / cohort / commit / outcome / what ran / quantitative result / bugs revealed → fixed-in-commit / diagnostics link / baseline-established? / status).
-  - **Why**: per user 2026-05-21 "let's start keeping a log of smoke tests using real data and the bugs they reveal and how they get solved." Passing unit tests is necessary but not sufficient — the user wants a separate, persistent record of what's actually been validated on data so future loop iterations don't treat "tests green" as equivalent to "feature works on M08073/well000."
-  - **Immediate application**: kssynth slice 5's HARD-gate 176-template regression run (when it ships — currently gated on slice 3b being executable; 3b's dry-run short-path above is wiring-only, NOT a smoke_log entry) WILL be the first new real-data smoke entry. Any analyzers-cache-required smoke that user/loop runs to unblock slice 3b's REAL-data version (vs. dry-run) also counts.
-  - **Backfilled at creation**: 2 historical entries seeded (2026-05-18 known-good baseline + 2026-05-18 Job 53089489 multi-well sweep) so the schema has examples and future regressions have a comparable.
-  - **(S2 — added 2026-05-21) Worker-count validation discipline (per user)**: every smoke MUST scrutinize the logs for actual worker counts and verify they match what was requested. Concretely:
-    - Before kicking off any smoke, the loop records the EXPECTED worker counts (cpus_per_task / n_jobs / well_workers / phase fanout) — derived from CLI args, the runtime YAML resource_class entries, and the slot.cpu_count budget.
-    - DURING / AFTER the smoke, the loop scans the logs for `phase_parallelism event=...`, `Preprocess phase worker allocation`, `n_jobs_source=...`, `slot.cpu_count=...`, and equivalent lines. Records ACTUAL counts.
-    - **Mismatch = smoke_log entry MUST flag it**: e.g. "REQUESTED cpus_per_task=10 but observed n_jobs=1 collapsing to serial in MPI worker (n_jobs_source=fallback)". A passing smoke that ran with the wrong worker count is NOT a green smoke — it's a silent failure that the smoke_log must capture.
-    - **Env over-request = fail-fast**: if requested resources exceed what `os.sched_getaffinity(0)` / `SLURM_CPUS_PER_TASK` / `SLURM_GPUS_*` / cgroup limits actually report, the loop should NOT silently clamp and run anyway — it must surface as a smoke failure with the diagnostic "REQUESTED N workers; env reports M available; refusing to clamp silently." Tech-debt entry already exists; this aligns the smoke discipline with the long-term plan.
-    - **Why**: per user 2026-05-21: "whenver running a smoke, pay careful attention to the logs and how many workers are being used. Is that the correct amount of workers we asked for? […] Check the environment, if we're asking for too many resoursces fail fast. I feel this plan hasnt been executed properly just based on a few smokes I've been trying to run. See recent logs. Profile was still clamping, and incorrectly."
-  - **Promote when stable**: once the loop has appended ≥3 entries spontaneously across different slices (NOT counting the backfilled seeds), promote the rule into the CLAUDE.md slice protocol (alongside "visual diagnostics") and delete this injection.
-
-- **[2026-05-21] Tightened visual-diagnostics trigger (after audit found 5 dashboard slices shipped without filing)**: The current CLAUDE.md rule ("when the claim depends on visual inspection") was too fuzzy and let the loop talk itself out of filing on dashboard slices 2 / 5 / 6 / 7 / 8 — all of which changed user-visible rendering. Tightened rule (effective immediately):
-  - **(R1) Any slice that changes user-visible rendering MUST file a diagnostic entry.** This is now a hard requirement, not a judgment call. Examples that REQUIRE a filing:
-    - Dashboard / UI changes (new plot type, new render mode, empty-state, style/palette/font change, new feature on an existing plot)
-    - Any new phase whose output is a visual artifact (figure, plot, video, heatmap)
-    - Any change that produces visually different output than before, even when tests pass
-    - First real-data run of any new algorithm stage (Stage 1 → Stage 2 → Stage 3 transitions in Radivojevic each get their own filing)
-  - **(R2) Stage transitions in multi-stage algorithms MUST file at EACH transition**, not just at the final end-to-end gate. For Radivojevic specifically: Stage 1 first real-output (peak lists overlaid on STA template = still visualizable as scatter on the channel grid), Stage 2 first electrical-image rendering, Stage 3 first skeleton + interconnect rendering, AND the final axon_velocity_gtrs-vs-radivojevic_recon comparison. Four separate filings minimum. Stage 1's diagnostic gets a soft gate (peak distribution sanity); the rest get HARD gates per existing GATE 3 spec.
-  - **(R3) Diagnostic exemptions remain (don't file for)**: every routine pipeline plot during a normal run; pure-computation slices with numerical assertions covering validation; logs/text summaries (those go in commit messages, not diagnostics_to_review.md).
-  - **(R5 — added 2026-05-21 after first SOFT-gate filing had only npy/tsv)**: ANY diagnostic with claimed visual content MUST include a rendered image format (PNG / SVG / PDF). npy / tsv / parquet alone is data, not a diagnostic. The visual file is the audit-trail artifact you can review at a glance. Data files can accompany it for re-rendering / downstream consumption. Per user feedback 2026-05-21: "I see the recon output but its npy and tsv files."
-  - **(R4) Where artifacts live**: `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/` per CLAUDE.md. If the slice's working dir is named after the slice (e.g. `radivojevic_first_run`), the diagnostics subdir lands inside it.
-  - **Backfill scope (per user 2026-05-21)**: SKIPPED for dashboard slices 2/5/6/7/8 — user can review interactively any time. Going-forward only.
-  - **Why**: per user 2026-05-21 audit: "Generally, was hoping to see more diagnostic plots... unless we truly haven't done any slices that warrant it." Audit found 5 dashboard slices shipped without diagnostics — loop has been under-filing. The diagnostics file is the audit trail that closes the gap between "tests green" and "the picture looks right."
-  - **Promote when stable**: once 3+ slices (post-2026-05-21) have correctly filed diagnostics under R1/R2 without prompting, promote the rule into CLAUDE.md §"Visual diagnostics" (amend the existing section) and delete this injection.
+- **[2026-05-21] Tightened visual-diagnostics trigger**: Compact rules effective immediately:
+  - **(R1)** Any slice that changes user-visible rendering MUST file a diagnostic entry. Hard requirement, not judgment call. Includes: dashboard/UI changes (new plot type, render mode, empty-state, style/palette/font, new feature on existing plot); any new phase producing a visual artifact (figure/plot/video/heatmap); bug fixes producing visually-different output even when tests pass; first real-data run of any new algorithm stage.
+  - **(R2)** Multi-stage algorithms file at EACH stage transition (Radivojevic Stage 1/2/3 each get their own filing — Stage 1+2 soft-gates, Stage 3 + comparison hard-gate).
+  - **(R3)** Exempt: routine pipeline outputs during normal runs; pure-computation with numerical validation; logs/text summaries (commit messages, not diagnostics_to_review.md).
+  - **(R4)** Artifacts live at `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/`.
+  - **(R5)** ANY diagnostic with claimed visual content MUST include a rendered image (PNG/SVG/PDF). npy/tsv/parquet alone is data, not a diagnostic.
+  - **Backfill scope**: SKIPPED for dashboard slices 2/5/6/7/8 — user reviews interactively. Going-forward only.
+  - **Use count toward promotion**: 1 (radivojevic SOFT-gate re-filed with PNG). Promote at ≥3 to CLAUDE.md §"Visual diagnostics".
 
 - **🛑 [2026-05-21 — CRITICAL behavioral injection] STOP-AND-ASK discipline for diagnostics (next 3 attempts MANDATORY)**: The first Radivojevic SOFT-gate diagnostic attempt failed on 3 user-explicit requirements (use plot_recons / pick high-branch unit / produce comparison) because the loop **improvised around friction** instead of stopping to ask. New mandatory behavior:
 
@@ -196,71 +108,9 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 Manual items the loop can't or shouldn't do — surfaced here so the user has one place to find them. Loop appends as needed; user prunes when done.
 
-- **[2026-05-21] Salloc smokes queued — see `dev/notes/trackers/salloc_smokes_queued.md`**. New dedicated file (per user 2026-05-21) for smoke runs that need an interactive Slurm allocation. Currently queued: kssynth slice 3b HEAVY (analyzers + kssynth) on M08073/well000 DIV 36, gating the radivojevic apples-to-apples diagnostic. Loop appends here; user runs each entry inside `salloc`; entry is deleted (or moved to `smoke_log.md`) when the run completes.
+- **[2026-05-19] Delete the smoke-test repo `adamwea/__gh_auth_smoke_test`** on GitHub via web UI (`gh` token lacks `delete_repo` scope). Pure clutter; non-blocking.
 
-- **[2026-05-19] Delete the smoke-test repo `adamwea/__gh_auth_smoke_test`** on GitHub. Created during DIRECTIVE D pre-execution verification of `gh repo create` (commit `2124d2c`); `gh repo delete` requires the `delete_repo` token scope which the current token doesn't have. Either delete via web UI at https://github.com/adamwea/__gh_auth_smoke_test/settings (bottom of page → "Delete this repository") OR run `gh auth refresh -h github.com -s delete_repo` to add the scope and let the loop clean it up itself in the future. Not blocking anything; just clutter.
-
-- **[2026-05-21 ✅ RESOLVED] Standing `/loop` prompt now lives at `dev/notes/loop_prompts/extended_autonomous.md`** (commit pending). Round 4 baked in (cadence ladder + phase-enable rule + real-data smoke log discipline + pre-cleared decisions for SLAy PR / kssynth slice 3b / Radivojevic gate). User pastes the fenced block from that file when re-firing the loop. Future revisions get version-tracked by `git log` on that path. CLAUDE.md pointers table updated to reference it.
-
-- **[2026-05-21 09:35 — UPDATE] ✅ kssynth slice 3b SHORT-PATH smoke CONFIRMED working end-to-end**. Empirical validation:
-  ```
-  axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
-    --target-dataset 0 --limit-wells 1 \
-    --dry-run --force-enable kssynth \
-    --output-root /pscratch/sd/a/adammwea/dev_outputs/<slice>
-  ```
-  exits status=success in ~5 seconds on real M08073 data; writes a well-formed
-  `kssynth_summary.json` with `status: dry_run_ok`, missing-cache warning,
-  outputs_would_produce reporting per_unit_dir + summary_json correctly.
-  Similarly `reconstruct.analyzers --dry-run` + `preprocess --dry-run` both
-  complete cleanly. **`--output-root` IS REQUIRED** — without it, the dry-run
-  summary lands in the read-only reference data dir (verified empirically:
-  the loop accidentally wrote `synth_sorter_output/kssynth_summary.json` +
-  `context/analyzers_summary.json` to the reference well during a first
-  pass; both cleaned up immediately).
-
-  **Heavy smoke (real analyzers + real kssynth.synthesize) still needs the
-  data-routing decision below — `--output-root` redirects OUTPUTS but the
-  analyzers phase also needs INPUTS (preproc + spikesort outputs) which
-  exist only at the reference path. So heavy smoke is gated on either
-  (path 1) loosening cache-subdir rule, (path 2) alternate_well_out_dirs
-  plumbing, or (path 3) symlink approach.** Original decision text preserved
-  below.
-
-- **[2026-05-21 ✅ DECIDED] kssynth slice 3b smoke data-routing — USER CHOSE PATH 2 (--input-root plumbing)**. Loop's next slice in the kssynth_recon_integration plan is to add `alternate_well_out_dirs` (or equivalent `--input-root` CLI flag) plumbing to the analyzers loader so dev_outputs/ wells can read inputs (preproc + spikesort outputs) from the reference well_out_dir while writing outputs (cache/, synth_sorter_output/, etc.) to the dev_outputs/ well_out_dir. Touch is M (loader signature + CLI flag + plumbing through resolve_session_inputs). Once shipped, the slice 3b heavy smoke runs as:
-  ```bash
-  axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml \
-    --target-dataset N --limit-wells 1 --task-backend local_affinity \
-    --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
-    --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
-  axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
-    --target-dataset N --limit-wells 1 --task-backend local_affinity \
-    --force-enable kssynth \
-    --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
-    --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
-  ```
-  Reference-data immutability preserved; clean separation between iteration outputs and reference inputs. Original 3-options block deleted; preserve in commit `e966f2c`'s diff for archeology.
-
-  **Original block preserved for archeology**: The slice 3b plan note assumes the smoke runs in-place on `260326/M08073/AxonTracking/000208/well000` (DIV 36) — but the reference well's `recon_outputs/cache/` is empty and writing it would technically mutate the read-only reference data (per the working-data-scope rule). Redirecting via `--output-root /pscratch/.../dev_outputs/kssynth_slice3b/` cleanly avoids the mutation, but creates an input-resolution problem: the analyzers loader looks for preproc + spikesort outputs under `<output_root>/Media_Density_T5_.../260326/M08073/AxonTracking/000208/well000/` and those exist ONLY at the reference path. Three resolution paths:
-  1. **Loosen the rule for `cache/` subdirs** — they're explicitly rebuildable, never "ground-truth reference output". Loop writes the cache in-place; no other reference artifacts touched. Smallest change.
-  2. **Add `alternate_well_out_dirs` plumbing to the analyzers loader** so an iteration well can read inputs from the reference well_out_dir while writing outputs to the dev_outputs/ well_out_dir. The loader already has `alternate_well_out_dirs` in its signature for similar purposes (templates/runner.py `_load_templates_phase_analyzers`). Needs a `--input-root` CLI flag or equivalent. Touch is M.
-  3. **Symlink approach** — `mkdir -p /pscratch/.../dev_outputs/kssynth_slice3b/.../well000/` then symlink `preprocess_outputs/` and `spikesort_outputs/` from the reference. Outputs land in the dev_outputs tree; inputs read through the symlinks. Touch is S but fragile (paths embedded in summary.json reference symlink targets).
-  - **Smoke command sequence** (post-decision):
-    ```bash
-    # Step 1 (heavy, ~5-15 min): build the analyzer cache.
-    axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml \
-      --target-dataset N --limit-wells 1 --task-backend local_affinity \
-      [--output-root /pscratch/.../dev_outputs/kssynth_slice3b/  # path 2 only]
-
-    # Step 2 (fast, ~30s with --force-enable): run kssynth on the cache.
-    axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
-      --target-dataset N --limit-wells 1 --task-backend local_affinity \
-      --force-enable kssynth \
-      [--output-root /pscratch/.../dev_outputs/kssynth_slice3b/  # path 2 only]
-    ```
-    Replace `N` with the 0-based dataset index for `260326/M08073/AxonTracking/000208`. `--limit-units` could be added if step 2 is slow.
-  - **Expected output**: `<well>/recon_outputs/synth_sorter_output/{kssynth_summary.json, templates.npy, channel_positions.npy, per_unit/unit_<id>/{merged_template,merged_channel_locations}.npy, ...}`. Visual diagnostic to file under `/pscratch/sd/a/adammwea/dev_outputs/kssynth_recon_integration/slice3b/`.
-  - **Recommendation**: option (1) is cleanest if user accepts the cache-subdir-is-rebuildable framing. Awaiting decision before next loop iteration attempts the smoke.
+- **[2026-05-21] Run queued salloc smokes** — `dev/notes/trackers/salloc_smokes_queued.md` lists kssynth slice 3b HEAVY waiting on an interactive allocation. NOTE: the radivojevic comparison this gates is currently inside the planning-pause; don't run this until the pause lifts.
 
 ## Shipped this week (2026-05-12 → 2026-05-18)
 

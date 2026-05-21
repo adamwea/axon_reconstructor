@@ -97,6 +97,8 @@ def detect_env_supply() -> EnvSupplyBudget:
 
 ### Slice 2 — Make `build_task_allocation_plan` env-only; remove profile clamping
 
+**See also (sequencing — added 2026-05-21 refinement pass)**: `parallelism_post_migration_cleanup_plan.md` slice 2 ships AFTER this slice. Reason: that slice wires `inputs.n_jobs` call sites through `resolve_inner_worker_count(phase_cpus_per_task=_budget.cpus_per_task)`. Once this slice lands, `_budget.cpus_per_task` is env-derived — so the parallelism slice 2 wiring then works correctly out of the box. Order reverse would mean the parallelism slice ships first using profile-clamped budgets (the user-flagged problem) and then this slice changes the budget source under it.
+
 **Goal**: the resolver becomes the SOLE source of supply truth. Profile-keyed capacity clipping (`_limit_units_by_profile_cpu`) gets deleted.
 
 **Edits**:

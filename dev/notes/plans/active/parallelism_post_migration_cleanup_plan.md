@@ -188,6 +188,8 @@ Classify each hit as: `delete`, `replace-with-budget-manager`, `keep-as-runtime-
 
 ### Slice 2 — Route remaining `inputs.n_jobs` reads through `resolve_inner_worker_count`
 
+**See also (sequencing — added 2026-05-21 refinement pass)**: `resources_profiles_elimination_plan.md` slices 0-2 MUST ship before this slice. Reason: this slice wires call sites to read `_budget.cpus_per_task`, which today comes from the YAML profile (clamped — the user-flagged problem). After `resources_profiles_elimination` slice 2 ships, `_budget.cpus_per_task` reads from the environment instead. Shipping in the wrong order means this slice's call sites silently use clamped budgets and the wrong-worker-count behavior persists.
+
 **Goal**: finish what slice 5 of the original migration started — every fanout decision goes through the budget-aware helper.
 
 **A. Inventory** (already done in §1.2). For each line:
@@ -449,6 +451,8 @@ Identify which kwarg the production retry path branches on and what spikeinterfa
 ---
 
 ### Slice 9.5 — `srun`/SLURM-supplied tasks + cpus_per_task must win over YAML defaults at EACH PHASE (USER 2026-05-21)
+
+**⚠️ SUPERSEDED 2026-05-21 by `resources_profiles_elimination_plan.md` slice 0 (revert).** This slice shipped as commits `1982a31` + `55d2e16` (env precedence) plus `322e8fe` (topology clamp) — paper-overs bolted on top of the profile resolver. The resources_profiles_elimination plan's slice 0 explicitly reverts these because slice 2 of that plan makes the resolver env-only by construction (precedence ladder becomes moot). Loop kept this slice section for the historical record + because the test fixtures here may inform the env-only resolver's test design in resources_profiles slice 1. Don't ship new work against this slice; treat as archived.
 
 **Goal**: when the user runs a pipeline invocation under `srun -n N -c K` (with `K` ≠ the YAML's `task_allocation.cpus_per_task`), the runtime must honor the srun values — INCLUDING under `--task-backend local_affinity`, not just under `mpi`. The YAML's `cpus_per_task` / rank count should remain a *default* used only when nothing is specified externally (no `SLURM_CPUS_PER_TASK` / `SLURM_NTASKS` env, no CLI override). **This precedence must hold at each PHASE level**, since per-phase resource budgets resolve their own `cpus_per_task` for the SI / inner-worker n_jobs derivation — a phase that ignores the env-supplied value pins SI workers at the YAML default and silently wastes the rest of the allocation.
 
