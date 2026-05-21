@@ -825,6 +825,21 @@ def _register_stage_sequence_parser(
 			"such as spikesort.restore_sorter_output."
 		),
 	)
+	parser.add_argument(
+		"--force-enable",
+		dest="force_enable_phases",
+		default=None,
+		help=(
+			"Comma-separated phase names to force-enable for this run (e.g. "
+			"--force-enable kssynth or --force-enable kssynth,plot_recons). "
+			"Flips matching phases' `enabled` flag to True AFTER YAML parsing "
+			"but BEFORE phase-roster evaluation. Useful for smoking phases "
+			"that ship with enabled: false in the runtime YAML without "
+			"editing the YAML in-flight. Currently honored by the reconstruct "
+			"stage and its substages (recon.*); other stages will pick it up "
+			"as they adopt the override."
+		),
+	)
 	parser.set_defaults(handler=_run_stage_sequence_from_args)
 
 
@@ -1377,6 +1392,7 @@ def main(argv: list[str] | None = None) -> int:
 	# stage handler fires. select_execution_targets honors them at the leaf, so we
 	# don't need to plumb override parameters through every runner helper.
 	from .config import (
+		set_force_enable_phases_override,
 		set_no_plot_override,
 		set_output_root_override,
 		set_scratch_output_override,
@@ -1416,6 +1432,20 @@ def main(argv: list[str] | None = None) -> int:
 	if output_root_override:
 		set_output_root_override(output_root_override)
 
+	# Same pattern for --force-enable: parse comma-separated phase names from
+	# the CLI arg and set the process-wide override before any stage handler
+	# fires. The substage runners read this in _apply_force_enable_phases
+	# after YAML parsing. Cleared in the finally block.
+	force_enable_phases_raw = getattr(args, "force_enable_phases", None)
+	if force_enable_phases_raw:
+		phase_names_csv = [
+			str(token).strip()
+			for token in str(force_enable_phases_raw).split(",")
+			if str(token).strip()
+		]
+		if phase_names_csv:
+			set_force_enable_phases_override(phase_names_csv)
+
 	handler = getattr(args, "handler", None)
 	if handler is None:
 		parser.print_help()
@@ -1442,6 +1472,7 @@ def main(argv: list[str] | None = None) -> int:
 		set_no_plot_override(None)
 		set_scratch_output_override(None)
 		set_output_root_override(None)
+		set_force_enable_phases_override(None)
 		try:
 			from .resource_usage import configure_phase_tuning_monitoring
 

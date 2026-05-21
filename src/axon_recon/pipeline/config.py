@@ -270,6 +270,38 @@ def get_output_root_override() -> Path | None:
 	return _OUTPUT_ROOT_OVERRIDE
 
 
+# Process-wide --force-enable PHASE[,PHASE...] override. When set, the named
+# phases have their parsed `enabled` flag flipped to True AFTER YAML parsing
+# but BEFORE phase-roster evaluation. Lets the loop smoke-test a phase that
+# ships with `enabled: false` in the runtime YAML without editing the YAML
+# in-flight. Set once at CLI entry, cleared in the `finally` block so a
+# subsequent in-process invocation isn't poisoned. Per USER INJECTION
+# 2026-05-21 — promote rule to guardrails/ once used by ≥2 slices.
+_FORCE_ENABLE_PHASES_OVERRIDE: frozenset[str] | None = None
+
+
+def set_force_enable_phases_override(phase_names: list[str] | tuple[str, ...] | None) -> None:
+	"""Set the process-wide --force-enable phase set.
+
+	When non-None and non-empty, phase configs whose canonical name matches
+	one of these get their `enabled` flag flipped to True before the
+	phase-roster filter runs. Pass None or an empty iterable to clear.
+	Names are compared case-insensitive with whitespace stripped.
+	"""
+
+	global _FORCE_ENABLE_PHASES_OVERRIDE
+	if phase_names is None:
+		_FORCE_ENABLE_PHASES_OVERRIDE = None
+		return
+	cleaned = {str(name).strip().lower() for name in phase_names if str(name).strip()}
+	_FORCE_ENABLE_PHASES_OVERRIDE = frozenset(cleaned) if cleaned else None
+
+
+def get_force_enable_phases_override() -> frozenset[str] | None:
+	"""Return the current --force-enable phase set, or None if unset."""
+	return _FORCE_ENABLE_PHASES_OVERRIDE
+
+
 def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
 	LOGGER.warning(
 		"Legacy scratch input keys detected for %s; scratch_input_root/use_scratch_input_root are deprecated. "

@@ -193,6 +193,18 @@ def register_reconstruct_subparser(subparsers: argparse._SubParsersAction[argpar
 		default=None,
 		help="Limit wells selected per dataset for debug smoke runs",
 	)
+	parser.add_argument(
+		"--force-enable",
+		dest="force_enable_phases",
+		default=None,
+		help=(
+			"Comma-separated phase names to force-enable for this run (e.g. "
+			"--force-enable kssynth or --force-enable kssynth,plot_recons). "
+			"Flips matching phases' `enabled` flag to True AFTER YAML parsing "
+			"but BEFORE phase-roster evaluation. Useful for smoking phases "
+			"that ship with enabled: false without editing the runtime YAML."
+		),
+	)
 	parser.set_defaults(handler=_run_from_args)
 
 

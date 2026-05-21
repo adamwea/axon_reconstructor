@@ -5,7 +5,7 @@ import logging
 import os
 import time
 from contextlib import nullcontext
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
@@ -272,6 +272,70 @@ def _apply_replot_phase_filter(stage_config: Any, *, replot: bool, stage_name: s
 		# original config and let the caller proceed with the full sequence.
 		try:
 			object.__setattr__(stage_config, "phase_sequence", filtered)
+		except Exception:
+			pass
+		return stage_config
+
+
+def _apply_force_enable_phases(stage_config: Any, *, phase_names: frozenset[str] | None) -> Any:
+	"""Return `stage_config` with the named phases' `enabled` field flipped to True.
+
+	Walks `stage_config.phases` (a frozen dataclass) and for each field whose
+	NAME (case-insensitive) is in `phase_names`, replaces the phase's config
+	with a copy that has `enabled=True`. Returns a new `stage_config` with the
+	updated phases tree, or the original when `phase_names` is None/empty or
+	the dataclass doesn't carry a `phases` attribute.
+
+	Matches by FIELD NAME on `phases` (e.g. `kssynth`, `axon_velocity_gtrs`,
+	`plot_recons`) — same convention the CLI's `--force-enable` flag uses.
+
+	Implemented in the same defensive style as `_apply_replot_phase_filter`:
+	tries `dataclasses.replace` first, falls back to direct attribute
+	assignment if the dataclass isn't replace()-friendly, no-ops if neither
+	succeeds.
+	"""
+
+	if not phase_names:
+		return stage_config
+	phases = getattr(stage_config, "phases", None)
+	if phases is None or not is_dataclass(phases):
+		return stage_config
+	updates: dict[str, Any] = {}
+	for field_info in fields(phases):
+		if field_info.name.lower() not in phase_names:
+			continue
+		current = getattr(phases, field_info.name, None)
+		if current is None or not hasattr(current, "enabled"):
+			continue
+		if bool(getattr(current, "enabled", False)):
+			# Already enabled — no change needed.
+			continue
+		try:
+			updates[field_info.name] = replace(current, enabled=True)
+		except TypeError:
+			# Phase config is not a frozen dataclass that accepts replace —
+			# best-effort attribute assignment.
+			try:
+				object.__setattr__(current, "enabled", True)
+			except Exception:
+				continue
+	if not updates:
+		return stage_config
+	try:
+		new_phases = replace(phases, **updates)
+	except TypeError:
+		# Phases config doesn't accept replace — assign onto the original.
+		for name, value in updates.items():
+			try:
+				object.__setattr__(phases, name, value)
+			except Exception:
+				pass
+		return stage_config
+	try:
+		return replace(stage_config, phases=new_phases)
+	except TypeError:
+		try:
+			object.__setattr__(stage_config, "phases", new_phases)
 		except Exception:
 			pass
 		return stage_config
@@ -2104,6 +2168,11 @@ def _build_reconstruct_allocation_preview(
 			replot=bool(replot_override),
 			stage_name="reconstruct",
 		)
+	# CLI --force-enable PHASE[,PHASE...] override (preview path).
+	from .config import get_force_enable_phases_override as _get_fe_phases
+
+	_force_enable_phases = _get_fe_phases()
+	stage_config = _apply_force_enable_phases(stage_config, phase_names=_force_enable_phases)
 	targets = _select_execution_targets_with_debug_limits(
 		bundle=bundle,
 		stage_name=stage_name,
@@ -2135,6 +2204,9 @@ def _build_reconstruct_allocation_preview(
 				replot=bool(replot_override),
 				stage_name="reconstruct.templates",
 			)
+		reconstruct_templates_config = _apply_force_enable_phases(
+			reconstruct_templates_config, phase_names=_force_enable_phases
+		)
 	if bool(getattr(stage_config, "debug_mode_enabled", False)):
 		targets = _apply_spikesort_debug_target_limits(
 			stage_name=stage_name,
@@ -5228,6 +5300,13 @@ def _run_reconstruct_substage_from_runtime(
 			replot=bool(replot_override),
 			stage_name="reconstruct",
 		)
+	# CLI --force-enable PHASE[,PHASE...] override — flip matching phases to
+	# `enabled=True` AFTER YAML parsing but BEFORE phase-roster evaluation.
+	# Reads from the process-wide override set by `pipeline/cli.py main()`.
+	from .config import get_force_enable_phases_override
+
+	_force_enable_phases = get_force_enable_phases_override()
+	stage_config = _apply_force_enable_phases(stage_config, phase_names=_force_enable_phases)
 	targets = _select_execution_targets_with_debug_limits(
 		bundle=bundle,
 		stage_name=stage_name,
@@ -5259,6 +5338,10 @@ def _run_reconstruct_substage_from_runtime(
 				replot=bool(replot_override),
 				stage_name="reconstruct.templates",
 			)
+		# Same --force-enable override applies to the templates substage tree.
+		reconstruct_templates_config = _apply_force_enable_phases(
+			reconstruct_templates_config, phase_names=_force_enable_phases
+		)
 	if bool(getattr(stage_config, "debug_mode_enabled", False)):
 		targets = _apply_spikesort_debug_target_limits(
 			stage_name=stage_name,
