@@ -32,14 +32,17 @@ arbor), and signal amplitudes mapped across the entire arbor.
 |-------|---------------|-------|
 | Spike-triggered average (STA) per unit | `electrode_template[n_channels, n_samples]` — the spike-aligned extracellular voltage trace at every electrode | Same shape as `axon_velocity_gtrs`'s `templates.npy` — should be drop-in compatible. |
 | Electrode locations (x, y) | `electrode_locations[n_channels, 2]` (μm) | Same as `axon_velocity_gtrs`. |
-| Sampling rate | scalar (Hz) | Paper uses 20 kHz (MEA1k). |
-| (optional) raw STA per spike (not just average) | for the tracking step's velocity refinement | The 2023 paper's multi-step tracking may use the SPREAD of individual spike arrival times across electrodes to refine velocity estimates — this is what distinguishes it from the 2022 (Buccino) graph-based approach which only consumes the AVERAGED template. **TBD from full methods read.** |
+| Sampling rate | scalar (Hz) — read from analyzer manifest, NEVER hardcoded | Paper uses 20 kHz (MEA1k). **Our pipeline runs on multiple devices**: MaxTwo at 10 kHz (current 80k DMEM cohort), MaxOne at 20 kHz, others TBD. `metadata_get` preprocess step is the authoritative source of truth for sample rate per recording. The Radivojevic phase MUST read `sampling_rate_hz` from the analyzer manifest at runtime; YAML defaults are calibrated thresholds, not hardware constants. |
+| ~~(optional) raw STA per spike~~ | RESOLVED 2026-05-21 | Methods mining confirmed averaged template is sufficient — paper's Steps IV+V operate on the averaged "axonal electrical image" only. Add a minimum-n_spikes sanity check (skip units with <50 spikes) to mirror the paper's implicit 100-200-trials averaging assumption. |
 
 ### Hardware assumptions
 
-- HD-MEA with ~17.5 μm electrode pitch (MaxWell HD-MEA1k spec).
-- 26,400 simultaneous recording channels (or compatible subset).
-- 20 kHz sampling rate.
+- HD-MEA family (MaxWell). Electrode pitch ~17.5 μm assumed; paper notes algorithm "degrades" at 35+ μm.
+- Sample rate VARIES per device — read from analyzer manifest per recording, do NOT hardcode:
+  - MaxTwo: 10 kHz (current 80k DMEM cohort default)
+  - MaxOne: 20 kHz (matches paper exactly)
+  - Other devices may join in the future; assume any HD-MEA-family sample rate is possible.
+- Channel count varies per device; algorithm scales with whatever subset is recorded.
 
 Paper notes: algorithm performance "degrades" at 35+ μm pitch. Our
 data (MaxWell MEA1k, ~17.5 μm in axon-tracking mode) is in spec.
@@ -59,8 +62,18 @@ data (MaxWell MEA1k, ~17.5 μm in axon-tracking mode) is in spec.
 Detects signal peaks (negative voltage excursions) in the STA across
 the spatiotemporal recording. Operates on the TIME DERIVATIVE of the
 averaged voltage trace (μV/μs), not the raw voltage. Recordings are
-up-sampled to 200 kHz via Whittaker-Shannon interpolation BEFORE
+up-sampled by **10× via Whittaker-Shannon interpolation** BEFORE
 thresholding.
+
+**Parameterization decision (2026-05-21, per user)**: the paper's
+"200 kHz" target was 10× their 20 kHz input. Since our pipeline runs
+on multiple devices (MaxTwo at 10 kHz, MaxOne at 20 kHz, possibly
+others), the upsample knob is `upsample_factor` (integer ratio), NOT
+an absolute Hz target. Default `upsample_factor: 10`. At runtime the
+phase reads `sampling_rate_hz` from the analyzer manifest and computes
+the actual upsampled rate (10 kHz → 100 kHz on MaxTwo; 20 kHz → 200 kHz
+on MaxOne, matching paper). Δt resolution scales accordingly: ~10 μs at
+100 kHz, ~5 μs at 200 kHz.
 
 **Concrete hyperparameters from paper methods** (extracted from the
 pre-populated `notes/archive/old_ai_notes_for_reference/radivojevic_2023_methods_mining.txt`
@@ -96,8 +109,10 @@ step's search regions.
 ### Stage 3: Multi-step tracking (3 sub-strategies)
 
 Iterates over consecutive timeframes (in order of action-potential
-propagation, Δt ~5-10 μs at 200 kHz sample rate). Three sub-strategies
-for connecting peaks frame-to-frame:
+propagation, Δt = 1 / upsampled_rate_hz). On MaxTwo (10 kHz raw,
+100 kHz upsampled): Δt ~10 μs. On MaxOne / paper (20 kHz raw,
+200 kHz upsampled): Δt ~5 μs. Three sub-strategies for connecting
+peaks frame-to-frame:
 
 **Concrete hyperparameters from paper methods** (same source as stage 1):
 

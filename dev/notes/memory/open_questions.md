@@ -27,26 +27,17 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
 
-## Radivojevic slice 1 user-gate review
+## Radivojevic slice 1 user-gate review — ✅ RESOLVED 2026-05-21
 
-`radivojevic_recon_algo_plan` slice 1 SHIPPED 2026-05-21. Full deliverables in:
-- `dev/notes/refs/radivojevic2023_paper.md` (citation + data/code availability)
-- `dev/notes/refs/radivojevic2023_algorithm_summary.md` (algorithm spec + input compat map)
+User answered all 6 questions in the 2026-05-21 walkthrough. Slice 3 (core algorithm impl) is UNGATED — loop can proceed when its queue reaches the Radivojevic plan.
 
-Per current_state.md "PRE-OVERNIGHT CLEARANCES" item #2, the loop pre-approval lets it proceed into slice 2 (sibling-package scaffold) WITHOUT pausing. Slice 3 (core algorithm impl) DOES gate on user review of these questions:
+**Answers locked in:**
 
-1. **Paper identity confirmed?** Target paper is *Radivojevic & Rostedt Punga (2023), Functional imaging of conduction dynamics in cortical and spinal axons, eLife 12:e86512, DOI 10.7554/eLife.86512*. Please verify.
+1. **Paper identity**: ✅ confirmed — *Radivojevic & Rostedt Punga (2023), Functional imaging of conduction dynamics in cortical and spinal axons, eLife 12:e86512, DOI 10.7554/eLife.86512*.
+2. **Clean-room approach**: ✅ confirmed — no public code; clean-room re-implementation from methods + figures.
+3. **🔴 HIGH-IMPACT — averaged template sufficient**: ✅ confirmed via methods-mining doc evidence: paper's Steps IV+V operate on the averaged "axonal electrical image" only. axon_recon's `merged_template.npy` is the input-equivalent. Add a minimum-n_spikes sanity check at slice 3 start (skip units with <50 spikes, mirroring paper's implicit 100-200-trials averaging assumption).
+4. **Input compat map**: ✅ confirmed (modulo Q3 RESOLVED). Inputs = `merged_template.npy` + `merged_channel_locations.npy` + `sampling_rate_hz` (read from analyzer manifest, NEVER hardcoded).
+5. **Hyperparameter defaults**: ✅ confirmed — Step 1 = 9 STD, Step 2 = 2 STD / 50 μm, Step 3 = 1 STD / 100 μm, Direct interconnect = 100 μm, Skeleton-assisted = 200 μm. **AMENDED**: upsampling is parameterized as `upsample_factor: 10` (integer ratio), NOT an absolute Hz target. Paper's "200 kHz" was 10× their 20 kHz input; our pipeline runs on multiple devices so we scale per-recording: MaxTwo (10 kHz raw → 100 kHz upsampled), MaxOne (20 kHz → 200 kHz, matches paper). All 7 thresholds exposed as YAML knobs; slice 6 will do an empirical sweep on Step 1 ∈ {7, 9, 11} STD and Step 3 ∈ {0.5, 1, 1.5} STD if first-pass results warrant tuning.
+6. **Phase + sibling-package name**: ✅ `radivojevic_recon` — matches sibling-package dir; parallels `axon_velocity_gtrs` naming convention.
 
-2. **Clean-room approach confirmed?** Methodical search (eLife article page, bioRxiv preprint, ResearchGate, GitHub author search) found NO public code for the 2023 algorithm. Dryad deposit `doi:10.5061/dryad.gxd2547r1` contains DATA only (no code). The adjacent code repos (`axon_velocity` by Buccino 2022 — already used by axon_recon; `hana` by Bullmann 2019) implement DIFFERENT algorithms. Clean-room re-implementation is the only path. Please confirm OR identify a code source the search missed.
-
-3. **🔴 HIGH-IMPACT**: Does the algorithm need the RAW spike-triggered-average per-spike (the SPREAD of arrival times across electrodes), or just the AVERAGED template? The 2023 paper's multi-step tracking may use per-spike data to refine velocity estimates — this is what would distinguish it from Buccino 2022's graph-based approach which only consumes averaged templates. If RAW per-spike STA is needed, we'd need either (a) a new analyzers-phase output that caches per-spike STA arrays, or (b) accept averaged-only as a v1 limitation and document a v2 enhancement path. Please confirm by reading the methods section of the full paper text (PDF rendering not available in the loop's environment — the loop only had access to the abstract + algorithm overview via WebFetch).
-
-4. **Input compat map verification**: see the table in `radivojevic2023_algorithm_summary.md` §"Input compat with axon_velocity_gtrs". The proposed claim is that recon-stage `merged_template.npy` + `merged_channel_locations.npy` + sampling_rate (from analyzer manifest) are sufficient inputs for Radivojevic's algorithm (modulo question 3 above). Please verify.
-
-5. **Hyperparameter defaults — UPDATED 2026-05-21**: ✅ Concrete values FOUND in pre-extracted `notes/archive/old_ai_notes_for_reference/radivojevic_2023_methods_mining.txt` in the sibling-package dir. Defaults captured in `radivojevic2023_algorithm_summary.md`: Step 1 = 9 STD noise, Step 2 = 2 STD / 50 μm radius, Step 3 = 1 STD / 100 μm radius. Direct interconnection = 100 μm, skeleton-assisted = 200 μm. Up-sampling = 200 kHz (Whittaker-Shannon). These will be the slice-3 defaults; please flag if any need adjustment for our data (HD-MEA1k 20 kHz sample rate matches paper).
-
-6. **Algorithm/phase name preference**: paper doesn't pick a nickname. Options for the sibling-package + phase name:
-   - `radivojevic_recon` (current sibling-package dir name; descriptive of WHO not WHAT)
-   - `electrical_imaging_recon` (descriptive of WHAT — matches the paper's framing of "electrical visualization")
-   - `axon_skeleton_recon` (descriptive of the KEY ALGORITHMIC STEP)
-   Pick one to lock in for slice 4 onward.
+**Critical project-level clarification logged from this walkthrough**: axon_recon runs on multiple MaxWell devices (MaxTwo @ 10 kHz, MaxOne @ 20 kHz, others future). Sample rate is per-recording; the `metadata_get` preprocess step + `dev/debug_NERSC/debug.data.yml` are the authoritative sources of truth. **NEVER hardcode sample rate** in any analysis/recon phase. The Radivojevic algorithm summary doc (`refs/radivojevic2023_algorithm_summary.md`) updated to reflect this. Captured as auto-memory under `project-axon-recon-device-diversity` for future sessions.
