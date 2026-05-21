@@ -340,6 +340,73 @@ def run_reconstruct_templates_analyzers_phase(
         templates_runner._resolve_templates_phase_environment(inputs)
     )
     summary_json_path = templates_out_dir / str(inputs.phases.analyzers.summary_json_relpath)
+
+    # Dry-run short-circuit (dry_run_rollout slice 3 first commit) — resolves
+    # input/output paths + reports analyzer cache state + writes a
+    # dry_run_ok summary, then returns without building SortingAnalyzers
+    # or scanning preprocessed segments.
+    from axon_recon.pipeline.config import get_dry_run_override
+
+    if get_dry_run_override():
+        from axon_recon.pipeline.dry_run import write_dry_run_summary
+
+        phase_display = (
+            "reconstruct.analyzers"
+            if source_scope is None
+            else f"reconstruct.analyzers.{source_scope}"
+        )
+        inputs_resolved: list[dict[str, Any]] = []
+        outputs_would_produce: list[dict[str, Any]] = []
+        validation_warnings: list[str] = []
+
+        if analyzer_cache_dir is not None:
+            cache_exists = analyzer_cache_dir.exists()
+            inputs_resolved.append(
+                {
+                    "name": "analyzer_cache_dir",
+                    "path": str(analyzer_cache_dir),
+                    "exists": bool(cache_exists),
+                }
+            )
+            outputs_would_produce.append(
+                {"name": "analyzer_cache_dir", "path": str(analyzer_cache_dir)}
+            )
+        if inputs.h5_path is not None:
+            h5_path = Path(inputs.h5_path)
+            inputs_resolved.append(
+                {"name": "h5_path", "path": str(h5_path), "exists": h5_path.exists()}
+            )
+            if not h5_path.exists():
+                validation_warnings.append(
+                    f"h5_path not found at {h5_path}; recording is required to build analyzers."
+                )
+
+        outputs_would_produce.append(
+            {"name": "summary_json", "path": str(summary_json_path)}
+        )
+
+        write_dry_run_summary(
+            phase_name=phase_display,
+            well_out_dir=well_out_dir,
+            stage_output_root_dir=templates_out_dir,
+            summary_json_path=summary_json_path,
+            inputs_resolved=inputs_resolved,
+            outputs_would_produce=outputs_would_produce,
+            validation={
+                "missing_prerequisites": [],
+                "warnings": validation_warnings,
+            },
+        )
+        templates_runner.LOGGER.info(
+            "%s: dry-run complete; summary at %s", phase_display, summary_json_path
+        )
+        return {
+            "phase": phase_display,
+            "status": "dry_run_ok",
+            "well_out_dir": str(well_out_dir),
+            "templates_out_dir": str(templates_out_dir),
+        }
+
     with with_checkpoint_marker(
         summary_json_path,
         phase_name=("analyzers" if source_scope is None else f"analyzers.{source_scope}"),

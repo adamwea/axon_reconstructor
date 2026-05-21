@@ -152,11 +152,21 @@ Same pattern. Phases (post-cleanup shape):
 For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load the recording into memory. Just verify the recording manifest exists, the sorter_output dir is writable, params look sane, then write the summary.
 
 ### Slice 5 — Reconstruct stage phase short-circuits
-Phases (post-cleanup shape; legacy `plot_templates` / `per_unit_processing` / `reports` already deleted per phase cleanup plan):
+
+**Progress (sub-slices landed out-of-order with the other plans):**
+- `kssynth` — SHIPPED 2026-05-21 via `kssynth_recon_integration_plan` slice 4e.
+- `analyzers` — SHIPPED 2026-05-21 (commit pending below).
+
+Remaining phases (post-cleanup shape; legacy `plot_templates` /
+`per_unit_processing` / `reports` already deleted per phase cleanup
+plan):
 - `resolve_sources`
-- `analyzers`
-- `extract_partial_templates` (or its kssynth replacement — coordinate with `ks_synthesizer_package_plan.md` slice 9 ordering)
-- `build_templates` (or its kssynth replacement)
+- ~~`analyzers`~~ — SHIPPED
+- `extract_partial_templates` (slated for deletion by
+  `kssynth_recon_integration` slice 5 — skip dry-run for it; it's
+  going away)
+- `build_templates` (same — slated for deletion by kssynth slice 5)
+- ~~`kssynth`~~ — SHIPPED (the replacement phase)
 - `plot_templates_v2`
 - `report_templates`
 - `axon_velocity_gtrs` (renamed from `generate_gtrs`)
