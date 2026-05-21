@@ -163,17 +163,25 @@ def _write_per_unit_templates_from_synth_output(
 	return per_unit_dir, n_written
 
 
-def _resolve_kssynth_output_dirs(inputs: TemplatesInputs) -> tuple[Path, Path, Path]:
+def _resolve_kssynth_output_dirs(
+	inputs: TemplatesInputs, *, create_dirs: bool = True
+) -> tuple[Path, Path, Path]:
 	"""Returns (well_out_dir, templates_out_dir, synth_out_dir).
 
 	Wraps `_resolve_build_templates_context` so the kssynth phase lands its
 	output beside the same `recon_outputs/` tree the legacy phases write to.
+
+	Set `create_dirs=False` to skip the `synth_out_dir.mkdir()` side-effect
+	— the dry-run path uses this so a `--dry-run` smoke doesn't create
+	empty directories under the resolved output_root (which, if pointed
+	at the reference data tree, would otherwise pollute it).
 	"""
 	from .build_templates import _resolve_build_templates_context
 
 	context = _resolve_build_templates_context(inputs)
 	synth_out_dir = context.templates_out_dir / KSSYNTH_OUTPUT_RELDIR
-	synth_out_dir.mkdir(parents=True, exist_ok=True)
+	if create_dirs:
+		synth_out_dir.mkdir(parents=True, exist_ok=True)
 	return context.well_out_dir, context.templates_out_dir, synth_out_dir
 
 
@@ -229,13 +237,20 @@ def run_reconstruct_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	Returns the summary dict for the stage runner to inspect.
 	"""
 
-	well_out_dir, templates_out_dir, synth_out_dir = _resolve_kssynth_output_dirs(inputs)
+	# Resolve output dirs WITHOUT side-effect-creating them yet — the
+	# dry-run path doesn't need them created on disk. The non-dry-run
+	# path re-resolves below with `create_dirs=True` so `synthesize()`
+	# can write into them.
+	from axon_recon.pipeline.config import get_dry_run_override
+
+	_is_dry_run = bool(get_dry_run_override())
+	well_out_dir, templates_out_dir, synth_out_dir = _resolve_kssynth_output_dirs(
+		inputs, create_dirs=not _is_dry_run
+	)
 	summary_path = templates_out_dir / KSSYNTH_SUMMARY_RELPATH
 
 	# Dry-run short-circuit (slice 4e).
-	from axon_recon.pipeline.config import get_dry_run_override
-
-	if get_dry_run_override():
+	if _is_dry_run:
 		from axon_recon.pipeline.dry_run import write_dry_run_summary
 
 		analyzer_cache_dir: Path | None = None

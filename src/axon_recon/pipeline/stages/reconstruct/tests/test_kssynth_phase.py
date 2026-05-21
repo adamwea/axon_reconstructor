@@ -31,11 +31,12 @@ from axon_recon.pipeline.stages.reconstruct.phases import kssynth as kssynth_pha
 
 
 def _stub_resolve(tmp_path: Path):
-	def _impl(inputs):
+	def _impl(inputs, *, create_dirs: bool = True):
 		well_out_dir = tmp_path / "well_out"
 		templates_out_dir = tmp_path / "well_out" / "recon_outputs"
 		synth_out_dir = templates_out_dir / kssynth_phase.KSSYNTH_OUTPUT_RELDIR
-		synth_out_dir.mkdir(parents=True, exist_ok=True)
+		if create_dirs:
+			synth_out_dir.mkdir(parents=True, exist_ok=True)
 		return well_out_dir, templates_out_dir, synth_out_dir
 
 	return _impl
