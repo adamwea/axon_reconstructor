@@ -31,6 +31,13 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 **User authorized**: Loop proceeds through Stage 2 (image skeletonization: sub-steps 6a + 6b + 6c) AND Stage 3 (multi-step tracking / peak interlinking) **without intermediate gates**. No pause between stages. First end-to-end real-data run becomes the natural next gate.
 
+**HOWEVER** (per tightened diagnostic rule USER INJECTION 2026-05-21): **each stage transition MUST file its OWN diagnostic entry** during execution, not just the final end-to-end gate. Loop produces and files:
+- **Stage 1 diagnostic (SOFT-gate)**: first real-data peak-detection output overlaid on the chosen high-branch-count unit's STA. Visualizes peak distribution sanity — are detected peaks where the eye sees signal? Soft gate: downstream stages can proceed; user reviews when convenient.
+- **Stage 2 diagnostic (SOFT-gate)**: first real-data electrical-image rendering + skeleton thinning overlay. Visualizes whether the skeletonized footprint resembles the underlying axon arbor. Soft gate.
+- **Stage 3 diagnostic (HARD-gate)**: first real-data interconnect / final axon trajectory + the side-by-side comparison vs axon_velocity_gtrs. THIS is the existing GATE 3 spec below — also the gate the loop pauses on.
+
+Filing each transition keeps the audit trail clean and lets the user spot upstream stage errors before they poison downstream review.
+
 **Concrete spec for the next gate trigger** (the first real-data smoke + side-by-side method comparison):
 - **Unit selection**: pick a unit from M08073 80k DMEM well000 (`260326/M08073/000208/well000`, DIV 36, known-good baseline) **WITH PLENTY OF BRANCHES** per its existing `axon_velocity_gtrs` reconstruction. Loop should scan the reference data's existing axon_velocity_gtrs outputs (under `analyzed_data/.../well000/recon_outputs/`), look at per-unit branch counts or visualization complexity, and pick a high-branch-count unit (target: ≥ ~8-12 inter-branch segments, comparable to the paper's example cell with 23 axon terminals if possible). The high-branch-count unit makes algorithmic differences between axon_velocity_gtrs and radivojevic_recon visually obvious; a 2-branch unit would be too easy / hide differences.
 - **Reuse the existing `plot_recons` phase** for visualization — DO NOT build new plotting code. plot_recons takes a reconstruction output and renders it; the comparison comes from running plot_recons on BOTH outputs:

@@ -104,6 +104,19 @@ User-authored directives that override plan / tier order until satisfied. Read F
   - **Backfilled at creation**: 2 historical entries seeded (2026-05-18 known-good baseline + 2026-05-18 Job 53089489 multi-well sweep) so the schema has examples and future regressions have a comparable.
   - **Promote when stable**: once the loop has appended ≥3 entries spontaneously across different slices (NOT counting the backfilled seeds), promote the rule into the CLAUDE.md slice protocol (alongside "visual diagnostics") and delete this injection.
 
+- **[2026-05-21] Tightened visual-diagnostics trigger (after audit found 5 dashboard slices shipped without filing)**: The current CLAUDE.md rule ("when the claim depends on visual inspection") was too fuzzy and let the loop talk itself out of filing on dashboard slices 2 / 5 / 6 / 7 / 8 — all of which changed user-visible rendering. Tightened rule (effective immediately):
+  - **(R1) Any slice that changes user-visible rendering MUST file a diagnostic entry.** This is now a hard requirement, not a judgment call. Examples that REQUIRE a filing:
+    - Dashboard / UI changes (new plot type, new render mode, empty-state, style/palette/font change, new feature on an existing plot)
+    - Any new phase whose output is a visual artifact (figure, plot, video, heatmap)
+    - Any change that produces visually different output than before, even when tests pass
+    - First real-data run of any new algorithm stage (Stage 1 → Stage 2 → Stage 3 transitions in Radivojevic each get their own filing)
+  - **(R2) Stage transitions in multi-stage algorithms MUST file at EACH transition**, not just at the final end-to-end gate. For Radivojevic specifically: Stage 1 first real-output (peak lists overlaid on STA template = still visualizable as scatter on the channel grid), Stage 2 first electrical-image rendering, Stage 3 first skeleton + interconnect rendering, AND the final axon_velocity_gtrs-vs-radivojevic_recon comparison. Four separate filings minimum. Stage 1's diagnostic gets a soft gate (peak distribution sanity); the rest get HARD gates per existing GATE 3 spec.
+  - **(R3) Diagnostic exemptions remain (don't file for)**: every routine pipeline plot during a normal run; pure-computation slices with numerical assertions covering validation; logs/text summaries (those go in commit messages, not diagnostics_to_review.md).
+  - **(R4) Where artifacts live**: `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/` per CLAUDE.md. If the slice's working dir is named after the slice (e.g. `radivojevic_first_run`), the diagnostics subdir lands inside it.
+  - **Backfill scope (per user 2026-05-21)**: SKIPPED for dashboard slices 2/5/6/7/8 — user can review interactively any time. Going-forward only.
+  - **Why**: per user 2026-05-21 audit: "Generally, was hoping to see more diagnostic plots... unless we truly haven't done any slices that warrant it." Audit found 5 dashboard slices shipped without diagnostics — loop has been under-filing. The diagnostics file is the audit trail that closes the gap between "tests green" and "the picture looks right."
+  - **Promote when stable**: once 3+ slices (post-2026-05-21) have correctly filed diagnostics under R1/R2 without prompting, promote the rule into CLAUDE.md §"Visual diagnostics" (amend the existing section) and delete this injection.
+
 ## 📝 User actions queued
 
 Manual items the loop can't or shouldn't do — surfaced here so the user has one place to find them. Loop appends as needed; user prunes when done.
