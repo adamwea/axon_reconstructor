@@ -1303,7 +1303,35 @@ def build_app(
 	)
 
 	def _build_box_from_state(filtered, *args):
-		value_col, group_col, color_col, test, correction, show_sig, pts_mode = args
+		# Slice 6+7 download-path follow-up: mirror the _update_box
+		# callback's dispatch — when ID_BOX_MODE=="bar", route to
+		# build_bar_plot with aggregate/error + tertiary. Otherwise call
+		# build_box_plot with all the existing options + tertiary.
+		(
+			value_col,
+			group_col,
+			color_col,
+			test,
+			correction,
+			show_sig,
+			pts_mode,
+			box_mode,
+			bar_aggregate,
+			bar_error,
+			tertiary_group,
+			tertiary_render_mode,
+		) = args
+		if str(box_mode or "box").strip().lower() == "bar":
+			return build_bar_plot(
+				filtered,
+				value_col=value_col,
+				group_col=group_col,
+				color_col=color_col,
+				aggregate=str(bar_aggregate or "mean"),
+				error=str(bar_error or "std"),
+				tertiary_group_col=tertiary_group,
+				tertiary_render_mode=str(tertiary_render_mode or "small_multiples"),
+			)
 		return build_box_plot(
 			filtered,
 			value_col=value_col,
@@ -1313,6 +1341,8 @@ def build_app(
 			correction=correction,
 			show_significance=bool(show_sig and "on" in show_sig),
 			points_mode=str(pts_mode or "off"),
+			tertiary_group_col=tertiary_group,
+			tertiary_render_mode=str(tertiary_render_mode or "small_multiples"),
 		)
 
 	for fmt, btn_id, target_id in (
@@ -1334,6 +1364,11 @@ def build_app(
 				ID_BOX_CORRECTION,
 				ID_BOX_SHOW_SIGNIFICANCE,
 				ID_BOX_POINTS_MODE,
+				ID_BOX_MODE,
+				ID_BOX_BAR_AGGREGATE,
+				ID_BOX_BAR_ERROR,
+				ID_BOX_TERTIARY,
+				ID_BOX_TERTIARY_MODE,
 			),
 			fig_builder=_build_box_from_state,
 			units_df_getter=_state_get_units_df,
