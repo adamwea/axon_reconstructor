@@ -27,7 +27,15 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
 
-## Radivojevic slice 3 USER GATE 2 — 3 sub-steps shipped 2026-05-21, awaiting review
+## Radivojevic slice 3 USER GATE 2 — ✅ RESOLVED 2026-05-21
+
+**User chose option (B)**: ship `core/derivatives.py` with `compute_time_derivative(trace, *, dt_us)` returning μV/μs as a thin helper now; promote to a stage-1 orchestrator `detect_step1_peaks(trace, *, sampling_rate_hz, upsample_factor=10, noise_estimator='mad'|'window', n_std=9.0)` AFTER Steps 2 + 3 land and the orchestrator's full API is clear. Loop's recommendation accepted verbatim.
+
+Loop can now proceed with sub-step 4 (Step 2 — confined 2-STD thresholding within 50 μm radius of step-1 peaks) and continue accumulating Stage 1 sub-steps. After Steps 2 + 3 land, loop opens a small follow-up to refactor the three thresholding helpers into the orchestrator + flag this entry for deletion.
+
+**Original gate body preserved below for archeology:**
+
+## Radivojevic slice 3 USER GATE 2 — original body
 
 Per the slice 3 plan ("every 2-3 sub-steps; switch to another plan
 until user reviews"), the loop has shipped 3 concrete algorithm
