@@ -27,6 +27,57 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
 
+## Radivojevic slice 3 USER GATE 2 — 3 sub-steps shipped 2026-05-21, awaiting review
+
+Per the slice 3 plan ("every 2-3 sub-steps; switch to another plan
+until user reviews"), the loop has shipped 3 concrete algorithm
+sub-steps in the sibling repo at `~/dev/pkgs/radivojevic2023_recon_algo/`:
+
+1. **`core/upsampling.py`** (commit `5b06fbf`) — Whittaker-Shannon
+   sinc-kernel interpolation. Default `upsample_factor=10` matches
+   the paper's 10x ratio; device-agnostic via `compute_upsampled_rate_hz`
+   helper. 15 tests.
+2. **`core/noise_estimation.py`** (commit `3f363d7`) — two estimators:
+   paper-faithful window-based + robust MAD (Median Absolute Deviation
+   / 0.6745). 16 tests.
+3. **`core/adaptive_thresholding.py`** (commit `6403403`) — Step 1 of
+   stage 1: planar |signal| >= 9*noise_std cutoff + per-electrode
+   local-max detection. Returns list[PeakDetection(channel_idx,
+   time_idx, amplitude)]. Sanity test confirms zero false positives on
+   10k Gaussian samples (matches paper Fig 5B). 17 tests.
+
+Package now 53 tests total, all green.
+
+**Open question for user review** (the only design ambiguity surfaced
+so far): the algorithm operates on the **time derivative** of the
+upsampled trace (μV/μs). I have NOT folded the derivative step into
+any single utility — the working assumption is that the caller computes
+`np.diff(upsampled, axis=-1)` before calling
+`find_local_peaks_above_threshold`. Three plausible places to put it:
+
+(A) **Caller computes** — current design. Pros: simple, explicit,
+keeps each utility single-purpose. Cons: easy to forget the unit
+conversion.
+
+(B) **Single-purpose helper** in `core/derivatives.py` exposing
+`compute_time_derivative(trace, *, dt_us)` returning μV/μs. Pros:
+encapsulates the unit conversion; one place to verify sign convention.
+Cons: trivial wrapper around np.diff.
+
+(C) **Fold into a stage-1 orchestrator** — `core/stage_1.py` exposing
+`detect_step1_peaks(trace, *, sampling_rate_hz, upsample_factor=10,
+noise_std=...)`. Pros: callers don't need to remember the upsample →
+diff → threshold pipeline. Cons: hides the noise estimation step that
+the caller should also customize.
+
+**Recommendation**: (B) for now (a thin helper that makes the unit
+conversion explicit), upgrade to (C) only after Step 2 + Step 3 land
+and the orchestrator's API is clear.
+
+When ready to resume slice 3 sub-step 4+, the loop will pick up Step 2
+(confined 2-STD thresholding within 50 μm radius of step-1 peaks).
+Stage 1 step 3 + stages 2 + 3 follow.
+
 ## Radivojevic slice 1 user-gate review — ✅ RESOLVED 2026-05-21
 
 User answered all 6 questions in the 2026-05-21 walkthrough. Slice 3 (core algorithm impl) is UNGATED — loop can proceed when its queue reaches the Radivojevic plan.
