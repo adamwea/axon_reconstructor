@@ -1964,6 +1964,8 @@ def build_box_plot(
 	boxgap: float = 0.3,
 	boxgroupgap: float = 0.3,
 	mixed_effects_group_col: Any = None,
+	tertiary_group_col: Any = None,
+	tertiary_render_mode: str = "small_multiples",
 ) -> Any:
 	"""Build a Plotly box-plot figure with optional significance brackets.
 
@@ -2059,16 +2061,56 @@ def build_box_plot(
 	else:
 		px_points = "all"
 
+	# Slice 7: tertiary grouping. Resolve the tertiary column (None / unset /
+	# missing-from-df all → no tertiary). Two render modes:
+	#   - "small_multiples" (default per pre-overnight clearance): each
+	#     tertiary value gets its own facet subplot via plotly `facet_col`.
+	#     Significance brackets render per-facet using primary groups only.
+	#   - "hierarchical_labels": build a compound x-axis (group | tertiary)
+	#     so the existing primary-group bracket logic continues to work
+	#     against the compound categories. Significance brackets are
+	#     disabled in this mode to keep the v1 ergonomics tractable.
+	tertiary = None
+	if (
+		tertiary_group_col
+		and tertiary_group_col != _BOX_COLOR_NONE
+		and str(tertiary_group_col) in df.columns
+		and str(tertiary_group_col) != group
+		and (color is None or str(tertiary_group_col) != color)
+	):
+		tertiary = str(tertiary_group_col)
+	tertiary_mode = str(tertiary_render_mode or "small_multiples").strip().lower()
+	if tertiary_mode not in {"small_multiples", "hierarchical_labels"}:
+		tertiary_mode = "small_multiples"
+
+	# Hierarchical labels: collapse (group, tertiary) into a single compound
+	# x-axis category. Both the primary group and the secondary color are
+	# preserved AROUND this compound axis.
+	if tertiary is not None and tertiary_mode == "hierarchical_labels":
+		df = df.copy()
+		compound_col = f"__hierarchical__{group}__{tertiary}__"
+		df[compound_col] = (
+			df[group].astype(str) + " | " + df[tertiary].astype(str)
+		)
+		group = compound_col
+
 	sorted_present = _sorted_present_categories(df, group)
 	category_orders: dict[str, list[Any]] = {group: sorted_present}
 	if color is not None:
 		category_orders[color] = _sorted_present_categories(df, color)
+	# Small-multiples: pass tertiary as plotly's `facet_col` and include its
+	# category order so subplots render in numeric order when applicable.
+	facet_col_arg: str | None = None
+	if tertiary is not None and tertiary_mode == "small_multiples":
+		facet_col_arg = tertiary
+		category_orders[tertiary] = _sorted_present_categories(df, tertiary)
 
 	fig = px.box(
 		df,
 		x=group,
 		y=value,
 		color=color,
+		facet_col=facet_col_arg,
 		points=px_points,
 		category_orders=category_orders,
 		color_discrete_sequence=list(CATEGORICAL_PALETTE),
@@ -2104,6 +2146,13 @@ def build_box_plot(
 	else:
 		fig.update_traces(marker=marker_kwargs, selector={"type": "box"})
 	if not show_significance:
+		return fig
+	# Slice 7: significance brackets compare PRIMARY groups. With
+	# hierarchical_labels mode the primary categories are compound strings
+	# (group|tertiary) — pairwise comparisons over those aren't meaningful
+	# at v1 ergonomics level. Skip brackets in that mode and let the user
+	# narrow the tertiary filter to one value if they want stats.
+	if tertiary is not None and tertiary_mode == "hierarchical_labels":
 		return fig
 	test_key = str(test or _BOX_TEST_DEFAULT).strip().lower()
 	# Omnibus / model-level tests — render annotation; no per-pair brackets.
@@ -2208,10 +2257,12 @@ def aggregate_by_group(
 	color_col: str | None = None,
 	aggregate: str = "mean",
 	error: str = "std",
+	tertiary_col: str | None = None,
 ) -> pd.DataFrame:
 	"""Slice 6 of dashboard_ui_refinement_plan: shared aggregate helper
 	for the bar-plot path. Returns a DataFrame with one row per
-	(group, optionally color) combination + center + error columns.
+	(group, optionally color, optionally tertiary) combination + center
+	+ error columns.
 
 	Arguments
 	---------
@@ -2219,6 +2270,9 @@ def aggregate_by_group(
 	error: ``std`` (default), ``sem`` (standard error of mean), or
 	    ``ci95`` (~1.96 * sem; quick gaussian approximation), or
 	    ``none`` (no error bars).
+	tertiary_col: slice 7 — when set + present in df, adds the tertiary
+	    column to the groupby so bar-plot small-multiples (faceted by
+	    tertiary) get the right per-facet aggregates.
 	"""
 
 	if df is None or df.empty or value_col not in df.columns or group_col not in df.columns:
@@ -2226,6 +2280,8 @@ def aggregate_by_group(
 	by_cols = [group_col]
 	if color_col and color_col in df.columns:
 		by_cols.append(color_col)
+	if tertiary_col and tertiary_col in df.columns and tertiary_col not in by_cols:
+		by_cols.append(tertiary_col)
 	# Coerce value_col to numeric; non-numeric rows drop out via NaN.
 	num = pd.to_numeric(df[value_col], errors="coerce")
 	work = df.assign(__value=num).dropna(subset=["__value"])
@@ -2266,6 +2322,8 @@ def build_bar_plot(
 	aggregate: str = "mean",
 	error: str = "std",
 	log_transform: bool = False,
+	tertiary_group_col: Any = None,
+	tertiary_render_mode: str = "small_multiples",
 ) -> Any:
 	"""Plotly bar-with-error-bars figure — slice 6 of
 	`dashboard_ui_refinement_plan.md`.
@@ -2313,21 +2371,46 @@ def build_bar_plot(
 
 		df["__log_" + value] = _np.log10(df[value])
 		value = "__log_" + value
-	agg = aggregate_by_group(
-		df,
-		value_col=value,
-		group_col=group,
-		color_col=color,
-		aggregate=str(aggregate),
-		error=str(error),
-	)
+	# Slice 7 tertiary grouping — mirrors build_box_plot's two modes.
+	tertiary = None
+	if (
+		tertiary_group_col
+		and tertiary_group_col != _BOX_COLOR_NONE
+		and str(tertiary_group_col) in df.columns
+		and str(tertiary_group_col) != group
+		and (color is None or str(tertiary_group_col) != color)
+	):
+		tertiary = str(tertiary_group_col)
+	tertiary_mode = str(tertiary_render_mode or "small_multiples").strip().lower()
+	if tertiary_mode not in {"small_multiples", "hierarchical_labels"}:
+		tertiary_mode = "small_multiples"
+
+	if tertiary is not None and tertiary_mode == "hierarchical_labels":
+		df = df.copy()
+		compound_col = f"__hierarchical__{group}__{tertiary}__"
+		df[compound_col] = (
+			df[group].astype(str) + " | " + df[tertiary].astype(str)
+		)
+		group = compound_col
+
+	# Aggregation: when tertiary is set in small_multiples mode, include it
+	# in the groupby so each facet shows its own per-tertiary aggregates.
+	agg_kwargs: dict[str, Any] = {
+		"value_col": value,
+		"group_col": group,
+		"color_col": color,
+		"aggregate": str(aggregate),
+		"error": str(error),
+	}
+	if tertiary is not None and tertiary_mode == "small_multiples":
+		agg_kwargs["tertiary_col"] = tertiary
+	agg = aggregate_by_group(df, **agg_kwargs)
 	if agg.empty:
 		return _empty_dashboard_figure(
 			message="No data available",
 			sub_message="Every row was non-numeric for the value column under the active selection.",
 		)
-	fig = px.bar(
-		agg,
+	bar_kwargs: dict[str, Any] = dict(
 		x=group,
 		y=value,
 		color=color,
@@ -2335,6 +2418,9 @@ def build_bar_plot(
 		color_discrete_sequence=list(CATEGORICAL_PALETTE),
 		barmode="group",
 	)
+	if tertiary is not None and tertiary_mode == "small_multiples":
+		bar_kwargs["facet_col"] = tertiary
+	fig = px.bar(agg, **bar_kwargs)
 	return apply_dashboard_style(fig)
 
 

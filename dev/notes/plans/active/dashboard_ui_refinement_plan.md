@@ -1,6 +1,13 @@
 # Dashboard UI refinement plan
 
-> **Status (2026-05-19)**: 8 of 9 slices SHIPPED. Only slice 7
+> **Status (2026-05-21)**: ALL 9 SLICES SHIPPED. Slice 7 (tertiary
+> grouping) shipped with the pre-approved YAML toggle pattern (both
+> small_multiples and hierarchical_labels render modes; default
+> small_multiples). UI dropdown wiring in app.py's Dash callback layer
+> remains as a follow-up commit when the user wants the UI control
+> exposed.
+
+> **Original status (2026-05-19)**: 8 of 9 slices SHIPPED. Only slice 7
 > (tertiary grouping — needs UX decision) remains.
 >
 > Shipped commits:
@@ -169,22 +176,43 @@ mode setting.
 - Default error-bar = std (configurable: std / sem / 95% CI).
 - Tests: golden render of each mode on the same fixture data.
 
-### Slice 7 — Tertiary grouping
+### Slice 7 — Tertiary grouping — SHIPPED 2026-05-21
 
-Third grouping dropdown for box / bar plots. Primary = X-axis,
-secondary = within-X grouping (already exists), tertiary = additional
-faceting / sub-grouping axis. Decide UX during slice 7:
+Per the pre-overnight clearance (current_state.md item #1), shipped
+BOTH render modes with a per-call YAML toggle (`tertiary_render_mode`,
+default `small_multiples`):
 
-- Faceted small-multiples for tertiary (one plot per tertiary value).
-- OR nested grouping on X-axis (primary × secondary × tertiary as
-  hierarchical X labels).
+- **`small_multiples`** (default): tertiary column drives plotly's
+  `facet_col` — one subplot per tertiary value. Significance brackets
+  render per-facet using primary groups (unchanged from non-tertiary
+  case).
+- **`hierarchical_labels`**: collapses (primary, tertiary) into a
+  compound x-axis category ("DIV | media_a", "DIV | media_b", …).
+  Single subplot; secondary color preserved. Significance brackets
+  are SKIPPED in this mode (per-pair comparison of compound categories
+  isn't meaningful at v1 ergonomics).
 
-For other plot types where tertiary makes sense:
+Implementation in `build_box_plot` + `build_bar_plot`:
+- New params `tertiary_group_col` + `tertiary_render_mode`.
+- Defensive: ignored if column missing from df OR same as primary OR
+  same as secondary.
+- `aggregate_by_group` extended with `tertiary_col` so bar small-
+  multiples get per-facet aggregates.
 
-- Scatter: color-by-tertiary (alongside existing color-by-secondary
-  if present) — decide whether this requires a 2D color encoding or
-  switches the color-by axis.
-- Histogram: facet-by-tertiary as small-multiples.
+Box + bar coverage; scatter color-by-tertiary + histogram facet-by-
+tertiary are smaller follow-ons (not blocking).
+
+UI wiring follow-up: app.py's Dash callback layer doesn't yet expose
+a `tertiary` dropdown — same situation as slice 6's box↔bar mode
+dropdown. Tracker:
+- Add `tertiary_dropdown` to the box/bar plot widget config in
+  app.py's callback layer.
+- Surface `tertiary_render_mode` as a radio/select control.
+
+Tests: 14 in `dashboard/tests/test_tertiary_grouping.py` covering
+both modes for both plot types + missing-column + same-as-primary +
+same-as-secondary + invalid-render-mode-fallback + aggregate_by_group
+tertiary support + 3-way (primary+secondary+tertiary) compose.
 
 ### Slice 8 — Style parity
 
