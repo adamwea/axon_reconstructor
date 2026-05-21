@@ -1,12 +1,23 @@
 # `--dry-run` rollout across every phase
 
-Status (2026-05-21): **MAJOR PROGRESS** — slices 1a + 2 + 3 + most of
-5 + most of 6 SHIPPED. CLI flag wired, helper landed, all preprocess
-phases done (5/5), 16/17 recon phases done (remaining 2 slated for
-deletion), 2/3 analysis phases done (compute_metrics + propagation_video;
-unitmatch pending). Remaining: spikesort stage (slice 4) — 11+ phases
-including the heavy `sort` phase that must not load CUDA/Kilosort under
-dry-run. Init + cleanup (slice 7) when those stages land.
+Status (2026-05-21): **SUBSTANTIALLY COMPLETE** — slices 1a + 2 + 3 +
+5 + 6 + most-of-4 SHIPPED. End-to-end smoke validation on real NERSC
+data confirmed (commit `7dabc1a`). Status by stage:
+- **Preprocess**: 5/5 phases ✓ (single-intercept).
+- **Recon**: 16/17 phases ✓ — only `extract_partial_templates` +
+  `build_templates` remain, both slated for deletion by
+  `kssynth_recon_integration` slice 5.
+- **Analysis**: 3/3 phases ✓ (compute_metrics, propagation_video,
+  unitmatch).
+- **Spikesort**: 6/6 plan-listed phases ✓ (sort, snapshot_sorter_output,
+  concat_binary, concat_analyzer, cleanup_concat_binary,
+  cleanup_analyzers). Sort phase critically excludes Kilosort/CUDA
+  imports from the dry-run path.
+- **Init + cleanup (slice 7)**: pending those stages landing per
+  `phase_roster_cleanup_plan`. No work to do until then.
+
+The remaining recon-stage 2 phases will be deleted (not dry-run-ed),
+so for non-deletable phases the rollout is COMPLETE.
 
 Realizes the `guardrails/dry_run.md` contract: every phase exposes
 `--dry-run` and short-circuits at input resolution. Same operating
