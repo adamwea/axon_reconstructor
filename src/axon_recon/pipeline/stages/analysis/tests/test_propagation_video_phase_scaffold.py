@@ -413,6 +413,46 @@ def test_dry_run_summary_persists_to_disk(tmp_path: Path) -> None:
 	assert payload["status"] == "dry_run_ok"
 
 
+def test_process_wide_dry_run_override_triggers_short_circuit(tmp_path: Path) -> None:
+	"""When the CLI sets the process-wide --dry-run override, the phase
+	short-circuits even without `stage_config.dry_run=True`. The two
+	mechanisms compose with OR — both are honored.
+	"""
+
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5, 7))
+	cfg = _parse_config(enabled=True)
+	# Explicitly DO NOT set cfg.dry_run; verify the process-wide override
+	# is what triggers the short-circuit.
+
+	calls: list[Any] = []
+
+	def _render_should_not_be_called(**kwargs):
+		calls.append(kwargs)
+		return {"status": "ok"}
+
+	cfg.__dict__["_propagation_video_render_override"] = _render_should_not_be_called
+
+	set_dry_run_override(True)
+	try:
+		result = run_analysis_propagation_video(
+			dataset_index=0,
+			dataset_id="ds0",
+			h5_path=Path(_H5_TEMPLATE.format(date="260224", chip="M08073", run="000001")),
+			stream_id="well000",
+			mea_output_root=output_root,
+			output_rel_root="analysis_outputs",
+			stage_config=cfg,
+			force_restart=False,
+		)
+	finally:
+		set_dry_run_override(None)
+
+	assert result["status"] == "dry_run_ok"
+	assert calls == []  # render never called
+
+
 def test_orchestrator_forwards_yaml_knobs_to_render(tmp_path: Path) -> None:
 	output_root = _scaffold_recon_outputs_with_units(tmp_path, unit_ids=(5,))
 	cfg = _parse_config(enabled=True)

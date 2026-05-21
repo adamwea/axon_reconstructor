@@ -240,7 +240,13 @@ def run_analysis_propagation_video(
 	# prerequisites + skip the expensive render call + write a
 	# `status: dry_run_ok` summary with `inputs_resolved` /
 	# `outputs_would_produce` / `validation` fields.
-	if bool(getattr(stage_config, "dry_run", False)):
+	#
+	# Honors EITHER the per-stage_config `dry_run` flag (legacy slice-6
+	# mechanism) OR the process-wide `get_dry_run_override()` override
+	# (the CLI `--dry-run` flag wired in dry_run_rollout slice 1a).
+	from ....config import get_dry_run_override
+
+	if bool(getattr(stage_config, "dry_run", False)) or bool(get_dry_run_override()):
 		return _write_dry_run_summary(
 			target_summary_path=target_summary_path,
 			dataset_index=int(dataset_index),
