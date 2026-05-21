@@ -91,25 +91,15 @@ User-authored directives that override plan / tier order until satisfied. Read F
   - **✅ CLI FLAG SHIPPED 2026-05-21 (commit `5d28561`)**: `--force-enable PHASE[,PHASE...]` added to the recon stage CLI + shared `stages` subparser. Process-wide override pattern mirrors `--no-plot`/`--profile`/`--scratch-output`/`--output-root`. Helper `_apply_force_enable_phases` in `pipeline/runner.py`; setter/getter in `pipeline/config.py`. Applied inside `_run_reconstruct_substage_from_runtime` (execution path) AND `_build_reconstruct_allocation_preview` (`--alloc` preview path) AFTER YAML parsing but BEFORE phase-roster + target selection. Override covers both the recon stage_config tree and the templates substage tree. 15 new tests cover process-wide setter/getter invariants + helper edge cases + 1 real-YAML integration. Slice 3b smoke is now unblocked (`axon-recon stages reconstruct.kssynth --config ... --force-enable kssynth`).
   - **Use count toward promotion**: 1 (kssynth slice 3b — pending smoke execution). Promotion criterion = ≥2 slice uses; when slice 5 (full-stage smoke with `--force-enable kssynth,plot_recons,axon_velocity_gtrs`) or any other YAML-disabled phase smoke uses the flag, promote the rule and delete this injection entry. The CLI flag stays — it's general utility.
 
-- **[2026-05-21] Loop heartbeat reason format + shorter default cadence**: The `ScheduleWakeup.reason` field is the cadence message the user sees between iterations. Currently the loop emits opaque strings like "heartbeat armed" that don't tell the user (a) how long until the next iteration or (b) what's being worked on. Fix BOTH at every iteration's tail:
-  - **Reason format** (mandatory): `"Next iteration in {N}s — {one short sentence on what's queued or being watched}"`. Examples:
-    - `"Next iteration in 90s — finishing dry_run_rollout slice 4 spikesort sweep"`
-    - `"Next iteration in 120s — kssynth slice 3b dry-run smoke queued"`
-    - `"Next iteration in 600s — queue empty, doing audit pass on plans/active/"`
-    - `"Next iteration in 1200s — genuinely idle, no actionable slices until user reviews Radivojevic gate"`
-  - **Default cadence** (shorter than the previous defaults; user feedback 2026-05-21 "they could be shorter in general"):
-    - Mid-slice or actively iterating: **90s** (well within the 5-min cache window — keeps cost down + responsive)
-    - Between slices, queue full of work: **120s**
-    - Queue empty, audit-pass mode: **300s** (only when nothing concrete is queued)
-    - Genuinely idle / blocked on user gate: **600-1200s** (let the user breathe)
-  - **NEVER use the bare 1200-1800s range as a default** — that was the old idle-tick cadence; the loop should only reach that when truly blocked.
-  - **Promote when stable**: once the reason-format is reliably applied for 2+ iterations, promote into a guardrail (`guardrails/loop_cadence.md` would be a new doc) AND into the standing /loop prompt for future re-pastes. Delete this injection.
+- **[2026-05-21] ✅ PROMOTED 2026-05-21 to `guardrails/loop_cadence.md`** (commit pending). Loop heartbeat reason format + shorter default cadence — the format ("Next iteration in {N}s — {sentence}") + ladder (90s active / 120s between-slices / 300s audit / 600-1200s blocked) is now locked into the guardrail doc. User-side follow-up: update the `/loop` prompt template to bake in the cadence ladder so future re-pastes inherit it (the loop can't edit the user's standing /loop prompt).
 
 ## 📝 User actions queued
 
 Manual items the loop can't or shouldn't do — surfaced here so the user has one place to find them. Loop appends as needed; user prunes when done.
 
 - **[2026-05-19] Delete the smoke-test repo `adamwea/__gh_auth_smoke_test`** on GitHub. Created during DIRECTIVE D pre-execution verification of `gh repo create` (commit `2124d2c`); `gh repo delete` requires the `delete_repo` token scope which the current token doesn't have. Either delete via web UI at https://github.com/adamwea/__gh_auth_smoke_test/settings (bottom of page → "Delete this repository") OR run `gh auth refresh -h github.com -s delete_repo` to add the scope and let the loop clean it up itself in the future. Not blocking anything; just clutter.
+
+- **[2026-05-21] Update the standing `/loop` prompt template to bake in the loop-cadence ladder.** `guardrails/loop_cadence.md` now codifies: 90s actively iterating, 120s between slices, 300s audit-pass, 600-1200s blocked. The /loop prompt the user pastes when invoking the loop should include this ladder so future re-pastes inherit the rule. The loop can't edit the user's standing prompt template; this is the only piece of the 2026-05-21 cadence injection that needs a user-side edit.
 
 - **[2026-05-21 09:35 — UPDATE] ✅ kssynth slice 3b SHORT-PATH smoke CONFIRMED working end-to-end**. Empirical validation:
   ```
