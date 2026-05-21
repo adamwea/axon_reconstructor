@@ -27,6 +27,47 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
 
+## Radivojevic slice 3 USER GATE 3 — STAGE 1 COMPLETE end-to-end (2026-05-21)
+
+Per the slice 3 plan ("every 2-3 sub-steps; switch to another plan
+until user reviews"), the loop has shipped 3 more sub-steps since
+GATE 2 resolved:
+
+- **sub-step 3b** (commit `3e97770`): `core/derivatives.py` — option-B
+  thin helper for μV/μs conversion. 12 tests.
+- **sub-step 4** (commit `bb3b3d4`): `core/adaptive_thresholding.py` —
+  Step 2 confined 2-STD thresholding (50 μm spatial + ±1 temporal).
+  Same `find_confined_peaks_step_n` function serves Step 3. 7 new tests.
+- **sub-step 5** (commit `8a76a7b`): `core/stage_1.py` — the
+  promised option-C orchestrator. `detect_axon_peaks(trace, *,
+  channel_positions_um, sampling_rate_hz, ...)` composes the full
+  6-stage pipeline (upsample → derivative → noise → step 1 → step 2 →
+  step 3). Returns `Stage1Result` with per-step peak lists, sorted
+  `all_peaks` union, noise STD, per-step thresholds, upsampled rate +
+  dt_us for downstream stages. **STAGE 1 IS COMPLETE end-to-end** —
+  callable on real (channel x time) STAs with one function. 9 new tests.
+
+Package now **81 tests total**, all green. Stage 1 paper-faithful
+defaults all locked.
+
+**No new design ambiguities surfaced** — the option-C upgrade unified
+the per-step thresholding APIs cleanly. The only previously-flagged
+empirical-tuning question (temporal_radius_frames default) remains
+in the adaptive_thresholding docstring; slice 6 sweep proposal stands.
+
+**Ready to start stage 2 (image skeletonization)** when the user
+greenlights. The natural sub-steps for stage 2:
+- (6a) `core/electrical_image.py` — build 2D electrical images
+  (interpolated voltage map at each timeframe; uses channel positions
+  + a chosen grid resolution).
+- (6b) `core/skeletonization.py` — apply morphological thinning
+  (likely via `skimage.morphology.skeletonize`).
+- (6c) Stage-2 orchestrator + tests on synthetic patterns.
+
+If user wants the loop to proceed without explicit gating, this entry
+can be marked RESOLVED with a "proceed to stage 2" note; otherwise
+mark sub-step 6 as the next-iteration target after review.
+
 ## Radivojevic slice 3 USER GATE 2 — ✅ RESOLVED 2026-05-21
 
 **User chose option (B)**: ship `core/derivatives.py` with `compute_time_derivative(trace, *, dt_us)` returning μV/μs as a thin helper now; promote to a stage-1 orchestrator `detect_step1_peaks(trace, *, sampling_rate_hz, upsample_factor=10, noise_estimator='mad'|'window', n_std=9.0)` AFTER Steps 2 + 3 land and the orchestrator's full API is clear. Loop's recommendation accepted verbatim.
