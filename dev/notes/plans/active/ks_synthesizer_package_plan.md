@@ -212,7 +212,27 @@ Loadability test (part of slice 8): run `si.read_sorter_folder(<out_folder>)` an
 
 One commit per slice. `claude:` prefix. Logged in the new repo's `commit_log.md` (which will mirror the axon_recon convention).
 
+**Status (2026-05-21)**: Slices 1-7 SHIPPED. The kssynth package at
+`~/dev/pkgs/kssynth/` has all v1 modules + tests:
+- `src/kssynth/core/` — channel_grid.py, rasterize.py, partial_templates.py,
+  merge_templates.py, cluster_tsv_sync.py
+- `src/kssynth/io/` — ks_folder_writer.py
+- `src/kssynth/api.py` — orchestrator composing all of the above
+- `src/kssynth/cli.py` — `kssynth` CLI entry
+- Tests for each module + end-to-end test (`tests/test_api_end_to_end.py`).
+- `pyproject.toml` + `pip install -e .` works.
+
+Slice 8 (SLAy soft-import) and slice 9 (axon_recon integration) are
+tracked separately:
+- Slice 9 is in `kssynth_recon_integration_plan.md` (slices 1-4e SHIPPED;
+  slice 5 destructive enable gated on data-routing decision in
+  current_state.md).
+- Slice 8 is upstream — a SLAy-side commit to soft-import kssynth's
+  cluster_tsv_sync. Not yet picked up.
+
 ### Slice 1 — scaffolding (no behavior)
+**Status**: SHIPPED — repo created at ~/dev/pkgs/kssynth/ with all
+artifacts.
 - New git repo at `~/dev/pkgs/kssynth/` with `pyproject.toml`, `README.md`, `LICENSE` (MIT), `commit_log.md`, basic CI skeleton (GitHub Actions matrix).
 - Empty `src/kssynth/` package with `__init__.py` and a stub `api.synthesize()` raising `NotImplementedError`.
 - `pip install -e .` works.
