@@ -104,12 +104,16 @@ CLI: no new flags needed for v1 — existing `--targets`, `--target-datasets`, `
 One commit per slice. `claude:` prefix. Log to `debug/commit_log.md`.
 
 ### Slice 1 — scaffolding (no behavior, no shipped result)
+
+**Status**: SHIPPED in commit `86672e2`. Phase scaffolded with enabled-by-default-false + analysis-stage wiring + dry-run support (dry_run_rollout slice 6, commit `d40684c`).
+
 - `stages/analysis/orchestrators/unitmatch.py` runner shell that returns `{"status": "noop"}`.
 - YAML: register the phase under `default.runtime.yml` and `debug.runtime.yml`, **enabled: false** initially.
 - Resource class entry under `resources.phase_budgets.unitmatch`.
 - Test: `tests/test_unitmatch_phase_disabled_is_skipped.py` proves the phase wires into the analysis stage and is a no-op when `enabled: false`.
 
 ### Slice 2 — group discovery + path resolution
+**Status**: SHIPPED in commit `a18cb4b`. `core/unitmatch_groups.py` with discover_chip_well_groups + resolve_session_inputs.
 - `stages/analysis/core/unitmatch_groups.py`:
   - `discover_chip_well_groups(data_cfg) -> dict[(chip_id, well_id), list[DatasetIndex]]`.
   - `resolve_session_inputs(dataset_index, well_id, output_root) -> {"sorter_output": Path, "analyzers": Path}`.
@@ -117,11 +121,15 @@ One commit per slice. `claude:` prefix. Log to `debug/commit_log.md`.
 - Tests: tmp-path fixture with mixed chip-well configurations; assert group discovery + path resolution.
 
 ### Slice 3 — `unitlink.match()` invocation + output landing
+**Status**: SHIPPED in commit `575e08b`. Orchestrator invokes `unitlink.match` once per (chip, well) group with idempotent skip on subsequent group targets; output lands at `<output_root>/unitmatch/<chip>/<well>/`.
+
 - The phase's main loop: for each group, call `unitlink.match(...)`, capture the returned result, write the aggregate `_groups_summary.json` after all groups process.
 - Outputs land at `<analysis_outputs>/unitmatch/<chip>/<well>/{match_table.tsv, uid_assignment.tsv, summary.json, …}` (unitlink writes these — the phase just chooses the output directory).
 - Tests: synthetic 2-group scenario with mocked `unitlink.match()` (the real library is exercised in unitlink's own test suite); assert the phase calls match() once per group, lands files at expected paths, writes _groups_summary.json.
 
 ### Slice 4 — wire `--targets` to chip-well groups
+**Status**: SHIPPED in commit `a7f8c51`. `--targets chip-well:<chip>:<well>` group form expands against the data config.
+
 - Extend `_parse_targets_pairs_from_args` (or add a parallel `--targets-groups`) to accept `chip-well:<chip>:<well>` forms.
 - Update the phase runner to map (dataset, well) targets to their owning groups.
 - Tests: `--targets 13:0` → identifies the group containing dataset 13 well 0, runs the phase on the FULL group, not just that one (dataset, well).
