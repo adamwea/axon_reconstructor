@@ -82,6 +82,29 @@ For each, the correct response is: write a focused question to this file under "
 
 **Resolution criterion**: user reads this plan and either (a) greenlights as-is, (b) tweaks specific steps, or (c) redirects entirely. Loop does not execute step 1 until this gate has a `✅ USER APPROVED <date>` mark above the gate's title.
 
+## 🔴 BLOCKER — kssynth slice 3b PATH 2: `--input-root` doesn't reach analyzers source-discovery (2026-05-21)
+
+**Symptom**: After running `reconstruct.analyzers --input-root <ref> --output-root <dev>` on M08073/well000/DIV 36 (dataset 13), the analyzers phase completes in 12s with:
+- `status: None` (not error, not ok — empty)
+- `source_count: 0`
+- `source_unit_manifest_count: 0`
+- `manifest_resume.discovered_source_count: 0`
+
+i.e. the analyzers phase scanned for unit sources, found zero, and exited without building anything.
+
+**Root cause**: the `--input-root` plumbing slice (commit `ad87ad9`) prepends to `target.artifact_lookup_roots`, which is consumed by the template loader's `_resolve_alternate_well_out_dirs` machinery. BUT the analyzers phase's source-discovery (`recon_outputs/units/<unit_id>/` scan) does NOT consult `artifact_lookup_roots` — it reads only from the well_out_dir at `output_root`. With `--output-root <dev_outputs/kssynth_slice3b/>`, the discovery scans `<dev>/Media_Density_T5_.../260326/.../well000/recon_outputs/units/` which is empty → 0 sources.
+
+**Reference data does NOT have a prebuilt analyzer cache** (`cache/` is 4K = empty dir, only). The reference was built with an older pipeline pre-dating the analyzers cache step. So we can't side-step by reading a prebuilt cache from the reference path either.
+
+**Three viable paths forward** (user decision needed):
+1. **Extend --input-root plumbing to analyzers discovery**: code change in analyzers source-discovery to also probe `artifact_lookup_roots` for `recon_outputs/units/<unit_id>/` and `recon_outputs/cache/`. Touch: M (analyzers phase + unit-resolution code). Most principled fix. Cleanest for future runs.
+2. **PATH 3 (symlink)**: `mkdir -p <dev>/Media_Density_T5_.../260326/.../well000/` then symlink `recon_outputs/units` + `preprocess_outputs` + `spikesort_outputs` from the reference path. Touch: S, but as flagged in the original PATH analysis, paths embedded in summary.json reference the symlink targets (fragile).
+3. **PATH 1 (loosen cache-subdir rule)**: drop `--output-root` entirely; analyzers writes IN-PLACE to reference well's `cache/` (which IS rebuildable; user's original framing of the loosened rule). Smallest change. Reference data integrity is preserved EXCEPT for `cache/` subdir which the rule originally treated as fair game.
+
+**Loop recommendation**: PATH 1 for THIS smoke (smallest change, gets the comparison shipped); PATH 1+PATH 2-extension for the long-term contract (so future iterations don't have to revisit). User picks for this run.
+
+**Blocker level**: HARD for the apples-to-apples comparison; loop pivots to other work until user picks a path.
+
 ## 🔴 IMMEDIATE — Radivojevic diagnostic MUST include PNG renderings (USER FEEDBACK 2026-05-21)
 
 User feedback on the first SOFT-gate filing: "I see the recon output but its npy and tsv files." The diagnostic landed with npy + tsv only — that's not a visual diagnostic, that's data dumps. The strict diagnostic rule (USER INJECTION 2026-05-21) requires user-visible rendering — and rendering means PNG, not arrays.
