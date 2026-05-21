@@ -21,6 +21,22 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
   (commit `ab56f64`). Both modes are reachable from the UI and the
   image export. **Marked for deletion** at next audit-pass.
 
+## 🔴 IMMEDIATE — Radivojevic diagnostic MUST include PNG renderings (USER FEEDBACK 2026-05-21)
+
+User feedback on the first SOFT-gate filing: "I see the recon output but its npy and tsv files." The diagnostic landed with npy + tsv only — that's not a visual diagnostic, that's data dumps. The strict diagnostic rule (USER INJECTION 2026-05-21) requires user-visible rendering — and rendering means PNG, not arrays.
+
+**MANDATORY for the loop's next iteration on radivojevic**:
+1. Add a `render_reconstruction_png(result: ReconstructionResult, channel_positions_um, *, output_path: Path)` function to `radivojevic2023_recon_algo`. Renders:
+   - Channel positions as light-gray dots (background)
+   - Stage 1 detected peaks as colored markers at (x, y) of their channel, colored by step (step1=red, step2=orange, step3=yellow) — quick visual proxy for "are peaks where the eye expects signal"
+   - Stage 2 skeleton union overlaid (binary mask → light blue pixels)
+   - Stage 3 links as line segments connecting peak xy positions, colored by method (direct=solid green, skeleton-assisted=dashed green, indirect=dotted green)
+   - Title with unit ID + stage counts (n_peaks, n_skeleton_pixels, n_links)
+2. Re-file the SOFT-gate diagnostic with the PNG included (NOT replacing the npy/tsv — those stay for downstream consumers; the PNG is the user-visible artifact).
+3. **Going-forward rule (amend strict diagnostic injection)**: ANY diagnostic with claimed visual content MUST include a rendered image format (PNG / SVG / PDF). npy / tsv / parquet alone is data, not a diagnostic. The visual file is the audit-trail artifact. Data files can accompany it for re-rendering / downstream consumption.
+
+This unblocks itself in the next loop iteration — no user gate needed. Loop runs it on the kilosort-cluster-67 smoke that already ran; the rendered PNG becomes the SOFT-gate diagnostic content.
+
 ## Radivojevic real-data smoke (sub-step 9) — partial findings 2026-05-21
 
 Loop attempted the first real-data smoke per USER GATE 3 spec. Findings:
