@@ -21,6 +21,61 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
   (commit `ab56f64`). Both modes are reachable from the UI and the
   image export. **Marked for deletion** at next audit-pass.
 
+## Radivojevic real-data smoke (sub-step 9) — partial findings 2026-05-21
+
+Loop attempted the first real-data smoke per USER GATE 3 spec. Findings:
+
+**Data layout differs from GATE 3 spec:**
+- GATE 3 spec said: "run the chosen unit's `merged_template.npy` +
+  `merged_channel_locations.npy` through Stage 1 → Stage 2 → Stage 3."
+- These files **do NOT exist on disk** for the reference cohort. The
+  per-unit STAs live inside `gtr.pkl` (axon_velocity-pickled object)
+  which requires `axon_velocity` to unpickle — shifter-only.
+- `templates.npy` at `spikesort_outputs/sorter_output_snapshot/`
+  (shape `(502, 61, 266)`) DOES exist and provides the raw per-cluster
+  kilosort templates. Channel positions also available at
+  `channel_positions.npy` (shape `(266, 2)`).
+
+**Unit→cluster mapping is unclear:**
+- Reference recon-stage unit dirs are named `0001`..`0626` (sparse,
+  176 IDs total).
+- Kilosort cluster IDs span `0..501` (max=501 in spike_clusters.npy).
+- So `unit_0598` (9-branch unit picked from GATE 3 high-branch-count
+  scan) IS NOT kilosort cluster 598. The mapping likely lives in
+  `branches.json`'s `unit_id` field which references the POST-MERGE
+  axon_velocity_gtrs unit numbering. Without `axon_velocity`, the
+  mapping can't be inverted from the loop.
+
+**Loop's pragmatic substitute:**
+- Switched to selecting a high-amplitude + high-spike-count
+  KILOSORT cluster directly from `templates.npy`. Cluster 67 picked
+  (amp=73.3 μV, n_spikes=1328 — well above the `min_n_spikes=50` gate).
+- Ran `radivojevic2023_recon_algo.reconstruct(...)` on
+  `templates[67].T` (shape `(266, 61)`).
+- **Stage 1 timing UNKNOWN**: the 5-minute timeout fired before the
+  output landed. Stage 2 is suspected slow with default pixel_um=1 +
+  upsample_factor=10 + 600 timeframes — that's ~600 scipy.griddata
+  calls on a 266-point sparse input with potentially 10k+ target pixels.
+- **Next iteration MUST tune knobs**: reduce upsample_factor to 2-3
+  (cuts timeframes to 121-181), or raise pixel_um to 5-10 (cuts target
+  pixels by 25-100x), or both. Then re-run + capture timing baseline.
+
+**Open question for user**:
+1. Is the user's GATE 3 spec correct about `merged_template.npy`
+   existing? OR are those files produced by an unrun pipeline phase
+   (e.g. kssynth slice 3b HEAVY)?
+2. If they don't exist yet, should the radivojevic smoke wait on
+   the kssynth heavy smoke, OR proceed with the pragmatic kilosort-
+   template substitute the loop adopted?
+3. The plot_recons side-by-side comparison was contingent on the
+   merged_template path — same gate.
+
+**Status**: real-data smoke is BLOCKED on (a) tuning the Stage 2
+parameters for tractable runtime AND (b) the unit→cluster mapping
+question for the side-by-side comparison. Loop pivots to other plans
+or stays on the radivojevic stage 1 algorithmic core (next iteration
+will tune Stage 2 parameters for a usable smoke).
+
 ## Per-slice empirical findings
 
 - **resources.profiles elimination — per-srun-flag fallback when slot is missing**: when `--cpus-per-task` is passed on the command line, does the resolver use that directly, or compute from `os.sched_getaffinity(0)`? Both are reasonable; pick during the implementation slice. See `trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`".
