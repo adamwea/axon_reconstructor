@@ -46,3 +46,24 @@ Keep the list short. When an entry is `approved`, leave it for ~one week so the 
 ## Entries
 
 (initially empty — Claude appends entries as slices generate diagnostics)
+
+### 2026-05-21 — Radivojevic first real-data smoke (cluster 67, M08073/well000/DIV 36)
+
+- **Gate**: SOFT (Stage 1 + Stage 2 transition outputs; loop proceeded autonomously)
+- **What's here**: First real-data outputs from `radivojevic2023_recon_algo.reconstruct(...)` on a kilosort cluster from M08073 well000. Stage-by-stage results saved as numpy + TSV.
+- **Path**: `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_first_run/cluster_67/radivojevic_recon/`
+- **Files**:
+  - `run_summary.json` — knob values + per-stage numerical results.
+  - `peaks_all.tsv` — Stage 1 output (172 detected peaks across 3 thresholding steps; channel_idx + time_idx + amplitude).
+  - `links.tsv` — Stage 3 output (72 inter-frame edges; method=direct/skel/indirect, distance + dt).
+  - `skeleton_union_xy.npy` — Stage 2 binary skeleton union across all 120 frames (183 x 202 bool array; True where ANY frame's skeleton lit up). Quick-look diagnostic.
+  - `skeleton_pixels_per_frame.npy` — per-frame skeleton pixel counts.
+  - `per_channel_peak_counts.npy` — per-channel peak histogram.
+- **What to verify**:
+  - **Stage 1**: 12 of 266 channels had peaks (kilosort templates ARE sparse — only ~6 channels around the spike's source typically active; 12 is plausible). 9-STD step caught 97 peaks; 2-STD step caught 66 more; 1-STD step caught 9 more.
+  - **Stage 2**: 933 unique skeleton xy pixels. If you plot `skeleton_union_xy.npy` as a 2D image, expect a small cluster of pixels around the channels with peaks (NOT a sprawling structure — this is a single-recording kilosort template, not a multi-segment merged template).
+  - **Stage 3**: 72 edges total (52 direct + 1 skel-assisted + 19 indirect). The direct-link count being the majority is paper-consistent (paper said direct catches ~70%; we got 72%).
+- **Critical follow-ups** (logged in `memory/open_questions.md`):
+  - MAD-noise-estimator-on-sparse-template bug (noise_std=0 → thresholds=0 → flood of false positives). Workaround: use `noise_estimator='window'`. Real fix candidates documented in smoke_log.md.
+  - GATE 3 spec's `merged_template.npy` data-layout question (3 questions for user).
+- **Status**: SOFT-gate filed; **HARD-gate (Stage 3 + plot_recons side-by-side) still pending** the user's resolution of the data-layout question OR the kssynth slice 3b heavy smoke producing the merged-template artifacts the comparison needs.
