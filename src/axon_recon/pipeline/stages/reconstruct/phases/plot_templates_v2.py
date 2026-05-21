@@ -193,12 +193,70 @@ def _run_plot_templates_v2_batch(batch_inputs: _PlotTemplatesV2BatchInputs) -> d
 
 
 def run_reconstruct_templates_plot_templates_v2_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-	from axon_recon.pipeline.config import get_no_plot_override
+	from axon_recon.pipeline.config import get_dry_run_override, get_no_plot_override
 
 	phase_started = perf_counter()
 	phase_cfg = inputs.phases.plot_templates_v2
 	well_out_dir, _, templates_out_dir, _ = templates_runner._resolve_templates_phase_environment(inputs)
 	summary_json_path = templates_out_dir / str(phase_cfg.summary_json_relpath)
+
+	# Dry-run short-circuit (dry_run_rollout sub-slice). Skip the heavy
+	# per-unit batch fanout; just resolve templates dir + report it.
+	if get_dry_run_override():
+		from axon_recon.pipeline.dry_run import write_dry_run_summary
+
+		merged_units_dir: Path | None = None
+		validation_warnings: list[str] = []
+		try:
+			merged_units_dir, _ = templates_runner._resolve_templates_dirs(
+				well_out_dir=well_out_dir,
+				templates_out_dir=templates_out_dir,
+			)
+		except FileNotFoundError as exc:
+			validation_warnings.append(
+				f"merged templates dir not found: {exc}; "
+				"run reconstruct.build_templates or reconstruct.kssynth first."
+			)
+
+		inputs_resolved: list[dict[str, Any]] = []
+		if merged_units_dir is not None:
+			inputs_resolved.append(
+				{
+					"name": "merged_units_dir",
+					"path": str(merged_units_dir),
+					"exists": bool(merged_units_dir.exists()),
+				}
+			)
+
+		write_dry_run_summary(
+			phase_name="reconstruct.plot_templates_v2",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=templates_out_dir,
+			summary_json_path=summary_json_path,
+			inputs_resolved=inputs_resolved,
+			outputs_would_produce=[
+				{"name": "summary_json", "path": str(summary_json_path)},
+				{
+					"name": "template_plots_root",
+					"path": str(templates_out_dir / str(phase_cfg.output_relpath)),
+				},
+			],
+			validation={
+				"missing_prerequisites": [],
+				"warnings": validation_warnings,
+			},
+		)
+		templates_runner.LOGGER.info(
+			"templates.plot_templates_v2: dry-run complete; summary at %s",
+			str(summary_json_path),
+		)
+		return {
+			"phase": "reconstruct.plot_templates_v2",
+			"status": "dry_run_ok",
+			"well_out_dir": str(well_out_dir),
+			"templates_out_dir": str(templates_out_dir),
+		}
+
 	with with_checkpoint_marker(
 		summary_json_path,
 		phase_name="plot_templates_v2",

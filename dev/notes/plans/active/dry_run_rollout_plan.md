@@ -153,9 +153,12 @@ For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load
 
 ### Slice 5 — Reconstruct stage phase short-circuits
 
-**Progress (sub-slices landed out-of-order with the other plans):**
+**Progress (sub-slices landing out-of-order with the other plans):**
 - `kssynth` — SHIPPED 2026-05-21 via `kssynth_recon_integration_plan` slice 4e.
-- `analyzers` — SHIPPED 2026-05-21 (commit pending below).
+- `analyzers` — SHIPPED 2026-05-21.
+- `axon_velocity_gtrs` — SHIPPED 2026-05-21.
+- `plot_templates_v2` — SHIPPED 2026-05-21.
+- `report_templates` — SHIPPED 2026-05-21.
 
 Remaining phases (post-cleanup shape; legacy `plot_templates` /
 `per_unit_processing` / `reports` already deleted per phase cleanup
@@ -167,9 +170,9 @@ plan):
   going away)
 - `build_templates` (same — slated for deletion by kssynth slice 5)
 - ~~`kssynth`~~ — SHIPPED (the replacement phase)
-- `plot_templates_v2`
-- `report_templates`
-- `axon_velocity_gtrs` (renamed from `generate_gtrs`)
+- ~~`plot_templates_v2`~~ — SHIPPED
+- ~~`report_templates`~~ — SHIPPED
+- ~~`axon_velocity_gtrs`~~ (renamed from `generate_gtrs`) — SHIPPED
 - `plot_recons`
 - `plot_branch_propagations`
 - `plot_branch_velocities`

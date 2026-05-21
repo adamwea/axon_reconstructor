@@ -20,13 +20,65 @@ def _resolve_report_templates_source(inputs: TemplatesInputs) -> tuple[str, str]
 
 
 def run_reconstruct_templates_report_templates_phase(inputs: TemplatesInputs) -> dict[str, Any]:
-    from axon_recon.pipeline.config import get_no_plot_override
+    from axon_recon.pipeline.config import get_dry_run_override, get_no_plot_override
 
     phase_started = perf_counter()
     well_out_dir, _, templates_out_dir, _ = templates_runner._resolve_templates_phase_environment(
         inputs
     )
     summary_json_path = templates_out_dir / str(inputs.phases.report_templates.summary_json_relpath)
+
+    # Dry-run short-circuit (dry_run_rollout sub-slice). Reads only the
+    # source-key resolution to confirm `consume` is valid, then writes
+    # the summary.
+    if get_dry_run_override():
+        from axon_recon.pipeline.dry_run import write_dry_run_summary
+
+        validation_warnings: list[str] = []
+        source_output_key: str | None = None
+        try:
+            source_output_key, _ = _resolve_report_templates_source(inputs)
+        except ValueError as exc:
+            validation_warnings.append(str(exc))
+
+        write_dry_run_summary(
+            phase_name="reconstruct.report_templates",
+            well_out_dir=well_out_dir,
+            stage_output_root_dir=templates_out_dir,
+            summary_json_path=summary_json_path,
+            inputs_resolved=[
+                {
+                    "name": "consume_source",
+                    "path": str(inputs.phases.report_templates.consume),
+                    "exists": bool(source_output_key is not None),
+                },
+            ],
+            outputs_would_produce=[
+                {"name": "summary_json", "path": str(summary_json_path)},
+                {
+                    "name": "template_report_pdf",
+                    "path": str(templates_out_dir / "template_report.pdf"),
+                },
+            ],
+            validation={
+                "missing_prerequisites": [],
+                "warnings": validation_warnings,
+            },
+            extra_fields={"source_output_key": source_output_key}
+            if source_output_key
+            else None,
+        )
+        templates_runner.LOGGER.info(
+            "templates.report_templates: dry-run complete; summary at %s",
+            str(summary_json_path),
+        )
+        return {
+            "phase": "reconstruct.report_templates",
+            "status": "dry_run_ok",
+            "well_out_dir": str(well_out_dir),
+            "templates_out_dir": str(templates_out_dir),
+        }
+
     with with_checkpoint_marker(
         summary_json_path,
         phase_name="report_templates",

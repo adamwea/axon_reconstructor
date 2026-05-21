@@ -24,6 +24,68 @@ def run_reconstruct_axon_velocity_gtrs_phase(inputs: ReconstructionInputs) -> di
         env.reconstruction_out_dir
         / Path(str(inputs.phases.axon_velocity_gtrs.summary_json_relpath)).expanduser()
     )
+
+    # Dry-run short-circuit (dry_run_rollout slice 5 sub-slice). When set,
+    # resolve outputs + report unit count without invoking the GTRS
+    # per-unit fanout (which is the heaviest compute in the recon stage
+    # after kssynth).
+    from axon_recon.pipeline.config import get_dry_run_override
+
+    if get_dry_run_override():
+        from axon_recon.pipeline.dry_run import write_dry_run_summary
+
+        # Resolve templates dir for inputs reporting — same fallback the
+        # real path uses; non-fatal here.
+        templates_dir_reported: Path | None = None
+        try:
+            from axon_recon.pipeline.stages.reconstruct.templates.runner import (
+                _resolve_templates_dirs,
+            )
+
+            templates_dir_reported, _ = _resolve_templates_dirs(
+                well_out_dir=env.well_out_dir,
+                templates_out_dir=env.well_out_dir / "recon_outputs",
+            )
+        except Exception as exc:
+            reconstruct_runner.LOGGER.warning(
+                "axon_velocity_gtrs dry-run: templates dir resolution failed: %s", exc
+            )
+
+        inputs_resolved: list[dict[str, Any]] = []
+        if templates_dir_reported is not None:
+            inputs_resolved.append(
+                {
+                    "name": "merged_templates_dir",
+                    "path": str(templates_dir_reported),
+                    "exists": bool(templates_dir_reported.exists()),
+                }
+            )
+
+        outputs_would_produce: list[dict[str, Any]] = [
+            {"name": "summary_json", "path": str(summary_json)},
+            {"name": "reconstruction_out_dir", "path": str(env.reconstruction_out_dir)},
+        ]
+        write_dry_run_summary(
+            phase_name="reconstruct.axon_velocity_gtrs",
+            well_out_dir=env.well_out_dir,
+            stage_output_root_dir=env.reconstruction_out_dir,
+            summary_json_path=summary_json,
+            inputs_resolved=inputs_resolved,
+            outputs_would_produce=outputs_would_produce,
+            extra_fields={"n_units_resolved": int(len(env.unit_ids))},
+        )
+        reconstruct_runner.LOGGER.info(
+            "reconstruct.axon_velocity_gtrs: dry-run complete; summary at %s",
+            str(summary_json),
+        )
+        return {
+            "phase": "reconstruct.axon_velocity_gtrs",
+            "status": "dry_run_ok",
+            "well_out_dir": str(env.well_out_dir),
+            "reconstruction_out_dir": str(env.reconstruction_out_dir),
+            "n_units": int(len(env.unit_ids)),
+        }
+
     with with_checkpoint_marker(
         summary_json,
         phase_name="axon_velocity_gtrs",
