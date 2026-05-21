@@ -735,6 +735,18 @@ def _register_debug_limit_arguments(parser: argparse.ArgumentParser) -> None:
 		),
 	)
 	parser.add_argument(
+		"--input-root",
+		default=None,
+		dest="input_root",
+		help=(
+			"Prepend additional ROOT(s) to each target's artifact_lookup_roots so "
+			"loaders (analyzers, etc.) can read inputs (preproc + spikesort "
+			"outputs) from a reference data dir while --output-root sends writes "
+			"elsewhere. Pair with --output-root for the kssynth slice 3b heavy "
+			"smoke pattern. Comma-separated for multiple roots."
+		),
+	)
+	parser.add_argument(
 		"--limit-wells",
 		type=_parse_positive_int,
 		default=None,
@@ -1407,6 +1419,7 @@ def main(argv: list[str] | None = None) -> int:
 	from .config import (
 		set_dry_run_override,
 		set_force_enable_phases_override,
+		set_input_root_override,
 		set_no_plot_override,
 		set_output_root_override,
 		set_scratch_output_override,
@@ -1445,6 +1458,18 @@ def main(argv: list[str] | None = None) -> int:
 	output_root_override = getattr(args, "output_root", None)
 	if output_root_override:
 		set_output_root_override(output_root_override)
+
+	# Same pattern for --input-root: prepend reference-root(s) to
+	# `artifact_lookup_roots` so loaders can read inputs (preproc + spikesort
+	# outputs) from the reference path while --output-root redirects writes.
+	# Comma-separated; honored at the leaf by select_execution_targets.
+	input_root_override = getattr(args, "input_root", None)
+	if input_root_override:
+		input_root_tokens = [
+			str(tok).strip() for tok in str(input_root_override).split(",") if str(tok).strip()
+		]
+		if input_root_tokens:
+			set_input_root_override(input_root_tokens)
 
 	# Same pattern for --force-enable: parse comma-separated phase names from
 	# the CLI arg and set the process-wide override before any stage handler
@@ -1494,6 +1519,7 @@ def main(argv: list[str] | None = None) -> int:
 		set_no_plot_override(None)
 		set_scratch_output_override(None)
 		set_output_root_override(None)
+		set_input_root_override(None)
 		set_force_enable_phases_override(None)
 		set_dry_run_override(None)
 		try:

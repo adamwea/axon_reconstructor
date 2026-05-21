@@ -270,6 +270,47 @@ def get_output_root_override() -> Path | None:
 	return _OUTPUT_ROOT_OVERRIDE
 
 
+# Process-wide --input-root override. When set, prepends additional roots to
+# each target's `artifact_lookup_roots`, so loaders (e.g. analyzers) can read
+# inputs from a reference data dir while writes go to the --output-root tree.
+# Per kssynth_recon_integration slice 3b data-routing decision (PATH 2) —
+# user 2026-05-21: lets dev_outputs/ iteration wells consume preproc +
+# spikesort outputs that exist only at the reference path. Cleared in the
+# CLI `finally` block.
+_INPUT_ROOT_OVERRIDE: tuple[Path, ...] | None = None
+
+
+def set_input_root_override(value: str | Path | list[str | Path] | None) -> None:
+	"""Set the process-wide `--input-root` override.
+
+	When non-None and non-empty, these Paths are prepended to each
+	target's `artifact_lookup_roots` so the analyzers loader (and any
+	other loader reading via `_resolve_alternate_well_out_dirs`) can
+	find inputs at the override location even when --output-root sends
+	writes elsewhere. Accepts a single str/Path or a list of them.
+	Pass None / empty to clear.
+	"""
+
+	global _INPUT_ROOT_OVERRIDE
+	if value is None:
+		_INPUT_ROOT_OVERRIDE = None
+		return
+	if isinstance(value, (list, tuple)):
+		raw_paths = [str(v).strip() for v in value if str(v).strip()]
+	else:
+		token = str(value).strip()
+		raw_paths = [token] if token else []
+	if not raw_paths:
+		_INPUT_ROOT_OVERRIDE = None
+		return
+	_INPUT_ROOT_OVERRIDE = tuple(Path(p).expanduser().resolve() for p in raw_paths)
+
+
+def get_input_root_override() -> tuple[Path, ...] | None:
+	"""Return the current process-wide --input-root override, or None."""
+	return _INPUT_ROOT_OVERRIDE
+
+
 # Process-wide --force-enable PHASE[,PHASE...] override. When set, the named
 # phases have their parsed `enabled` flag flipped to True AFTER YAML parsing
 # but BEFORE phase-roster evaluation. Lets the loop smoke-test a phase that
@@ -670,7 +711,11 @@ def select_execution_targets(
 
 		active_root = dataset_scratch_output_root if dataset_scratch_output_root is not None else output_root
 		artifact_lookup_roots: list[Path] = []
-		for candidate_root in _as_path_list(
+		# Prepend process-wide --input-root override (kssynth slice 3b data-routing path 2):
+		# lets a dev_outputs/ iteration well read inputs from a reference well_out_dir.
+		input_root_override = get_input_root_override()
+		input_root_candidates: list[Path] = list(input_root_override or ())
+		for candidate_root in input_root_candidates + _as_path_list(
 			item.get("output_root_2", None),
 			base_dir=bundle.data_config_path.parent,
 		) + default_lookup_roots:

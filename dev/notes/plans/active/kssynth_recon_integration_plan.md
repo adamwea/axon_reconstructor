@@ -253,7 +253,35 @@ in `current_state.md` "User actions queued" — see that doc for the
 3-path options (loosen cache-subdir rule / alternate_well_out_dirs
 plumbing / symlink).
 
-#### Slice 3b HEAVY — pending (needs analyzer cache or user-initiated run)
+#### Slice 3b HEAVY — pre-req `--input-root` plumbing SHIPPED 2026-05-21
+
+**Plumbing prerequisite SHIPPED**: `--input-root PATH[,PATH...]` CLI
+flag added to the shared `stages` subparser, wired to a process-wide
+override (`set_input_root_override` / `get_input_root_override` in
+`pipeline/config.py`), prepended to each target's
+`artifact_lookup_roots` inside `select_execution_targets` (so the
+analyzers loader's existing `_resolve_alternate_well_out_dirs`
+machinery picks the reference inputs up). 8 new tests cover the
+override semantics + integration through `select_execution_targets`.
+Smoke confirmed via `--dry-run --force-enable kssynth --input-root
+<reference> --output-root <dev_outputs>` exiting status=success.
+
+**Heavy smoke command sequence** (path 2):
+```bash
+REF=/pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/
+OUT=/pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
+
+axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml \
+  --target-dataset N --limit-wells 1 --task-backend local_affinity \
+  --input-root $REF --output-root $OUT
+axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
+  --target-dataset N --limit-wells 1 --task-backend local_affinity \
+  --force-enable kssynth --input-root $REF --output-root $OUT
+```
+
+Old (path 1) instructions preserved below for completeness:
+
+#### Slice 3b HEAVY (old path 1 — pending if user reverses decision)
 - Confirm an analyzer cache exists at
   `<well>/recon_outputs/cache/analyzers/segments/`. If not: user runs
   `axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml
