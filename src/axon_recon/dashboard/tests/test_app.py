@@ -7,11 +7,16 @@ import numpy as np
 import pandas as pd
 
 from ..app import (
+	ID_BOX_BAR_AGGREGATE,
+	ID_BOX_BAR_ERROR,
 	ID_BOX_COLOR,
 	ID_BOX_CORRECTION,
 	ID_BOX_GROUP_COL,
+	ID_BOX_MODE,
 	ID_BOX_PLOT,
 	ID_BOX_SHOW_SIGNIFICANCE,
+	ID_BOX_TERTIARY,
+	ID_BOX_TERTIARY_MODE,
 	ID_BOX_TEST,
 	ID_BOX_VALUE_COL,
 	ID_FILTER_BOMBCELL,
@@ -147,6 +152,23 @@ def test_build_app_exposes_box_plot_component_ids() -> None:
 	}
 	missing = expected - ids
 	assert not missing, f"missing component ids: {sorted(missing)}"
+
+
+def test_build_app_exposes_slice_6_7_ui_controls() -> None:
+	"""Slice 6+7 UI wiring: box↔bar mode toggle, bar aggregate/error, and
+	tertiary grouping + render mode controls are reachable from the layout."""
+
+	app = build_app(_make_units_df(), pd.DataFrame())
+	ids = _component_ids(app)
+	expected = {
+		ID_BOX_MODE,
+		ID_BOX_BAR_AGGREGATE,
+		ID_BOX_BAR_ERROR,
+		ID_BOX_TERTIARY,
+		ID_BOX_TERTIARY_MODE,
+	}
+	missing = expected - ids
+	assert not missing, f"missing slice-6/7 control ids: {sorted(missing)}"
 
 
 def _two_group_units_df() -> pd.DataFrame:

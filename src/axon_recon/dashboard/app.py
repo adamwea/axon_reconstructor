@@ -66,6 +66,12 @@ ID_BOX_POINT_OPACITY = "box-point-opacity"
 ID_BOX_GAP = "box-gap"
 ID_BOX_GROUP_GAP = "box-group-gap"
 ID_BOX_PLOT = "box-plot-graph"
+# Slice 6 box↔bar mode toggle + slice 7 tertiary grouping UI controls.
+ID_BOX_MODE = "box-mode"  # "box" | "bar"
+ID_BOX_BAR_AGGREGATE = "box-bar-aggregate"  # "mean" | "median"
+ID_BOX_BAR_ERROR = "box-bar-error"  # "std" | "sem" | "ci95" | "none"
+ID_BOX_TERTIARY = "box-tertiary-group"  # tertiary column dropdown
+ID_BOX_TERTIARY_MODE = "box-tertiary-render-mode"  # "small_multiples" | "hierarchical_labels"
 ID_RELOAD_BUTTON = "reload-data-button"
 ID_RELOAD_STATUS = "reload-data-status"
 ID_EXCLUDE_NULLS = "filter-exclude-nulls"
@@ -498,8 +504,69 @@ def _build_layout(
 							value=default_box_color,
 							clearable=False,
 						),
+						# Slice 7 tertiary grouping — picks a 3rd dimension to facet by
+						# (small_multiples mode, default) or to fold into compound x labels
+						# (hierarchical_labels mode).
+						html.Label("Tertiary grouping (slice 7, optional)"),
+						dcc.Dropdown(
+							id=ID_BOX_TERTIARY,
+							options=box_color_options,
+							value=_BOX_COLOR_NONE,
+							clearable=False,
+						),
+						html.Label("Tertiary render mode"),
+						dcc.RadioItems(
+							id=ID_BOX_TERTIARY_MODE,
+							options=[
+								{"label": "Small multiples (one subplot per value)", "value": "small_multiples"},
+								{"label": "Hierarchical X labels (compound categories)", "value": "hierarchical_labels"},
+							],
+							value="small_multiples",
+							inline=True,
+						),
 					],
 					style={"display": "flex", "gap": "1rem", "flexWrap": "wrap"},
+				),
+				# Slice 6 box↔bar mode toggle. When mode=bar, box-specific
+				# significance + points + log-transform controls are still
+				# rendered but build_bar_plot ignores them (it consumes only
+				# aggregate / error / log_transform / tertiary).
+				html.Div(
+					[
+						html.Label("Render mode"),
+						dcc.RadioItems(
+							id=ID_BOX_MODE,
+							options=[
+								{"label": "Box (per-distribution)", "value": "box"},
+								{"label": "Bar (aggregate ± error)", "value": "bar"},
+							],
+							value="box",
+							inline=True,
+						),
+						html.Label("Bar aggregate"),
+						dcc.RadioItems(
+							id=ID_BOX_BAR_AGGREGATE,
+							options=[
+								{"label": "Mean", "value": "mean"},
+								{"label": "Median", "value": "median"},
+							],
+							value="mean",
+							inline=True,
+						),
+						html.Label("Bar error bars"),
+						dcc.RadioItems(
+							id=ID_BOX_BAR_ERROR,
+							options=[
+								{"label": "Std", "value": "std"},
+								{"label": "SEM", "value": "sem"},
+								{"label": "95% CI", "value": "ci95"},
+								{"label": "None", "value": "none"},
+							],
+							value="std",
+							inline=True,
+						),
+					],
+					style={"display": "flex", "gap": "1rem", "flexWrap": "wrap", "marginTop": "0.5rem"},
 				),
 				html.Div(
 					[
@@ -1012,6 +1079,11 @@ def build_app(
 		Input(ID_BOX_GAP, "value"),
 		Input(ID_BOX_GROUP_GAP, "value"),
 		Input(ID_BOX_DATA_SOURCE, "value"),
+		Input(ID_BOX_MODE, "value"),
+		Input(ID_BOX_BAR_AGGREGATE, "value"),
+		Input(ID_BOX_BAR_ERROR, "value"),
+		Input(ID_BOX_TERTIARY, "value"),
+		Input(ID_BOX_TERTIARY_MODE, "value"),
 	)
 	def _update_box(
 		require_recon_ok,
@@ -1044,6 +1116,11 @@ def build_app(
 		box_gap,
 		box_group_gap,
 		data_source,
+		box_mode,
+		bar_aggregate,
+		bar_error,
+		tertiary_group,
+		tertiary_render_mode,
 	):
 		spec = _build_filter_spec_from_state(
 			require_recon_ok=require_recon_ok,
@@ -1072,6 +1149,22 @@ def build_app(
 		if source_df is None:
 			source_df = _state_get_units_df()
 		filtered = filter_helpers.apply_filter_spec(source_df, spec)
+		# Slice 6 box↔bar dispatch — bar mode consumes a strictly smaller
+		# subset of the box-mode controls (no significance, no points overlay,
+		# no boxgap/groupgap), so the controls remain visible but only the
+		# relevant ones flow into the figure builder.
+		if str(box_mode or "box").strip().lower() == "bar":
+			return build_bar_plot(
+				filtered,
+				value_col=box_value_col,
+				group_col=box_group_col,
+				color_col=box_color,
+				aggregate=str(bar_aggregate or "mean"),
+				error=str(bar_error or "std"),
+				log_transform=bool(log_transform_v and "on" in log_transform_v),
+				tertiary_group_col=tertiary_group,
+				tertiary_render_mode=str(tertiary_render_mode or "small_multiples"),
+			)
 		return build_box_plot(
 			filtered,
 			value_col=box_value_col,
@@ -1090,6 +1183,8 @@ def build_app(
 			boxgap=float(box_gap if box_gap is not None else 0.3),
 			boxgroupgap=float(box_group_gap if box_group_gap is not None else 0.3),
 			mixed_effects_group_col="well_id" if "well_id" in filtered.columns else None,
+			tertiary_group_col=tertiary_group,
+			tertiary_render_mode=str(tertiary_render_mode or "small_multiples"),
 		)
 
 	@app.callback(
