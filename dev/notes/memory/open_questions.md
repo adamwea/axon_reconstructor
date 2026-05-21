@@ -29,6 +29,8 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 **Proposed execution plan for the next diagnostic attempt** (apples-to-apples radivojevic vs axon_velocity_gtrs comparison via existing plot_recons):
 
+**PREREQUISITE**: the analyzers-discovery extension to `--input-root` plumbing MUST ship before step 1 below can succeed. See the resolved BLOCKER section below (user chose option 1 — extend the plumbing). Loop's bug-fix slice lands first, with a quick re-run of step 1's analyzers invocation to confirm `source_count > 0`. Only after that is confirmed does the loop bring GATE 1 back for user approval.
+
 1. **Run kssynth slice 3b heavy** on M08073/well000:
    ```
    axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml \
@@ -81,6 +83,23 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 For each, the correct response is: write a focused question to this file under "PRE-DIAGNOSTIC GATE 1 — friction encountered" and PAUSE.
 
 **Resolution criterion**: user reads this plan and either (a) greenlights as-is, (b) tweaks specific steps, or (c) redirects entirely. Loop does not execute step 1 until this gate has a `✅ USER APPROVED <date>` mark above the gate's title.
+
+## ✅ RESOLVED 2026-05-21 — kssynth slice 3b PATH 2: extend --input-root into analyzers discovery
+
+**User chose option 1 (Recommended)**: extend `--input-root` plumbing into the analyzers source-discovery code so it probes `artifact_lookup_roots` for both `recon_outputs/units/<unit_id>/` AND `recon_outputs/cache/`. Completes the principled PATH 2 the user originally selected; no reference-data mutation; no symlink fragility.
+
+**Loop's next work sequence** (BEFORE returning to PRE-DIAGNOSTIC GATE 1):
+1. **Audit slice**: locate the analyzers source-discovery code path (likely under `pipeline/stages/reconstruct/phases/analyzers.py` or its `_resolve_*` helpers). Identify where `recon_outputs/units/<id>/` and `recon_outputs/cache/` paths are constructed. Document the touch surface BEFORE editing.
+2. **Implementation slice**: add `artifact_lookup_roots` probing to the discovery code — for each candidate `recon_outputs/<subpath>` the discovery currently checks at `<output_root>/<...>/well<NNN>/`, ALSO check the same `<subpath>` under each `artifact_lookup_root`. First hit wins. Mirror the template loader's existing `_resolve_alternate_well_out_dirs` semantics.
+3. **Tests**: add a focused unit test that simulates dev_outputs/ well dir empty + a populated reference path + `--input-root` set — discovery should find the reference's units. Test covers both the units/ and cache/ lookup paths.
+4. **Smoke**: re-run the kssynth heavy step from PRE-DIAGNOSTIC GATE 1 step 1 to confirm it now finds source units. If `source_count > 0` and kssynth produces a non-empty `synth_sorter_output/per_unit/`, the fix is good.
+5. **Return to PRE-DIAGNOSTIC GATE 1**: surface the diagnostic plan for user approval (the plan is unchanged — just the prerequisite analyzers-discovery slice now lands first). Loop does NOT execute the diagnostic until GATE 1 has user approval.
+
+**ETA**: the bug-fix slice should be 1-2 loop iterations (audit + implementation + tests). Then kssynth heavy ~5-15 min. Then GATE 1 awaits user.
+
+**Anti-improvising guard for THIS work** (per (B1)): if the analyzers code path is more complex than the audit reveals (e.g. discovery is scattered across multiple helpers, or the contract is wider than just `recon_outputs/units/` + `cache/`), STOP AND ASK rather than building a partial fix. Don't ship "works for this smoke but breaks downstream" code.
+
+**Original BLOCKER body preserved below for archeology:**
 
 ## 🔴 BLOCKER — kssynth slice 3b PATH 2: `--input-root` doesn't reach analyzers source-discovery (2026-05-21)
 
