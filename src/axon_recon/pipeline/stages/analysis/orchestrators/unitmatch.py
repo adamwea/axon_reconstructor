@@ -181,6 +181,79 @@ def run_analysis_unitmatch(
 	)
 	target_summary_path = _per_target_summary_path(stage_output_root)
 
+	# Dry-run short-circuit (dry_run_rollout slice 6 — unitmatch phase).
+	# Per `guardrails/dry_run.md`: skip the heavy unitlink.match() call and
+	# the per-group session resolution. Reports the per-target summary
+	# path + group-output-dir location so the caller can see what would be
+	# produced. Honors EITHER the per-stage_config `dry_run` flag (mirrors
+	# propagation_video's pattern) OR the process-wide --dry-run override.
+	from ....config import get_dry_run_override
+	from ....dry_run import write_dry_run_summary
+
+	if bool(getattr(stage_config, "dry_run", False)) or bool(get_dry_run_override()):
+		stage_output_root.mkdir(parents=True, exist_ok=True)
+		well_out_dir_for_summary = compute_mea_analysis_output_dir(
+			output_root=Path(mea_output_root),
+			data_file=Path(h5_path),
+			well=str(stream_id),
+		)
+		unitmatch_rel = str(
+			getattr(stage_config, "unitmatch_rel_output_root", "unitmatch")
+		)
+		well_metadata = getattr(stage_config, "well_metadata_lookup", {}) or {}
+		entry = well_metadata.get((int(dataset_index), str(stream_id))) or {}
+		chip_id = entry.get("chip_id", "unknown")
+		group_dir = _group_output_dir(
+			output_root=Path(mea_output_root),
+			unitmatch_rel_output_root=unitmatch_rel,
+			chip_id=str(chip_id),
+			well_id=str(stream_id),
+		)
+		validation_warnings: list[str] = []
+		if not bool(getattr(stage_config, "unitmatch_enabled", False)):
+			validation_warnings.append(
+				"unitmatch_enabled=False in YAML; a real run would skip this phase. "
+				"Force-enable via --force-enable unitmatch if you want this to run."
+			)
+		if not entry:
+			validation_warnings.append(
+				f"no well_metadata_lookup entry for (dataset={dataset_index}, well={stream_id!r})"
+			)
+		write_dry_run_summary(
+			phase_name="analysis.unitmatch",
+			well_out_dir=well_out_dir_for_summary,
+			stage_output_root_dir=stage_output_root,
+			summary_json_path=target_summary_path,
+			inputs_resolved=[
+				{
+					"name": "well_metadata_chip_id",
+					"path": str(chip_id),
+					"exists": bool(entry),
+				},
+			],
+			outputs_would_produce=[
+				{"name": "target_summary_json", "path": str(target_summary_path)},
+				{"name": "group_dir", "path": str(group_dir)},
+			],
+			validation={
+				"missing_prerequisites": [],
+				"warnings": validation_warnings,
+			},
+			extra_fields={
+				"unitmatch_enabled": bool(
+					getattr(stage_config, "unitmatch_enabled", False)
+				),
+			},
+		)
+		return {
+			"phase": "analysis.unitmatch",
+			"status": "dry_run_ok",
+			"well_id": str(stream_id),
+			"dataset_index": int(dataset_index),
+			"stage_output_root": str(stage_output_root),
+			"target_summary_path": str(target_summary_path),
+		}
+
 	enabled = bool(getattr(stage_config, "unitmatch_enabled", False))
 	if not enabled:
 		return _write_phase_summary(

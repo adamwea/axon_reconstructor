@@ -257,11 +257,17 @@ Progress:
 - ~~`compute_metrics`~~ — SHIPPED 2026-05-21 (dry-run intercept in
   `run_analysis_compute_metrics_stage` writes a dry_run_ok manifest
   without scanning recon_outputs/units).
-- `propagation_video` — ALREADY HAS dry-run via the old
-  `stage_config.dry_run` field (different mechanism; pre-dates the
-  process-wide override). Could be retrofitted to also honor
-  `get_dry_run_override()` for consistency; not blocking.
-- `unitmatch` (when it lands per `unitmatch_phase_plan.md`) — TODO
+- ~~`propagation_video`~~ — SHIPPED 2026-05-21. Originally had
+  per-stage_config `dry_run` field (slice 6 of analysis_propagation_video_plan);
+  retrofitted commit `4177f83` to ALSO honor the process-wide
+  `get_dry_run_override()` via compose-with-OR.
+- ~~`unitmatch`~~ — SHIPPED 2026-05-21. Dry-run intercept BEFORE
+  group discovery + unitlink.match() resolution. Honors EITHER
+  `stage_config.dry_run` OR process-wide override (same compose-with-OR
+  pattern as propagation_video). Reports chip_id + group_dir; warns
+  when unitmatch_enabled=False. 3 tests in test_unitmatch_dry_run.py.
+
+Slice 6 status: COMPLETE (3/3 analysis phases).
 
 ### Slice 7 — New stages from the phase roster cleanup
 Once `init` and `cleanup` stages exist:
