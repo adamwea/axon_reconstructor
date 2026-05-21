@@ -504,13 +504,17 @@ def _run_reconstruct_templates_analyzers_phase_body(
         "cleared_manifest_paths": [],
     }
     iteration_alternate_well_out_dirs = list(alternate_well_out_dirs)
-    if bool(inputs.force_restart) and not bool(inputs.analyzer_cache.reuse_on_force_restart):
-        if iteration_alternate_well_out_dirs:
-            templates_runner.LOGGER.info(
-                "templates.analyzers force_restart suppressing artifact lookup fallbacks: %s",
-                [str(path) for path in iteration_alternate_well_out_dirs],
-            )
-        iteration_alternate_well_out_dirs = []
+    # NOTE 2026-05-21: previously force_restart unconditionally blanked
+    # iteration_alternate_well_out_dirs to prevent reading stale cached
+    # ANALYZERS from a fallback well_out_dir. That was correct for the
+    # pre-`--input-root` shape where alternate roots only ever held
+    # cached analyzer artifacts. With `--input-root` plumbing the
+    # alternate root is now the INPUT data path (preprocess_outputs,
+    # spikesort_outputs) which force_restart should NOT suppress — the
+    # caller asked for a forced REBUILD, not for inputs to disappear.
+    # The cache-side suppression is still handled below by
+    # _clear_force_restart_analyzer_artifacts which deletes stale
+    # cached analyzers/manifests scoped to the OUTPUT well_out_dir only.
     try:
         discovered_source_names = _discover_analyzer_source_names(
             inputs=inputs,

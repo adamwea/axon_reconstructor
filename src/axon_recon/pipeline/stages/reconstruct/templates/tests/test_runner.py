@@ -531,7 +531,12 @@ def test_run_reconstruct_templates_analyzers_phase_force_restart_clears_only_sel
 	def _fake_iter_templates_phase_analyzers(**kwargs):
 		iter_inputs = kwargs["inputs"]
 		requested = [str(name) for name in list(kwargs.get("requested_source_names") or [])]
-		assert kwargs["alternate_well_out_dirs"] == []
+		# Per 2026-05-21 fix: force_restart NO LONGER blanks alternate_well_out_dirs.
+		# Alternates from --input-root are INPUT lookup paths; the cache-side
+		# clear is scoped to OUTPUT well_out_dir / analyzer_cache_dir only. The
+		# test's setup populates final_output_root which becomes the alt root,
+		# so we expect ONE alternate to be present here.
+		assert len(kwargs["alternate_well_out_dirs"]) == 1
 		requested_source_batches.append(requested)
 		use_existing_flags.append(bool(iter_inputs.phases.analyzers.segments.use_existing_analyzer))
 		assert requested == ["000_recA"]
@@ -586,6 +591,19 @@ def test_run_reconstruct_templates_analyzers_phase_force_restart_clears_only_sel
 		str(templates_out_dir / "context" / "analyzer_source_units" / "000_recA.json")
 	]
 	assert manifest_payload["unit_ids"] == [94, 95]
+	# Lock the invariant: clear scope is bound to OUTPUT paths only —
+	# nothing under final_output_root (the alternate well_out_dir from
+	# --input-root plumbing) should have been touched.
+	alt_well_dir = compute_mea_analysis_output_dir(
+		output_root=tmp_path / "alternate_outputs", data_file=h5_path, well="well000"
+	)
+	for cleared in (
+		payload["force_restart_artifacts"]["cleared_cache_paths"]
+		+ payload["force_restart_artifacts"]["cleared_manifest_paths"]
+	):
+		assert not str(cleared).startswith(str(alt_well_dir)), (
+			f"force_restart clear leaked into alternate well_out_dir: {cleared}"
+		)
 
 
 def test_run_reconstruct_templates_build_templates_phase_materializes_templates_from_payloads(tmp_path: Path, monkeypatch, caplog) -> None:
