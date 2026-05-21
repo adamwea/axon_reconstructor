@@ -147,4 +147,5 @@ Don't update it when:
 | **Active plans** | `dev/notes/plans/active/*.md` | Touched per-slice during execution |
 | **Trackers** (tech debt, issues, roadmap) | `dev/notes/trackers/*.md` | When new items surface |
 | **Commit log** | `dev/notes/commit_log.md` | After every `claude:` commit |
+| **Loop prompts** (autonomous-mode `/loop` invocations) | `dev/notes/loop_prompts/*.md` | When authorizations change or directives ship |
 | **Archive** (old guardrails, handoffs) | `dev/notes/archive/` | Don't touch unless rescuing context |

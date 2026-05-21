@@ -110,25 +110,7 @@ Manual items the loop can't or shouldn't do — surfaced here so the user has on
 
 - **[2026-05-19] Delete the smoke-test repo `adamwea/__gh_auth_smoke_test`** on GitHub. Created during DIRECTIVE D pre-execution verification of `gh repo create` (commit `2124d2c`); `gh repo delete` requires the `delete_repo` token scope which the current token doesn't have. Either delete via web UI at https://github.com/adamwea/__gh_auth_smoke_test/settings (bottom of page → "Delete this repository") OR run `gh auth refresh -h github.com -s delete_repo` to add the scope and let the loop clean it up itself in the future. Not blocking anything; just clutter.
 
-- **[2026-05-21] Update the standing `/loop` prompt template to bake in the loop-cadence ladder.** `guardrails/loop_cadence.md` now codifies: 90s actively iterating, 120s between slices, 300s audit-pass, 600-1200s blocked. The /loop prompt the user pastes when invoking the loop should include this ladder so future re-pastes inherit the rule. The loop can't edit the user's standing prompt template; this is the only piece of the 2026-05-21 cadence injection that needs a user-side edit.
-
-  **Suggested snippet to paste into the /loop prompt** (add anywhere in the "Standing constraints" or "Relaxed stance" section):
-
-  ```
-  - Loop cadence (per guardrails/loop_cadence.md): heartbeat reason format
-    "Next iteration in {N}s — {what's queued}". Cadence ladder:
-    - Actively iterating mid-slice: 90s
-    - Between slices, next candidate identified: 120s
-    - Queue empty / audit-pass mode: 270s (stay in cache window)
-    - Blocked on user gate / external state: 600-1200s
-    Never default to bare 1200-1800s without naming a gate.
-  ```
-
-  Note: the current `/loop` prompt template would be edited at the user's
-  `~/.claude.json` or wherever they store the custom `/loop` invocation
-  template — that's a user-only edit. The guardrail doc itself is the
-  authoritative reference; the snippet above is just a compact paste-in
-  for convenience.
+- **[2026-05-21 ✅ RESOLVED] Standing `/loop` prompt now lives at `dev/notes/loop_prompts/extended_autonomous.md`** (commit pending). Round 4 baked in (cadence ladder + phase-enable rule + real-data smoke log discipline + pre-cleared decisions for SLAy PR / kssynth slice 3b / Radivojevic gate). User pastes the fenced block from that file when re-firing the loop. Future revisions get version-tracked by `git log` on that path. CLAUDE.md pointers table updated to reference it.
 
 - **[2026-05-21 09:35 — UPDATE] ✅ kssynth slice 3b SHORT-PATH smoke CONFIRMED working end-to-end**. Empirical validation:
   ```
