@@ -1,10 +1,12 @@
 # kssynth recon-stage integration plan
 
-> **Status (2026-05-20)**: scaffolded; slice 0 (audit) only. Companion to
-> `ks_synthesizer_package_plan.md` slice 9 (which delegated this work
-> here). Sibling to `unitmatch_phase_plan.md` — kssynth's output is the
-> contract bridge that feeds `unitmatch_phase_plan` slice 5 (the
-> per-(chip, well) match table).
+> **Status (2026-05-21)**: slices 0/1a/1b/2a/2b/3a/4/4c SHIPPED.
+> Slice 3b (login-node smoke) pending — needs analyzer cache.
+> Slice 5 (enable + retire predecessors) destructive — gated on slice 3b.
+> Companion to `ks_synthesizer_package_plan.md` slice 9 (which delegated
+> this work here). Sibling to `unitmatch_phase_plan.md` — kssynth's
+> output is the contract bridge that feeds `unitmatch_phase_plan`
+> slice 5 (the per-(chip, well) match table).
 
 ## Motivation
 
@@ -280,6 +282,33 @@ analyzer cache).
 **Original 1-sentence spec (preserved)**: `plot_templates_v2`,
 `report_templates`, `axon_velocity_gtrs` each get a YAML toggle
 `templates_source: build_templates | kssynth`.
+
+### Slice 4c — `_load_merged_unit` accepts V2 filename layout — SHIPPED
+
+**SHIPPED 2026-05-21** — surgical loader extension uncovered while
+auditing the slice 4 ↔ slice 5 contract:
+
+- `_load_merged_unit` at `templates/runner.py:1224` only knew the
+  legacy cache filenames (`merged_contributing_template.npy` +
+  `merged_contributing_channel_locations.npy`). kssynth's slice 4
+  postprocess writes the V2 layout (`merged_template.npy` +
+  `merged_channel_locations.npy`) per the same convention
+  `core/reconstruct.py:100` already supports.
+- Downstream consumers of `_load_merged_unit` (`plot_templates_v2.py:153`,
+  `compute_template_similarity.py:73`, plus two internal callers in
+  `templates/runner.py`) would have raised `FileNotFoundError` when
+  reading kssynth output without this fix.
+- Change: `_load_merged_unit` now tries V2 filenames first, falls back
+  to legacy. Additive — no behavior change when only legacy files are
+  on disk.
+- 3 new tests in `templates/tests/test_runner.py`: legacy-only path,
+  V2-only path, V2-wins-when-both-present path. All pass; broader recon
+  stage sweep (650+ tests) stays green; `test_kssynth_phase.py` 8/8
+  pass.
+- This DOES NOT enable kssynth or change the templates-dir resolver
+  — slice 5 still needs to repoint `_resolve_templates_dirs` (or rely
+  on the postprocess landing the per-unit dir where the resolver
+  already looks).
 
 ### Slice 5 — enable in YAML + retire predecessor phases
 - Flip `kssynth.enabled: true` in both debug YAMLs.

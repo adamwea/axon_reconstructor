@@ -4370,3 +4370,64 @@ def test_run_reconstruct_templates_report_templates_phase_writes_pdf_from_v2_cir
 	assert summary["outputs"]["template_report_pdf"] == str(report_pdf)
 	assert summary["source_output_key"] == "template_circles_v2_png"
 	assert summary["consume"] == "plot_templates_v2"
+
+
+# ---------------------------------------------------------------------
+# kssynth_recon_integration slice 4c: _load_merged_unit accepts V2 filename
+# layout (`merged_template.npy` / `merged_channel_locations.npy`) so it
+# can read kssynth's per-unit postprocess output, AND retains legacy
+# (`merged_contributing_*.npy`) support so build_templates' cache still
+# loads.
+# ---------------------------------------------------------------------
+
+
+def test_load_merged_unit_reads_legacy_filenames(tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import _load_merged_unit
+
+	unit_dir = tmp_path / "unit_7"
+	unit_dir.mkdir()
+	tmpl = np.arange(12, dtype=float).reshape(3, 4)  # (n_channels, n_samples)
+	locs = np.asarray([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0]], dtype=float)
+	np.save(unit_dir / "merged_contributing_template.npy", tmpl)
+	np.save(unit_dir / "merged_contributing_channel_locations.npy", locs)
+
+	got_tmpl, got_locs = _load_merged_unit(unit_dir)
+	assert got_tmpl.shape == (3, 4)
+	assert got_locs.shape == (3, 2)
+	np.testing.assert_array_equal(got_tmpl, tmpl)
+
+
+def test_load_merged_unit_reads_v2_filenames(tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import _load_merged_unit
+
+	unit_dir = tmp_path / "unit_42"
+	unit_dir.mkdir()
+	tmpl = np.arange(20, dtype=float).reshape(4, 5)  # (n_channels, n_samples)
+	locs = np.asarray([[0.0, 0.0], [10.0, 0.0], [0.0, 10.0], [10.0, 10.0]], dtype=float)
+	np.save(unit_dir / "merged_template.npy", tmpl)
+	np.save(unit_dir / "merged_channel_locations.npy", locs)
+
+	got_tmpl, got_locs = _load_merged_unit(unit_dir)
+	assert got_tmpl.shape == (4, 5)
+	assert got_locs.shape == (4, 2)
+	np.testing.assert_array_equal(got_tmpl, tmpl)
+
+
+def test_load_merged_unit_prefers_v2_over_legacy_when_both_present(tmp_path: Path) -> None:
+	from axon_recon.pipeline.stages.reconstruct.templates.runner import _load_merged_unit
+
+	unit_dir = tmp_path / "unit_99"
+	unit_dir.mkdir()
+	legacy_tmpl = np.zeros((2, 3), dtype=float)
+	legacy_locs = np.zeros((2, 2), dtype=float)
+	v2_tmpl = np.ones((2, 3), dtype=float)
+	v2_locs = np.asarray([[1.0, 1.0], [2.0, 2.0]], dtype=float)
+	np.save(unit_dir / "merged_contributing_template.npy", legacy_tmpl)
+	np.save(unit_dir / "merged_contributing_channel_locations.npy", legacy_locs)
+	np.save(unit_dir / "merged_template.npy", v2_tmpl)
+	np.save(unit_dir / "merged_channel_locations.npy", v2_locs)
+
+	got_tmpl, got_locs = _load_merged_unit(unit_dir)
+	# V2 wins.
+	np.testing.assert_array_equal(got_tmpl, v2_tmpl)
+	np.testing.assert_array_equal(got_locs, v2_locs)

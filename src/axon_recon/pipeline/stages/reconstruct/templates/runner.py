@@ -1222,8 +1222,18 @@ def _resolve_templates_dirs(*, well_out_dir: Path, templates_out_dir: Path) -> t
 
 
 def _load_merged_unit(unit_dir: Path) -> tuple[np.ndarray, np.ndarray]:
-	tmpl = np.load(unit_dir / "merged_contributing_template.npy")
-	locs = np.load(unit_dir / "merged_contributing_channel_locations.npy")
+	# Try V2 (`merged_template.npy`) first, fall back to legacy
+	# (`merged_contributing_template.npy`). Mirrors `core/reconstruct.py`'s
+	# existing fallback so kssynth's per-unit postprocess output is
+	# consumable here without a separate loader.
+	v2_tmpl = unit_dir / "merged_template.npy"
+	v2_locs = unit_dir / "merged_channel_locations.npy"
+	if v2_tmpl.exists() and v2_locs.exists():
+		tmpl = np.load(v2_tmpl)
+		locs = np.load(v2_locs)
+	else:
+		tmpl = np.load(unit_dir / "merged_contributing_template.npy")
+		locs = np.load(unit_dir / "merged_contributing_channel_locations.npy")
 	locs = np.asarray(locs, dtype=float)[:, :2]
 	tmpl = np.asarray(tmpl)
 
