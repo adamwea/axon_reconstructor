@@ -181,8 +181,12 @@ Remaining phases (post-cleanup shape):
 - ~~`sort`~~ — SHIPPED
 - ~~`snapshot_sorter_output`~~ — SHIPPED
 - `concat_analyzer` — TODO
-- `cleanup_concat_binary` — TODO
-- `cleanup_analyzers` — TODO
+- ~~`cleanup_concat_binary`~~ — SHIPPED 2026-05-21. Dry-run skips
+  the rmtree of the concat_binary cache; reports target_dir as
+  would-be-removed.
+- ~~`cleanup_analyzers`~~ — SHIPPED 2026-05-21. Dry-run skips both
+  `_write_marker` AND the conditional rmtree; reports target_dir +
+  the legacy `cleanup_analyzers_dry_run` YAML knob in extras.
 
 For `sort` specifically (already done above): dry-run must NOT load
 Kilosort, NOT load CUDA, NOT load the recording into memory. Just

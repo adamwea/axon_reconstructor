@@ -3641,12 +3641,50 @@ def run_spikesort_cleanup_concat_binary_stage(
 		output_rel_root=output_rel_root,
 		relpath=str(getattr(stage_config, "cleanup_concat_binary_summary_json_relpath", "cache/concat_binary_cleanup_summary.json")),
 	)
-	_write_marker(summary_json, phase_name="cleanup_concat_binary")
 	target_dir = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=output_rel_root,
 		relpath=str(getattr(stage_config, "cleanup_concat_binary_relpath", "cache/concat_binary")),
 	)
+
+	# Dry-run short-circuit (dry_run_rollout slice 4 — cleanup_concat_binary).
+	# Skips the rmtree call; reports the target_dir as a would-be-removed
+	# output.
+	from ...config import get_dry_run_override
+
+	if get_dry_run_override():
+		from ...dry_run import write_dry_run_summary
+
+		write_dry_run_summary(
+			phase_name="spikesort.cleanup_concat_binary",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			summary_json_path=summary_json,
+			inputs_resolved=[
+				{
+					"name": "target_dir",
+					"path": str(target_dir),
+					"exists": bool(target_dir.exists()),
+				},
+			],
+			outputs_would_produce=[
+				{"name": "summary_json", "path": str(summary_json)},
+				{"name": "target_dir_would_be_removed", "path": str(target_dir)},
+			],
+			extra_fields={
+				"cleanup_concat_binary_enabled": bool(
+					getattr(stage_config, "cleanup_concat_binary_enabled", False)
+				),
+			},
+		)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={"summary_json": str(summary_json)},
+		)
+
+	_write_marker(summary_json, phase_name="cleanup_concat_binary")
 	removed_paths: list[str] = []
 	if bool(getattr(stage_config, "cleanup_concat_binary_enabled", False)) and target_dir.exists():
 		if target_dir.is_dir():
@@ -4069,7 +4107,6 @@ def run_spikesort_cleanup_analyzers_stage(
 			)
 		),
 	)
-	_write_marker(summary_json, phase_name="cleanup_analyzers")
 	target_dir = _resolve_under_spikesort_output_root(
 		well_out_dir=well_out_dir,
 		output_rel_root=output_rel_root,
@@ -4079,6 +4116,50 @@ def run_spikesort_cleanup_analyzers_stage(
 			or "concat_analyzer"
 		),
 	)
+
+	# Dry-run short-circuit (dry_run_rollout slice 4 — cleanup_analyzers).
+	# This phase already has its OWN `cleanup_analyzers_dry_run` YAML knob
+	# (logs the target without rmtree-ing). The new --dry-run override
+	# takes precedence: skip the whole phase body including the
+	# `_write_marker` call.
+	from ...config import get_dry_run_override
+
+	if get_dry_run_override():
+		from ...dry_run import write_dry_run_summary
+
+		write_dry_run_summary(
+			phase_name="spikesort.cleanup_analyzers",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			summary_json_path=summary_json,
+			inputs_resolved=[
+				{
+					"name": "target_dir",
+					"path": str(target_dir),
+					"exists": bool(target_dir.exists()),
+				},
+			],
+			outputs_would_produce=[
+				{"name": "summary_json", "path": str(summary_json)},
+				{"name": "target_dir_would_be_removed", "path": str(target_dir)},
+			],
+			extra_fields={
+				"cleanup_analyzers_enabled": bool(
+					getattr(stage_config, "cleanup_analyzers_enabled", False)
+				),
+				"cleanup_analyzers_dry_run_yaml": bool(
+					getattr(stage_config, "cleanup_analyzers_dry_run", True)
+				),
+			},
+		)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={"summary_json": str(summary_json)},
+		)
+
+	_write_marker(summary_json, phase_name="cleanup_analyzers")
 	enabled = bool(getattr(stage_config, "cleanup_analyzers_enabled", False))
 	dry_run = bool(getattr(stage_config, "cleanup_analyzers_dry_run", True))
 	removed_paths: list[str] = []

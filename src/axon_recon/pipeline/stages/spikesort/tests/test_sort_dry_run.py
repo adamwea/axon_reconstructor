@@ -161,6 +161,102 @@ def test_spikesort_sort_dry_run_disabled_phase_warning(
 	assert on_disk["sort_enabled"] is False
 
 
+def test_spikesort_cleanup_concat_binary_dry_run(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
+) -> None:
+	"""cleanup_concat_binary dry-run reports target_dir + skips the rmtree."""
+
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	well_out_dir = _stub_compute_well_out(monkeypatch, tmp_path)
+
+	# Materialize a fake concat_binary cache so we can confirm it's NOT
+	# deleted under --dry-run.
+	target_dir = well_out_dir / "spikesort_outputs" / "cache" / "concat_binary"
+	target_dir.mkdir(parents=True, exist_ok=True)
+	(target_dir / "sentinel.bin").write_bytes(b"not deleted")
+
+	# Stub `_write_marker` to raise — under dry-run it must NOT fire.
+	def _fail_marker(*args, **kwargs):
+		raise AssertionError("_write_marker should not run during dry-run")
+
+	monkeypatch.setattr(spikesort_runner, "_write_marker", _fail_marker)
+
+	stage_config = SimpleNamespace(
+		cleanup_concat_binary_enabled=True,
+		cleanup_concat_binary_relpath="cache/concat_binary",
+		cleanup_concat_binary_summary_json_relpath="cache/concat_binary_cleanup_summary.json",
+	)
+	set_dry_run_override(True)
+
+	result = spikesort_runner.run_spikesort_cleanup_concat_binary_stage(
+		h5_path=tmp_path / "data.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path,
+		output_rel_root="spikesort_outputs",
+		stage_config=stage_config,
+		force_restart=False,
+	)
+	# Sentinel survives the dry-run.
+	assert (target_dir / "sentinel.bin").exists()
+
+	summary_path = (
+		well_out_dir / "spikesort_outputs" / "cache" / "concat_binary_cleanup_summary.json"
+	)
+	on_disk = json.loads(summary_path.read_text())
+	assert on_disk["status"] == "dry_run_ok"
+	assert on_disk["phase"] == "spikesort.cleanup_concat_binary"
+	output_names = [item["name"] for item in on_disk["outputs_would_produce"]]
+	assert "target_dir_would_be_removed" in output_names
+
+
+def test_spikesort_cleanup_analyzers_dry_run(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
+) -> None:
+	"""cleanup_analyzers dry-run reports target_dir + skips both the
+	`_write_marker` AND the conditional rmtree. The phase's own
+	`cleanup_analyzers_dry_run` YAML knob is reported via extras so the
+	caller can see the v1 behavior would also have logged-but-not-deleted."""
+
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	well_out_dir = _stub_compute_well_out(monkeypatch, tmp_path)
+
+	target_dir = well_out_dir / "spikesort_outputs" / "concat_analyzer"
+	target_dir.mkdir(parents=True, exist_ok=True)
+
+	def _fail_marker(*args, **kwargs):
+		raise AssertionError("_write_marker should not run during dry-run")
+
+	monkeypatch.setattr(spikesort_runner, "_write_marker", _fail_marker)
+
+	stage_config = SimpleNamespace(
+		cleanup_analyzers_enabled=True,
+		cleanup_analyzers_relpath="concat_analyzer",
+		cleanup_analyzers_summary_json_relpath="concat_analyzer_cleanup_summary.json",
+		cleanup_analyzers_dry_run=True,
+		concat_analyzer_relpath="concat_analyzer",
+	)
+	set_dry_run_override(True)
+
+	spikesort_runner.run_spikesort_cleanup_analyzers_stage(
+		h5_path=tmp_path / "data.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path,
+		output_rel_root="spikesort_outputs",
+		stage_config=stage_config,
+		force_restart=False,
+	)
+	summary_path = (
+		well_out_dir / "spikesort_outputs" / "concat_analyzer_cleanup_summary.json"
+	)
+	on_disk = json.loads(summary_path.read_text())
+	assert on_disk["status"] == "dry_run_ok"
+	assert on_disk["phase"] == "spikesort.cleanup_analyzers"
+	assert on_disk["cleanup_analyzers_enabled"] is True
+	assert on_disk["cleanup_analyzers_dry_run_yaml"] is True
+
+
 def test_spikesort_snapshot_sorter_output_dry_run(
 	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
 ) -> None:
