@@ -3088,6 +3088,7 @@ def iter_spikeinterface_analyzers(
 		segments_build_if_missing=segments_build_if_missing,
 		requested_source_names=requested_source_names,
 		limit_segments=limit_segments,
+		alternate_well_out_dirs=tuple(alternate_well_out_dirs or ()),
 	)
 	LOGGER.info(
 		"Streaming SpikeInterface analyzers: well_out_dir=%s source_count=%d include_concat=%s include_segments=%s",
