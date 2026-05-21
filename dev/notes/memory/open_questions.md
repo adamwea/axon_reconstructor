@@ -27,7 +27,22 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
 
-## Radivojevic slice 3 USER GATE 3 — STAGE 1 COMPLETE end-to-end (2026-05-21)
+## Radivojevic slice 3 USER GATE 3 — ✅ RESOLVED 2026-05-21 (PROCEED FULLY AUTONOMOUS through Stage 2 AND Stage 3)
+
+**User authorized**: Loop proceeds through Stage 2 (image skeletonization: sub-steps 6a + 6b + 6c) AND Stage 3 (multi-step tracking / peak interlinking) **without intermediate gates**. No pause between stages. First end-to-end real-data run becomes the natural next gate.
+
+**Concrete spec for the next gate trigger** (the first real-data smoke):
+- Pick a representative unit from M08073 80k DMEM well000 (DIV 36, `260326/M08073/000208/well000` is the known-good baseline — see `smoke_log.md` entry 2026-05-18).
+- Load its `merged_template.npy` + `merged_channel_locations.npy` from the reference path (read-only).
+- Run the full Stage 1 → Stage 2 → Stage 3 pipeline.
+- Save the output axon trajectory under `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_first_run/<unit_id>/`.
+- **MANDATORY**: file a HARD-gate entry in `dev/notes/memory/diagnostics_to_review.md` with the visualization (per CLAUDE.md visual-diagnostics rule — first real output of a new algorithm). Hard gate because if the visual is wrong, the whole subsequent integration into the recon stage is wrong.
+- **MANDATORY**: file a real-data smoke entry in `dev/notes/trackers/smoke_log.md` per the smoke-log discipline rule.
+- Then PAUSE for user review — that's the next user gate.
+
+**Original gate body preserved below for archeology:**
+
+## Radivojevic slice 3 USER GATE 3 — original body (2026-05-21)
 
 Per the slice 3 plan ("every 2-3 sub-steps; switch to another plan
 until user reviews"), the loop has shipped 3 more sub-steps since
