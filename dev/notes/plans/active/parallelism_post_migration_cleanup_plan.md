@@ -448,6 +448,43 @@ Identify which kwarg the production retry path branches on and what spikeinterfa
 
 ---
 
+### Slice 9.5 — `srun`/SLURM-supplied tasks + cpus_per_task must win over YAML defaults at EACH PHASE (USER 2026-05-21)
+
+**Goal**: when the user runs a pipeline invocation under `srun -n N -c K` (with `K` ≠ the YAML's `task_allocation.cpus_per_task`), the runtime must honor the srun values — INCLUDING under `--task-backend local_affinity`, not just under `mpi`. The YAML's `cpus_per_task` / rank count should remain a *default* used only when nothing is specified externally (no `SLURM_CPUS_PER_TASK` / `SLURM_NTASKS` env, no CLI override). **This precedence must hold at each PHASE level**, since per-phase resource budgets resolve their own `cpus_per_task` for the SI / inner-worker n_jobs derivation — a phase that ignores the env-supplied value pins SI workers at the YAML default and silently wastes the rest of the allocation.
+
+**Observed bug (2026-05-21 smoke)**: user ran `srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread shifter ... axon-recon stages reconstruct.analyzers --task-backend local_affinity ...`. Log showed:
+- srun made cpus 0-63 + HT 128-191 available (`previous_cpus=0-63,128-191`).
+- Pipeline narrowed the per-task affinity to `cpus=0-15` per the YAML's `task_allocation.cpus_per_task: 16`.
+- SI took `n_jobs=16` from that, leaving 48 physical cores idle for the duration of the analyzers heavy run (~10-20 min).
+
+**Where the precedence must be inserted**:
+- `src/axon_recon/pipeline/cpu_allocation.py::_derive_cpus_per_task` currently only reads `config.cpus_per_task` from `TaskAllocationConfig`. New precedence ladder (highest → lowest): explicit CLI flag (if/when added) → `SLURM_CPUS_PER_TASK` env → YAML `task_allocation.cpus_per_task` → fallback `1`. Source tag in the returned tuple should reflect which won (`"slurm_env"`, `"yaml"`, `"cli"`, `"default"`).
+- Also check `SLURM_NTASKS` for rank-count derivation in MPI mode — currently the pipeline trusts the MPI rank topology to do the right thing, but a quick audit should confirm there isn't a YAML `mpi.ranks` field that overrides it.
+- Per-phase resource-class resolution (in the analyzers / generate_gtrs / etc. phases) reads `cpus_per_task` indirectly via the `TaskAllocationPlan`'s `cpus_per_task` field. **Audit that EVERY phase derives its SI `n_jobs` (or equivalent inner-worker count) through `resolve_inner_worker_count` with the env-aware `cpus_per_task`**, NOT a separately-cached YAML value. The smoke log showed the analyzer phase using `n_jobs=16` and SI's `compute_waveforms` using `workers: 16 processes fork` — same number, two derivation paths. Both need to flow from the same resolved cpus_per_task.
+
+**A. Code edits**:
+- `pipeline/cpu_allocation.py::_derive_cpus_per_task`: add the precedence ladder above. Tests:
+  - SLURM_CPUS_PER_TASK=64, YAML=16 → returns (64, "slurm_env").
+  - SLURM_CPUS_PER_TASK unset, YAML=16 → returns (16, "yaml").
+  - Neither set → returns (1, "default").
+- Audit every phase's `cpus_per_task` consumer (grep `cpus_per_task`, `slot.cpu_count`, `phase_cpus_per_task` across `pipeline/stages/`). For each, confirm the path goes through the resolver — not a stale YAML field cached at config-load time.
+
+**B. YAML doc**:
+- Update the comment block at `dev/debug_NERSC/debug.runtime.yml` line 85 onwards to document the new precedence ladder. Currently the comment says "Recommended full-node usage: `srun -n 8 -c 16 --threads-per-core=1`" — fine for MPI mode, but should add: "For single-rank smokes, use `srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread` and the runtime will pick up `SLURM_CPUS_PER_TASK=128`."
+
+**C. Guardrail update**:
+- `dev/notes/guardrails/parallelism_agent_guardrails.md` (or the post-cleanup version per Slice 10): codify the precedence ladder as a contract.
+
+**D. CLI-flag follow-up** (optional, parked here for visibility): user noted "I specifically want tasks and procs flags to specify even if we're running in local affinity mode". After the env-precedence slice ships, a follow-up could add `--cpus-per-task` and/or `--ntasks` CLI flags that override even srun's env vars. That's a separate slice; not blocking this one.
+
+**Smoke verification** (must rerun after the slice lands):
+- The 2026-05-21 kssynth slice 3b heavy smoke: `srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread shifter ... stages reconstruct.analyzers ...`. Expected: log shows `Applied task CPU affinity task_slot=0 cpus=0-127` (or the full env-supplied range), `n_jobs=128` derivation, `compute_waveforms (workers: 128 processes fork)`. Runtime should drop from ~10-20 min to a few minutes.
+- `srun -n 8 -c 16 --task-backend mpi ...` (the YAML's recommended shape): unchanged behavior — env says cpus_per_task=16, YAML says cpus_per_task=16, both agree.
+
+**Commit**: `claude: srun/SLURM env-supplied cpus_per_task wins over YAML defaults (parallelism cleanup slice 9.5)`
+
+---
+
 ### Slice 10 — Update `parallelism_agent_guardrails.md`
 
 **Goal**: lock the contract doc to the post-cleanup vocabulary. Each prior slice was supposed to update this doc inline, but several slices are pending (slices 1–4 of *this* plan introduce vocabulary changes, e.g. removing `well_workers`).
