@@ -62,9 +62,9 @@ Two new analysis-stage phases; names TBD in slice 2 — candidates:
 Both:
 - Live in `pipeline/stages/analysis/`.
 - `enabled: false` default; opt-in per run.
-- All scope flags per `guardrails/scope_flags.md`.
-- `--dry-run` per `guardrails/dry_run.md`.
-- `--replot` (these are plot phases) per `guardrails/force_restart.md`.
+- All scope flags per `brain/guardrails/scope_flags.md`.
+- `--dry-run` per `brain/guardrails/dry_run.md`.
+- `--replot` (these are plot phases) per `brain/guardrails/force_restart.md`.
 - Color palette + per-unit color assignment shared between both phases
   via a common helper module.
 
@@ -173,7 +173,7 @@ DIVs (read-only inputs from `analyzed_data/`; outputs to
 `/pscratch/.../dev_outputs/chip_layout_phase_split/`).
 
 Both phases produce their plots. HARD-gate entries in
-`memory/diagnostics_to_review.md`:
+`brain/diagnostics_to_review.md`:
 
 1. Phase A timeline grid — does color consistency look right across
    sessions? Are reconstructions visually trackable over time?

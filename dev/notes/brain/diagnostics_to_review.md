@@ -5,7 +5,7 @@ Visual / tabular diagnostics that Claude produced during slices and that the use
 ## How this works
 
 - When a slice's verification benefits from a visual or tabular artifact, Claude generates it during the smoke run, saves it under `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/`, and adds an entry below before committing.
-- The commit message references this file ("see `memory/diagnostics_to_review.md` entry <N>") so the user knows to check it.
+- The commit message references this file ("see `brain/diagnostics_to_review.md` entry <N>") so the user knows to check it.
 - The user reviews when they can — no synchronous blocking unless Claude flagged the entry as a hard gate.
 - Once reviewed, the user either marks the entry `✅ approved <date>` or replies with corrective feedback; Claude then updates the entry to `resolved` or addresses the feedback in a follow-up slice.
 
@@ -67,7 +67,7 @@ Keep the list short. When an entry is `approved`, leave it for ~one week so the 
   - **Stage 1**: 12 of 266 channels had peaks (kilosort templates ARE sparse — only ~6 channels around the spike's source typically active; 12 is plausible). 9-STD step caught 97 peaks; 2-STD step caught 66 more; 1-STD step caught 9 more.
   - **Stage 2**: 933 unique skeleton xy pixels. If you plot `skeleton_union_xy.npy` as a 2D image, expect a small cluster of pixels around the channels with peaks (NOT a sprawling structure — this is a single-recording kilosort template, not a multi-segment merged template).
   - **Stage 3**: 72 edges total (52 direct + 1 skel-assisted + 19 indirect). The direct-link count being the majority is paper-consistent (paper said direct catches ~70%; we got 72%).
-- **Critical follow-ups** (logged in `memory/open_questions.md`):
+- **Critical follow-ups** (logged in `brain/open_questions.md`):
   - MAD-noise-estimator-on-sparse-template bug (noise_std=0 → thresholds=0 → flood of false positives). Workaround: use `noise_estimator='window'`. Real fix candidates documented in smoke_log.md.
   - GATE 3 spec's `merged_template.npy` data-layout question (3 questions for user).
 - **Status**: SOFT-gate filed; **HARD-gate (Stage 3 + plot_recons side-by-side) still pending** the user's resolution of the data-layout question OR the kssynth slice 3b heavy smoke producing the merged-template artifacts the comparison needs.

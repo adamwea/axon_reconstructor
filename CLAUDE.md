@@ -1,6 +1,6 @@
 # Claude — axon_recon repo entry point + loop protocol
 
-**Read this first every session.** This file is the canonical entry point. It points at the rules (`dev/notes/guardrails/`), the working memory (`dev/notes/memory/`), the active plans (`dev/notes/plans/active/`), and the trackers (`dev/notes/trackers/`). It also encodes the loop protocol — when to compact, fork, spawn Agents; when to use which model; when smoke tests are required.
+**Read this first every session.** This file is the canonical entry point. It points at the **brain** (`dev/notes/brain/` — protected goal slot + guardrails + verifier anchor + dependency graph + metrics + trusted outputs + current_state + open_questions + diagnostics + refs), the **active plans** (`dev/notes/plans/active/`), the **trackers** (`dev/notes/trackers/`), the **commit log** (`dev/notes/commit_log.md`), and the **loop prompts** (`dev/notes/loop_prompts/`). It encodes the loop protocol — entry order, slice protocol, context-window management, model selection, smoke-test requirements.
 
 ## Entry protocol (every session)
 
@@ -9,9 +9,9 @@
 3. **Glance at `dev/notes/brain/dependency_graph.md`** for nodes the current slice's surface area touches — this drives the change-propagation list (what needs re-verification when contracts shift). If the graph is still skeleton (pre-Z1), default to conservative re-verification of trusted-output baselines.
 4. **Glance at `dev/notes/brain/metrics.md`** for any metric whose refinement-target overlaps the slice surface. Plan to measure post-slice + auto-rollback if degraded.
 5. Read this file (CLAUDE.md) — entry protocol + slice protocol + context-window rules.
-6. Read `dev/notes/guardrails/README.md` and the topic files it lists. Treat as locked contracts unless the user explicitly asks for a guardrail change.
-7. Read `dev/notes/memory/current_state.md` — shipped / in-flight / queued. **§"⚡ USER INJECTIONS" is authoritative**; apply at the earliest applicable slice. Promote resolved injections to guardrails / slice protocol / plans, then delete the entry.
-8. Read `dev/notes/memory/open_questions.md` for pending decisions (including `🔎 Plan-audit findings` and any `🛑 PRE-DIAGNOSTIC GATE` blocks).
+6. Read `dev/notes/brain/guardrails/README.md` and the topic files it lists. Treat as locked contracts unless the user explicitly asks for a guardrail change.
+7. Read `dev/notes/brain/current_state.md` — shipped / in-flight / queued. **§"⚡ USER INJECTIONS" is authoritative**; apply at the earliest applicable slice. Promote resolved injections to guardrails / slice protocol / plans, then delete the entry.
+8. Read `dev/notes/brain/open_questions.md` for pending decisions (including `🔎 Plan-audit findings` and any `🛑 PRE-DIAGNOSTIC GATE` blocks).
 9. Glance at `dev/notes/plans/active/` to know what plans exist; read the one you're working on cover-to-cover before starting a slice from it.
 
 ## Slice protocol (every commit-sized unit of work)
@@ -20,8 +20,8 @@
 2. **Plan the diff** before editing: list files touched, anticipated test impact, smoke-test requirement (see §"When a smoke test is required" below), whether the slice will produce visual diagnostics that need user review.
 3. **Edit in scope.** Don't refactor adjacent code, don't add features the slice didn't authorize, don't add error handling for impossible cases. The `Doing tasks` section of the system prompt is the authority on this.
 4. **Run targeted tests** for the modules touched. Pre-existing failures don't count against the slice; new failures block the commit.
-5. **Run a smoke test** when required (see §below). Use `--dry-run` for fast wiring confirmation when applicable (see `guardrails/dry_run.md`).
-6. **Generate visual diagnostics when the slice's claim depends on them** (see §"Visual diagnostics" below). Save under `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/`. Add an entry to `dev/notes/memory/diagnostics_to_review.md` BEFORE commit.
+5. **Run a smoke test** when required (see §below). Use `--dry-run` for fast wiring confirmation when applicable (see `brain/guardrails/dry_run.md`).
+6. **Generate visual diagnostics when the slice's claim depends on them** (see §"Visual diagnostics" below). Save under `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/`. Add an entry to `dev/notes/brain/diagnostics_to_review.md` BEFORE commit.
 7. **Update YAML hygiene as you go.** Any slice that touches phase code, CLI flags, config schema, or phase wiring MUST update both `dev/debug_NERSC/debug.runtime.yml` AND `dev/debug_NERSC/debug.data.yml` so they remain an accurate mechanical source of truth for what the pipeline runs. Remove dead phase blocks, dead `resource_class` entries, dead CLI flag defaults; add new keys for new phases/flags; clear `# TODO Claude:` annotations once their target is resolved. (Promoted from USER INJECTIONS 2026-05-21.)
 8. **Commit** with a `claude:` subject prefix; descriptive body explaining what changed and why. Include a `Co-Authored-By: Claude Opus 4.7 …` line. If the slice added a diagnostic entry, reference it in the commit body.
 9. **Append a line to `dev/notes/commit_log.md`** noting the slice + the plan/tracker it advanced.
@@ -47,7 +47,7 @@ A passing test suite is necessary but not sufficient. Some things can only be co
 - **Soft gate**: the user reviews when they can; downstream slices proceed in the meantime. Default for most diagnostics.
 - **Hard gate**: downstream slices on the same code path WAIT for user approval before starting. Use sparingly — only when getting the picture wrong would invalidate everything downstream (e.g. a new template extraction algorithm's first output: if it's wrong, every plot that uses it is wrong).
 
-**Format**: entries in `dev/notes/memory/diagnostics_to_review.md`. See that file for the schema.
+**Format**: entries in `dev/notes/brain/diagnostics_to_review.md`. See that file for the schema.
 
 ## Commit cadence & rollback
 
@@ -117,7 +117,7 @@ A smoke test = run the affected code path end-to-end on real data (or a tight sy
 - Refactoring within a function where the function's contract is unchanged
 
 **Smoke test scoping ladder** — try cheapest first:
-1. **`--dry-run`** on the affected phase. Should complete in seconds. Confirms wiring + input resolution. See `guardrails/dry_run.md`.
+1. **`--dry-run`** on the affected phase. Should complete in seconds. Confirms wiring + input resolution. See `brain/guardrails/dry_run.md`.
 2. **Targeted login-node smoke** — a few wells / a few units / a few segments at most. Use `--task-backend local_affinity` (NOT mpi, NOT srun). Cap at **64 processes total**. Use `--limit-wells`, `--limit-wells-per-dataset`, `--limit-units`, `--limit-segments` to keep the scope small. The login node is shared infrastructure; don't sit on it for hours. The point of this tier is "did the algorithm actually run on real data on one or two units" — NOT "did it converge".
 3. **Bigger than that — stop and hand back to the user.** Larger smoke tests need a real allocation. If the slice needs an interactive GPU allocation (`spikesort.sort`, `merge_SLAy`, anything GPU), a multi-node CPU allocation (full reconstruct, full preprocess sweep), or just more time than the login node should hold, surface the exact `salloc` + `srun` command and let the user start the allocation and kick off the run themselves. Don't silently start interactive jobs.
 4. **Full-scope sbatch run.** User-initiated only. Claude doesn't submit sbatch jobs.
@@ -140,8 +140,8 @@ CLAUDE.md is the contract for how Claude works in this repo. Update it when:
 
 Don't update it when:
 - A specific code contract is established → that's a `guardrails/*.md` change
-- A specific item is in-flight or shipped → that's a `memory/current_state.md` change
-- A new bug or open question surfaces → that's `memory/open_questions.md` or `trackers/issues.md`
+- A specific item is in-flight or shipped → that's a `brain/current_state.md` change
+- A new bug or open question surfaces → that's `brain/open_questions.md` or `trackers/issues.md`
 
 ## Pointers
 
@@ -149,19 +149,20 @@ Don't update it when:
 |---|---|---|
 | **TODO** (user-facing next-actions list) | `dev/notes/TODO.md` | When tasks land or surface; user prunes resolved |
 | **Brain — objectives** (persistent goal slot) | `dev/notes/brain/objectives.md` | Rarely; user-anchored |
+| **Brain — current_state** (shipped/in-flight/queued + USER INJECTIONS) | `dev/notes/brain/current_state.md` | Continuously; old facts get deleted not commented out |
+| **Brain — open_questions** (pending decisions + plan-audit findings) | `dev/notes/brain/open_questions.md` | When the loop surfaces a multiple-choice question; user resolves inline |
+| **Brain — diagnostics pending review** | `dev/notes/brain/diagnostics_to_review.md` | Whenever a slice files a soft- or hard-gate visual diagnostic |
 | **Brain — trusted outputs** (verifier anchor) | `dev/notes/brain/trusted_outputs.md` | When user pins / promotes; loop appends candidates |
 | **Brain — dependency graph** (DAG + propagation) | `dev/notes/brain/dependency_graph.md` | Loop updates as side-effect of slices changing contracts |
 | **Brain — metrics** (rollback triggers) | `dev/notes/brain/metrics.md` | Loop updates baselines after smokes; new metrics need user approval |
 | **Brain — slice contracts** (compressed returns) | `dev/notes/brain/slice_contracts.md` | Append-only; one entry per shipped slice |
-| **Guardrails** (locked code contracts) | `dev/notes/guardrails/*.md` | Rarely; only when a contract changes |
-| **Working memory** (current state, open questions, scratch) | `dev/notes/memory/*.md` | Often; refined as Claude works |
+| **Brain — notes** (scratch / debugging trails) | `dev/notes/brain/notes.md` | Free-form; prune aggressively |
+| **Brain — guardrails** (locked code contracts) | `dev/notes/brain/guardrails/*.md` | Rarely; only when a contract changes |
+| **Brain — refs** (reference docs / paper summaries / audits) | `dev/notes/brain/refs/*.md` | When background reading or external-spec mining produces a doc the loop needs |
 | **Active plans** | `dev/notes/plans/active/*.md` | Touched per-slice during execution |
-| **Trackers** (tech debt, issues, roadmap) | `dev/notes/trackers/*.md` | When new items surface |
-| **Salloc smokes queued** | `dev/notes/trackers/salloc_smokes_queued.md` | When the loop needs to surface a smoke that requires an interactive allocation (user-only to run). Loop appends; user prunes when the smoke completes. |
-| **Real-data smoke log** | `dev/notes/trackers/smoke_log.md` | Append-only log of completed real-data smokes (login-node or salloc) with bug→fix chains. |
+| **Trackers — tech_debt / issues / roadmap** | `dev/notes/trackers/*.md` | When new items surface |
+| **Trackers — real-data smoke log** | `dev/notes/trackers/smoke_log.md` | After every real-data smoke (login-node or salloc) with bug→fix chains |
+| **Trackers — salloc smokes queued** | `dev/notes/trackers/salloc_smokes_queued.md` | Loop appends interactive-allocation smokes; user runs; entry deleted on completion |
 | **Commit log** | `dev/notes/commit_log.md` | After every `claude:` commit |
 | **Loop prompts** (autonomous-mode `/loop` invocations) | `dev/notes/loop_prompts/*.md` | When authorizations change or directives ship |
-| **Real-data smoke log** | `dev/notes/trackers/smoke_log.md` | After every smoke on real data (login-node or salloc) |
-| **Salloc smokes queued** (interactive-allocation work) | `dev/notes/trackers/salloc_smokes_queued.md` | Loop appends as needed; user runs; entry deleted on completion |
-| **Diagnostics pending review** | `dev/notes/memory/diagnostics_to_review.md` | Whenever a slice files a soft- or hard-gate visual diagnostic |
 | **Archive** (old guardrails, handoffs) | `dev/notes/archive/` | Don't touch unless rescuing context |

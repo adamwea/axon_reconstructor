@@ -156,7 +156,7 @@ grep -rn "^  profiles:" dev/debug_NERSC/*.yml src/axon_recon/*.yml
 **Edits**:
 - `dev/debug_NERSC/examples/` (if exists): drop `--profile` from any example commands.
 - `dev/debug_NERSC/jobs/sans_bombcell_rerun/sbatches/*.sbatch` (per tech-debt entry, "every sbatch currently has to redundantly pass `--profile perlmutter_gpu`"): the actual count from inventory was 1, but a final sweep confirms.
-- `dev/notes/guardrails/parallelism_agent_guardrails.md` (if present): codify "supply comes from the environment, not from YAML profiles" as a contract.
+- `dev/notes/brain/guardrails/parallelism_agent_guardrails.md` (if present): codify "supply comes from the environment, not from YAML profiles" as a contract.
 - `dev/notes/trackers/tech_debt.md`: mark the "Minimize / eliminate `resources.profiles`" entry RESOLVED with a pointer to this plan.
 - Update CLAUDE.md if it referenced `--profile` or profiles.
 

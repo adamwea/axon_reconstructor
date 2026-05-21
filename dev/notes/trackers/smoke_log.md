@@ -23,8 +23,8 @@ Append-only log of smoke tests against **real data** — the bugs they revealed 
 - **Quantitative result** (when applicable): templates / units / spikes counts, runtime, output size
 - **Bugs revealed**:
   - <bug 1> → fixed in commit `<hash>` (<description>)
-  - <bug 2> → still pending, tracked in `trackers/issues.md` / `memory/open_questions.md`
-- **Diagnostics**: `dev_outputs/<slice>/diagnostics/...` (link to `memory/diagnostics_to_review.md` entry if HARD-gate)
+  - <bug 2> → still pending, tracked in `trackers/issues.md` / `brain/open_questions.md`
+- **Diagnostics**: `dev_outputs/<slice>/diagnostics/...` (link to `brain/diagnostics_to_review.md` entry if HARD-gate)
 - **Regression baseline established**: <yes/no — if yes, this is the count future smokes target>
 - **Status**: closed | followup-pending (<link>)
 ```
@@ -66,7 +66,7 @@ Don't prune. This is a historical record. If an entry becomes superseded, link f
   - Concat-analyzer plumbing was producing under-counted templates → fixed by flipping `legacy_include_concat: True → False` + hard-set `include_concat=False` in materialize call sites (pre-this-smoke)
   - SLAy `accept_merge` `==`-assertion crashed on big wells (>700 KS units) for same-time intra-cluster collisions → fixed via `>=` relax (commit `426ba71`)
   - SLAy `accept_all_merges` was leaving aux-tsvs stale, causing KS-extractor inner-join to drop merged unit IDs → fixed by syncing `cluster_KSLabel.tsv` / `cluster_Amplitude.tsv` / `cluster_ContamPct.tsv` to match `cluster_group.tsv` post-merge (commit `f7c2173`)
-- **Diagnostics**: pre-`memory/diagnostics_to_review.md` schema; record lives in commit messages + `current_state.md` "Known good baseline" section
+- **Diagnostics**: pre-`brain/diagnostics_to_review.md` schema; record lives in commit messages + `current_state.md` "Known good baseline" section
 - **Regression baseline established**: **YES — 176 reconstructed templates on this well/DIV is the regression target for any future recon-stage change.**
 - **Status**: closed. Re-validated by all subsequent recon-stage changes via the count check.
 
@@ -106,7 +106,7 @@ Don't prune. This is a historical record. If an entry becomes superseded, link f
     1. Per-channel MAD then take median of non-zero per-channel STDs.
     2. Auto-pick a quiescent time window via lowest-energy frames.
     3. Document `noise_estimator="window"` as the recommended default for sparse-template input (kilosort) and `"mad"` for dense input (full-recording STA).
-  - **GATE 3 spec assumed `merged_template.npy` files exist on disk** → they don't. Per-unit STAs are inside `gtr.pkl` (axon_velocity-pickled, shifter-only). Loop substituted with raw kilosort `templates.npy`. Documented in `memory/open_questions.md` as 3 questions for user.
+  - **GATE 3 spec assumed `merged_template.npy` files exist on disk** → they don't. Per-unit STAs are inside `gtr.pkl` (axon_velocity-pickled, shifter-only). Loop substituted with raw kilosort `templates.npy`. Documented in `brain/open_questions.md` as 3 questions for user.
 - **Diagnostics**: `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_first_run/cluster_67/radivojevic_recon/`
   - `run_summary.json` — full result metadata
   - `peaks_all.tsv` — per-step peak list (channel_idx, time_idx, amplitude)

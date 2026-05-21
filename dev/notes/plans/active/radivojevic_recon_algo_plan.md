@@ -76,9 +76,9 @@ another plan until the user answers. Gates at slices 1, 3, 4, 6, 9.
 ### Slice 1 — Literature + code search (RESEARCH ONLY, no code changes) — SHIPPED 2026-05-21
 
 **Deliverables:**
-- ✅ `dev/notes/refs/radivojevic2023_paper.md` — citation (DOI 10.7554/eLife.86512, published 2023-08-22) + data availability (Dryad doi:10.5061/dryad.gxd2547r1) + code availability finding (**NONE** — clean-room required) + lineage of related papers (Buccino 2022 → axon_velocity, Bullmann 2019 → hana, Radivojevic 2016/2017 → earlier methods).
-- ✅ `dev/notes/refs/radivojevic2023_algorithm_summary.md` — algorithm spec (3 stages: adaptive thresholding + skeletonization + multi-step tracking), input/output spec, hardware assumptions (HD-MEA ~17.5 μm pitch, 20 kHz), input compat table vs `axon_velocity_gtrs`, list of slice-3 hyperparameter unknowns flagged for tuning.
-- ✅ USER GATE 1 questions logged to `dev/notes/memory/open_questions.md` under "Radivojevic slice 1 user-gate review" (6 questions; question 3 — averaged-vs-per-spike STA — is the highest-impact one).
+- ✅ `dev/notes/brain/refs/radivojevic2023_paper.md` — citation (DOI 10.7554/eLife.86512, published 2023-08-22) + data availability (Dryad doi:10.5061/dryad.gxd2547r1) + code availability finding (**NONE** — clean-room required) + lineage of related papers (Buccino 2022 → axon_velocity, Bullmann 2019 → hana, Radivojevic 2016/2017 → earlier methods).
+- ✅ `dev/notes/brain/refs/radivojevic2023_algorithm_summary.md` — algorithm spec (3 stages: adaptive thresholding + skeletonization + multi-step tracking), input/output spec, hardware assumptions (HD-MEA ~17.5 μm pitch, 20 kHz), input compat table vs `axon_velocity_gtrs`, list of slice-3 hyperparameter unknowns flagged for tuning.
+- ✅ USER GATE 1 questions logged to `dev/notes/brain/open_questions.md` under "Radivojevic slice 1 user-gate review" (6 questions; question 3 — averaged-vs-per-spike STA — is the highest-impact one).
 
 **Note on PDF reading**: the loop's environment lacks `pdftoppm` /
 `pdftotext`; the pre-populated literature/ PDFs couldn't be read in
@@ -109,7 +109,7 @@ produce a written algorithm summary; identify input requirements.
   also read the Radivojevic + Rostedt Punga paper if it covers
   algorithm detail.
 - **Identify the paper precisely** — record DOI + title + author list
-  in this plan + in a new `dev/notes/refs/radivojevic2023_paper.md`.
+  in this plan + in a new `dev/notes/brain/refs/radivojevic2023_paper.md`.
 - **Search for public code** via WebSearch + WebFetch tools:
   - GitHub: search "Radivojevic", "Hierlemann" (likely ETH Zurich lab
     affiliation), "MaxWell Biosystems".
@@ -117,7 +117,7 @@ produce a written algorithm summary; identify input requirements.
   - The paper's supplementary materials / data availability section.
   - Lab pages: Hierlemann group at ETHZ.
   - Document findings in this plan (positive OR negative).
-- **Write `dev/notes/refs/radivojevic2023_algorithm_summary.md`** — a
+- **Write `dev/notes/brain/refs/radivojevic2023_algorithm_summary.md`** — a
   structured summary: algorithm name, inputs, processing steps,
   outputs, hyperparameters, evaluation metrics, figure-level plot
   inventory. This is the source-of-truth doc the rest of the plan
@@ -127,8 +127,8 @@ produce a written algorithm summary; identify input requirements.
   consumes from the recon stage. Identify deltas.
 
 **Output**:
-- `dev/notes/refs/radivojevic2023_paper.md` (citation)
-- `dev/notes/refs/radivojevic2023_algorithm_summary.md` (algorithm doc)
+- `dev/notes/brain/refs/radivojevic2023_paper.md` (citation)
+- `dev/notes/brain/refs/radivojevic2023_algorithm_summary.md` (algorithm doc)
 - Updated paper-id + code-search-result sections in this plan
 - List of user check-in questions for slice 2 kickoff
 
@@ -195,7 +195,7 @@ reflect this.
 - `LICENSE` (decision in slice 9 user-gate).
 - 2-3 sanity tests (import, version).
 
-**Compliance**: per `guardrails/package_contracts.md` — SI-compliant
+**Compliance**: per `brain/guardrails/package_contracts.md` — SI-compliant
 where it touches SpikeInterface conventions; no axon_recon-specific
 deps.
 
@@ -229,7 +229,7 @@ shipped in the sibling repo at `~/dev/pkgs/radivojevic2023_recon_algo/`:
   9 tests.
 
 Package now **81 tests total**, all green. USER GATE 3 surfaced
-2026-05-21 in `memory/open_questions.md`. Stage 2 (image
+2026-05-21 in `brain/open_questions.md`. Stage 2 (image
 skeletonization) is the next milestone — proposed sub-steps:
 - (6a) `core/electrical_image.py` — build 2D voltage maps per timeframe
 - (6b) `core/skeletonization.py` — morphological thinning of the maps
@@ -310,7 +310,7 @@ cohort. Compare side-by-side against `axon_velocity_gtrs`.
 - **HARD-gate visual diagnostic**: produce comparison plots
   (Radivojevic vs `axon_velocity_gtrs`) — branch overlay,
   propagation timing comparison, every figure type slice 1 surfaced.
-- Entry in `memory/diagnostics_to_review.md`.
+- Entry in `brain/diagnostics_to_review.md`.
 
 **USER GATE 4**: user reviews + approves the first real-data output
 before any downstream slices ship. **Most important user check-in of

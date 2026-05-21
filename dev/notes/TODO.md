@@ -2,7 +2,7 @@
 
 User-facing list of the most useful next actions, in rough order. Updated as items resolve. Loop appends new TODOs at the bottom; user prunes.
 
-**Status as of 2026-05-21**: planning/refinement pause is in effect (`memory/current_state.md` 🛑 PAUSED header). Items in this list survive the pause; they describe what's queued for when the pause lifts AND what user-side work would enable the pause to lift.
+**Status as of 2026-05-21**: planning/refinement pause is in effect (`brain/current_state.md` 🛑 PAUSED header). Items in this list survive the pause; they describe what's queued for when the pause lifts AND what user-side work would enable the pause to lift.
 
 ---
 

@@ -171,7 +171,7 @@ memory update). `grep -rn "force_replot" src/` returns 0 hits.
 
 - Mechanical: replace `--force-replot` with `--replot` everywhere. Delete `_FORCE_REPLOT_OVERRIDE` / `set_force_replot_override` if they exist; introduce `_REPLOT_OVERRIDE` if needed (only if a process-wide override is currently used).
 - Grep audit: `grep -rn "force.replot\|force_replot" src/ dev/` — zero hits in non-archive code after the slice.
-- Tests: update any test asserting `--force-replot` behavior to assert `--replot` instead. Delete tests that test the OLD semantic of "reuse computed outputs but rebuild plots only when stale" — the new `--replot` is "always rebuild plot phases, orthogonal to staleness". Some test rewriting is needed; lean on `guardrails/force_restart.md` for the post-change contract.
+- Tests: update any test asserting `--force-replot` behavior to assert `--replot` instead. Delete tests that test the OLD semantic of "reuse computed outputs but rebuild plots only when stale" — the new `--replot` is "always rebuild plot phases, orthogonal to staleness". Some test rewriting is needed; lean on `brain/guardrails/force_restart.md` for the post-change contract.
 
 ### Slice 12 — `--output-root` CLI flag
 - New CLI flag at the shared argparse layer (`pipeline/cli.py`) that overrides `data_config.output_root`.
@@ -197,7 +197,7 @@ memory update). `grep -rn "force_replot" src/` returns 0 hits.
 - `--replot` bypass: skip the find-first-broken check; run plot/report phases only, regardless of statuses.
 - Tests: 3-phase fixture with phase 2 in various states (`ok`, `in_progress`, `error`, `stale`, `skipped`); assert correct restart point in each.
 
-Slices 13 and 14 together realize the auto-restart contract documented in `guardrails/stage_phase_architecture.md` §"Checkpoint status enum + auto-restart-from-first-broken". They're substantial enough to potentially split into their own dedicated plan once they start landing; tracked here for now since they touch the same stage runner code as the phase roster cleanup.
+Slices 13 and 14 together realize the auto-restart contract documented in `brain/guardrails/stage_phase_architecture.md` §"Checkpoint status enum + auto-restart-from-first-broken". They're substantial enough to potentially split into their own dedicated plan once they start landing; tracked here for now since they touch the same stage runner code as the phase roster cleanup.
 
 Total estimated touch: ~600-900 LoC across 9-10 commits. Mostly deletion and mechanical move; ~150-200 net new lines (the new stage scaffolds + the consolidated `concat_binary` after dedup).
 

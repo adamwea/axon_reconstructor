@@ -5,7 +5,7 @@ Smoke runs that need an **interactive Slurm allocation** (the loop's authorizati
 **Conventions**:
 - Each entry is one self-contained smoke: title + context + prereqs + the exact ready-to-run command block + expected outputs + "next loop iteration picks up from..." pointer.
 - When the smoke completes, EITHER delete the entry (loop has consumed the result) OR move it to `dev/notes/trackers/smoke_log.md` with the real-data smoke schema filled in.
-- One-time env setup steps (e.g. plugin installs) belong in `guardrails/env_parity.md`, not here. Each entry can reference them by name.
+- One-time env setup steps (e.g. plugin installs) belong in `brain/guardrails/env_parity.md`, not here. Each entry can reference them by name.
 - Loop appends entries here as needed (replaces the older pattern of stuffing salloc commands into `current_state.md`'s 📝 User actions queued section).
 
 **Default `salloc` shell pattern** (Perlmutter cpu queue):
@@ -37,7 +37,7 @@ For multi-target smokes that benefit from MPI fan-out across targets, use `srun 
 **Plan + slice**: `kssynth_recon_integration_plan` slice 3b HEAVY → unlocks `radivojevic_recon_algo_plan` slice 3 sub-step 9's apples-to-apples diagnostic.
 
 **Prereqs**:
-- MaxWell HDF5 plugin already installed at `~/hdf5_plugin_path_maxwell/libcompression.so` (loop ran the `auto_install_maxwell_hdf5_compression_plugin()` step this session; documented as one-time setup in `guardrails/env_parity.md`).
+- MaxWell HDF5 plugin already installed at `~/hdf5_plugin_path_maxwell/libcompression.so` (loop ran the `auto_install_maxwell_hdf5_compression_plugin()` step this session; documented as one-time setup in `brain/guardrails/env_parity.md`).
 - `--input-root` analyzers plumbing fix shipped (commits `f33821b` + `c8b8b11`). PYTHONPATH-overlay needed because the May-19 shifter image's `axon-recon` is pinned pre-`--input-root`.
 
 **Command** (run inside `salloc`):

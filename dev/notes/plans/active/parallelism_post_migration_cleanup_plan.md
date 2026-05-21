@@ -316,7 +316,7 @@ List the imported symbols. For each, decide:
 **Status**: SHIPPED 2026-05-19 via **path C** (consumer exists; documented).
 `cpu_allocation.py:670, 674` does consume both fields via `_capacity_limit_from_float`,
 gating `effective_task_limit` per node alongside CPU capacity (`cpu_allocation.py:682-685`).
-Documented in `guardrails/parallelism.md` "Open exceptions / follow-ups" with cross-refs
+Documented in `brain/guardrails/parallelism.md` "Open exceptions / follow-ups" with cross-refs
 to the field defs, parser, and consumer tests. Fields and YAML keys remain. No code change.
 
 **Goal**: `TaskAllocationConfig` carries `ram_gb_per_task` and `shm_gb_per_task` fields (`resources.py:102-103`). YAML sets them to `null`. Verify whether any code reads them; if not, drop.
@@ -477,7 +477,7 @@ Identify which kwarg the production retry path branches on and what spikeinterfa
 - Update the comment block at `dev/debug_NERSC/debug.runtime.yml` line 85 onwards to document the new precedence ladder. Currently the comment says "Recommended full-node usage: `srun -n 8 -c 16 --threads-per-core=1`" — fine for MPI mode, but should add: "For single-rank smokes, use `srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread` and the runtime will pick up `SLURM_CPUS_PER_TASK=128`."
 
 **C. Guardrail update**:
-- `dev/notes/guardrails/parallelism_agent_guardrails.md` (or the post-cleanup version per Slice 10): codify the precedence ladder as a contract.
+- `dev/notes/brain/guardrails/parallelism_agent_guardrails.md` (or the post-cleanup version per Slice 10): codify the precedence ladder as a contract.
 
 **D. CLI-flag follow-up** (optional, parked here for visibility): user noted "I specifically want tasks and procs flags to specify even if we're running in local affinity mode". After the env-precedence slice ships, a follow-up could add `--cpus-per-task` and/or `--ntasks` CLI flags that override even srun's env vars. That's a separate slice; not blocking this one.
 

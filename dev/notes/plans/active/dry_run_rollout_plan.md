@@ -19,14 +19,14 @@ data confirmed (commit `7dabc1a`). Status by stage:
 The remaining recon-stage 2 phases will be deleted (not dry-run-ed),
 so for non-deletable phases the rollout is COMPLETE.
 
-Realizes the `guardrails/dry_run.md` contract: every phase exposes
+Realizes the `brain/guardrails/dry_run.md` contract: every phase exposes
 `--dry-run` and short-circuits at input resolution. Same operating
 contract: one slice at a time, `claude:` commit prefix, append a line
 to `dev/notes/commit_log.md` after every commit.
 
 **See also:**
-- `guardrails/dry_run.md` — the contract this plan realizes.
-- `guardrails/stage_phase_architecture.md` — the architectural invariants every phase satisfies; `--dry-run` joins the list of universal phase capabilities once this plan lands.
+- `brain/guardrails/dry_run.md` — the contract this plan realizes.
+- `brain/guardrails/stage_phase_architecture.md` — the architectural invariants every phase satisfies; `--dry-run` joins the list of universal phase capabilities once this plan lands.
 - `phase_roster_cleanup_plan.md` — the phase roster needs to be settled before broad changes touch every phase. Dry-run rollout can either run AFTER the roster cleanup, or in parallel for phases that are clearly staying.
 
 ---
@@ -89,7 +89,7 @@ def write_dry_run_summary(
     Returns the path. Used by every phase's dry-run short-circuit."""
 ```
 
-Summary schema is fixed at the contract level (see `guardrails/dry_run.md` §3); the helper enforces it. New phases can extend with phase-specific fields but the base shape stays.
+Summary schema is fixed at the contract level (see `brain/guardrails/dry_run.md` §3); the helper enforces it. New phases can extend with phase-specific fields but the base shape stays.
 
 ---
 
@@ -131,7 +131,7 @@ One commit per slice. `claude:` prefix.
 - New module `src/axon_recon/pipeline/dry_run.py` exports
   `write_dry_run_summary(*, phase_name, well_out_dir, stage_output_root_dir,
   summary_json_path, inputs_resolved, outputs_would_produce, validation=None,
-  extra_fields=None) -> Path`. Enforces the schema from `guardrails/dry_run.md`
+  extra_fields=None) -> Path`. Enforces the schema from `brain/guardrails/dry_run.md`
   §3 (status=dry_run_ok, base fields well_out_dir / stage_output_root_dir /
   phase / inputs_resolved / outputs_would_produce / validation).
 - Defaults: empty `validation={missing_prerequisites:[], warnings:[]}` when
@@ -291,8 +291,8 @@ These get dry-run as part of their respective creation commits in `phase_roster_
 - New test: `tests/test_dry_run_universal.py` enumerates every phase in every stage's default `phase_sequence`, runs `axon-recon stages <stage>.<phase> --dry-run --config <fixture>`, asserts return code 0 + summary JSON exists with `status: dry_run_ok`. This is the regression gate for any future phase added without dry-run support.
 
 ### Slice 9 — Documentation
-- Update `dev/notes/guardrails/dry_run.md` to remove the "Dry-run does not exist today" caveat in §"Open exceptions / follow-ups". Replace with "Universal across all phases as of <commit-hash>; new phases must include the short-circuit per slice-8 enforcement test."
-- Update `dev/notes/memory/current_state.md` noting dry-run is live.
+- Update `dev/notes/brain/guardrails/dry_run.md` to remove the "Dry-run does not exist today" caveat in §"Open exceptions / follow-ups". Replace with "Universal across all phases as of <commit-hash>; new phases must include the short-circuit per slice-8 enforcement test."
+- Update `dev/notes/brain/current_state.md` noting dry-run is live.
 
 Total estimated touch: ~600-1000 LoC + ~400 LoC tests across ~20 commits (one per phase + helpers + integration). Heavily mechanical once the helper + pattern are established. Each phase commit is 5-15 LoC of source + 20-40 LoC of test.
 
@@ -328,6 +328,6 @@ Repeat for spikesort, reconstruct, analysis on the same target.
 
 2. **Where does the `dry_run` attribute live on `stage_config`?** All existing overrides flow through the stage_config dataclass; dry-run follows the same pattern. The attribute is `bool` (not `bool | None`) — default `False`, set `True` when override is active.
 
-3. **What about `--dry-run --force-restart`?** Per `guardrails/dry_run.md` §sub-rule 7: dry-run lists what would be wiped in the summary's `outputs_would_produce`, but does NOT actually rmtree. The combination is useful for "what's about to get nuked" inspection before a real `--force-restart` run.
+3. **What about `--dry-run --force-restart`?** Per `brain/guardrails/dry_run.md` §sub-rule 7: dry-run lists what would be wiped in the summary's `outputs_would_produce`, but does NOT actually rmtree. The combination is useful for "what's about to get nuked" inspection before a real `--force-restart` run.
 
 4. **Multi-rank dry-run under MPI backend?** Each rank does its own dry-run short-circuit independently; only rank 0 writes the summary JSON (matching the existing rank-0-only summary writer guard in `logging/summary.py`). Verify this works during the spikesort-stage slice (slice 4) since that's the first one where MPI matters.

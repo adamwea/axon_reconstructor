@@ -298,7 +298,7 @@ Old (path 1) instructions preserved below for completeness:
 - Visual diagnostic: capture the directory listing + `kssynth_summary.json`
   contents into
   `/pscratch/sd/a/adammwea/dev_outputs/kssynth_recon_integration/slice3b/`.
-  Add a SOFT-gate entry to `memory/diagnostics_to_review.md` for
+  Add a SOFT-gate entry to `brain/diagnostics_to_review.md` for
   user review.
 
 ### Slice 4 — downstream phase repointing (S4-B postprocess)
@@ -484,7 +484,7 @@ auditing the slice 4 ↔ slice 5 contract:
   cleanly. The retirement commit (slice 5b) is the only "destructive"
   one — splittable into a separate revert-friendly commit.
 
-## Open questions (logged to memory/open_questions.md as we hit them)
+## Open questions (logged to brain/open_questions.md as we hit them)
 
 - Does `kssynth.synthesize` need any options that `build_templates` had
   but extract_partial_templates didn't (or vice versa)? Audit those

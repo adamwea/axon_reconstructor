@@ -11,7 +11,7 @@
 > (tertiary grouping — needs UX decision) remains.
 >
 > Shipped commits:
-> - Slice 1 audit: `76333d3` (`dev/notes/refs/dashboard_audit.md`)
+> - Slice 1 audit: `76333d3` (`dev/notes/brain/refs/dashboard_audit.md`)
 > - Slice 2 empty-state UX: `5ee230b`
 > - Slice 3 discover_available: `0682fc0`
 > - Slice 4 PlotConfig scaffold: `3fe87cb`
@@ -21,7 +21,7 @@
 >   (`build_bar_plot` + `aggregate_by_group`)
 > - Slice 8 style parity (`dashboard/style.py`): `28e1ff3`
 > - Slice 9 usage docs (partial): `74ea39a`
->   (`dev/notes/refs/dashboard_usage.md`)
+>   (`dev/notes/brain/refs/dashboard_usage.md`)
 >
 > **NEXT** (slice 7): tertiary grouping. UX decision still open:
 > faceted small-multiples vs nested hierarchical X-axis. User input
@@ -98,7 +98,7 @@ A modular dashboard where:
 ### Slice 1 — Audit (no code changes)
 
 Inventory the current dashboard. Output: a section in this plan +
-optionally `dev/notes/refs/dashboard_audit.md`.
+optionally `dev/notes/brain/refs/dashboard_audit.md`.
 
 - Locate every plot type rendered (likely box, scatter, histogram;
   also any tables / heatmaps).

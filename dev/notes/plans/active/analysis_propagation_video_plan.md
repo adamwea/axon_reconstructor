@@ -6,7 +6,7 @@
 > env, plus visual review of the first GIF output).
 >
 > Shipped commits:
-> - Slice 1 audit: `dfff76a` (`dev/notes/refs/propagation_video_audit.md`)
+> - Slice 1 audit: `dfff76a` (`dev/notes/brain/refs/propagation_video_audit.md`)
 > - Slice 2 scaffold: `19cb75e`
 > - Slice 3 inputs resolver: `06b731f`
 > - Slice 4 render core (minimal v1 port): `8c7e989`
@@ -19,7 +19,7 @@
 > well000 cohort with `--targets <ds>:0 --limit-datasets 1`, picks
 > ONE unit, and visually confirms the GIF shows correct branch
 > propagation. Then add a HARD-gate entry to
-> `dev/notes/memory/diagnostics_to_review.md`. Slice-4 v1 elaborations
+> `dev/notes/brain/diagnostics_to_review.md`. Slice-4 v1 elaborations
 > (ROI crop, clip quantile, colorbar, time counter) follow once the
 > basic output is verified.
 
@@ -70,15 +70,15 @@ Draft uses `propagation_video`.
   `<output_root>/<dataset>/<well>/analysis/propagation_video/unit_<N>.gif`.
 - **Default state**: `enabled: false` in YAML. Opt-in per run.
 - **Scope flags**: all existing `--target-*` / `--limit-*` / `--targets`
-  per `guardrails/scope_flags.md`. Needs **unit-level targeting** — see
+  per `brain/guardrails/scope_flags.md`. Needs **unit-level targeting** — see
   Open decisions.
 - **Status enum + in_progress marker**: per
-  `guardrails/stage_phase_architecture.md`.
+  `brain/guardrails/stage_phase_architecture.md`.
 - **`--dry-run`**: short-circuits at input resolution per
-  `guardrails/dry_run.md`. Reports `(dataset, well, unit)` it would
+  `brain/guardrails/dry_run.md`. Reports `(dataset, well, unit)` it would
   process; doesn't render.
 - **`--replot`**: videos are render outputs, so `--replot` re-runs this
-  phase per `guardrails/force_restart.md`.
+  phase per `brain/guardrails/force_restart.md`.
 
 ## Slices
 
@@ -112,7 +112,7 @@ Draft uses `propagation_video`.
    test that runs the real `axon_velocity` against tiny synthetic input.
 
 5. **CLI + YAML config** — verify whether `--target-units` exists
-   (currently only `--limit-units` per `guardrails/scope_flags.md`); if
+   (currently only `--limit-units` per `brain/guardrails/scope_flags.md`); if
    not, add it OR extend `--targets` to accept `<ds>:<well>:<unit>`
    triplet form (the latter is more consistent with the existing per-pair
    grammar). Plus per-phase YAML block for knobs (frame rate, duration,
@@ -124,12 +124,12 @@ Draft uses `propagation_video`.
 
 7. **Orchestrator wire-in** — `run_analysis_propagation_video`
    orchestrator; per-unit fan-out using the standard `n_jobs` resolver
-   per `guardrails/parallelism.md`. Tests for orchestrator behavior.
+   per `brain/guardrails/parallelism.md`. Tests for orchestrator behavior.
 
 8. **First real-data smoke + HARD-GATE visual diagnostic** — login-node
    smoke on **one (dataset, well, unit)** of the 80k DMEM well000
    cohort. Output: one GIF / MP4. **MUST add HARD-gate entry to
-   `dev/notes/memory/diagnostics_to_review.md`** — user inspects the
+   `dev/notes/brain/diagnostics_to_review.md`** — user inspects the
    video and confirms the propagation visualization is correct before
    downstream slices ship. This is exactly the case CLAUDE.md
    §"Visual diagnostics" describes: a new phase whose claim of

@@ -36,7 +36,7 @@ broken behavior) and `roadmap.md` (which is new ambitions).
 - **Why slice 14c is partial**: spikesort/reconstruct have ~10K-line runners with many phases and heterogeneous summary path conventions. Per-stage helper takes more like 60-90 LoC + careful test coverage rather than the ~30 LoC the user-injection estimated. Shipping preprocess first to lock down the pattern; remaining stages will follow as smaller targeted commits.
 - **Why approach (B) is still here as long-term debt**: even after approach (A) ships for all 4 stages, when SOME phases are broken the monolithic runner still re-runs the WHOLE phase_sequence rather than only from the broken phase forward. For init + cleanup (per-phase dispatch loops), the full semantic is in effect via slice 14b. The discrepancy is contained but real.
 - **Suggested approach (B) cleanup**: refactor each monolithic per-target stage runner to accept a `skip_phases_before_index` parameter (or equivalent), and instrument each existing phase dispatch with a pre-check. Then thread `find_first_broken_phase` into `run_<stage>_from_runtime` and pass the resolved index downward. Touch size: M (per stage).
-- **See also**: `dev/notes/memory/open_questions.md` slice-14c entry; `phase_roster_cleanup_plan.md` slices 14a/14b/14c; `guardrails/force_restart.md`
+- **See also**: `dev/notes/brain/open_questions.md` slice-14c entry; `phase_roster_cleanup_plan.md` slices 14a/14b/14c; `brain/guardrails/force_restart.md`
 
 ### Remove `debug_mode` YAML blocks across all stages
 - **Status**: open

@@ -38,7 +38,7 @@ Today's install story has three+ artifacts to keep in sync:
 referenced-but-missing `tools/bootstrap_editable_deps.sh` for sibling
 editables. Sibling installs land via user-specific paths or build-time
 ARGs, and a contributor who clones the repo has no single command to get
-a working dev env. The `env_parity` guardrail (`guardrails/env_parity.md`)
+a working dev env. The `env_parity` guardrail (`brain/guardrails/env_parity.md`)
 holds the contract together with documentation, but the underlying
 mechanics don't yet live in a single source of truth.
 
@@ -185,7 +185,7 @@ approach is reproducible without them.
   `tools/bootstrap_editable_deps.sh`" — that script's role is taken by
   `tools/install_dev_siblings.{sh,py}` here. Tracker entry amended in
   same commit range as this plan.
-- **Amends** `guardrails/env_parity.md`'s "three-artifact" model to a
+- **Amends** `brain/guardrails/env_parity.md`'s "three-artifact" model to a
   new five-artifact model (pyproject.toml + environment.yml +
   setup_env.sh + install_dev_siblings + Dockerfile). Guardrail amended
   in same commit range as this plan.

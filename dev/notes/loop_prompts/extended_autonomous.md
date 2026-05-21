@@ -7,7 +7,7 @@ on the queued plan tier.
 **How to use:**
 1. Open Claude Code in this repo.
 2. Type `/loop` and paste the fenced block below as the loop instructions.
-3. The loop reads `CLAUDE.md` → `dev/notes/memory/current_state.md` → relevant
+3. The loop reads `CLAUDE.md` → `dev/notes/brain/current_state.md` → relevant
    guardrails, then advances the next slice on its own. Stops only on
    "stop"/"wake up"/"wrap up" or genuine queue exhaustion.
 
@@ -26,7 +26,7 @@ on `current_state.md` discovery.
 
 > **⚠️ PAUSED 2026-05-21 — planning/refinement stage.** Loop is paused on
 > real-data smoke testing + new phase implementations + /loop-prompt round
-> bumps. See `dev/notes/memory/current_state.md` 🛑 PAUSED header for the
+> bumps. See `dev/notes/brain/current_state.md` 🛑 PAUSED header for the
 > scope of what's allowed (audit/refinement work) vs what's not (smokes,
 > new slice execution). User lifts the pause via a new USER INJECTION.
 
@@ -45,9 +45,9 @@ inconsistencies surfaced by the proactive plan audit — but MUST NOT:
 Pause lifts only via a NEW USER INJECTION saying so.
 
 Read /global/homes/a/adammwea/dev/pkgs/axon_recon/CLAUDE.md and follow its
-entry protocol. Read dev/notes/memory/current_state.md ⚡ USER INJECTIONS
+entry protocol. Read dev/notes/brain/current_state.md ⚡ USER INJECTIONS
 FIRST — directives there are authoritative over this prompt and over plan
-tier order. Read dev/notes/guardrails/ — `loop_cadence.md` and
+tier order. Read dev/notes/brain/guardrails/ — `loop_cadence.md` and
 `env_parity.md` have hard rules baked in. Advance the queued plan tier
 one slice at a time.
 
@@ -65,7 +65,7 @@ Authorizations (override any conflicting line in this prompt):
 
 Relaxed stance (applies until user explicitly says stop):
 - NEVER stop on a blocker within ~15 min. git restore, write blocker into
-  dev/notes/memory/open_questions.md, PICK UP ANOTHER UNBLOCKED SLICE.
+  dev/notes/brain/open_questions.md, PICK UP ANOTHER UNBLOCKED SLICE.
 - Stop only when: (a) user says "stop"/"wake up"/"wrap up", or
   (b) ALL plans/trackers genuinely exhausted.
 - Queue empty? Audit pass (refine plans, prune stale notes, write next-
@@ -111,7 +111,7 @@ Real-data smoke log discipline (USER INJECTION 2026-05-21):
 
 Diagnostic discipline (USER INJECTIONS 2026-05-21):
 - ANY slice changing user-visible rendering MUST file a diagnostic entry
-  in dev/notes/memory/diagnostics_to_review.md. Multi-stage algorithms
+  in dev/notes/brain/diagnostics_to_review.md. Multi-stage algorithms
   file at EACH stage transition (not just the final end-to-end gate).
 - Diagnostics MUST include a rendered image (PNG/SVG/PDF) as the
   user-visible artifact. npy / tsv / parquet ALONE is data, not a
@@ -176,7 +176,7 @@ Standing constraints (NOT relaxed):
   in any analysis/recon phase — read from analyzer manifest via
   metadata_get. See project-axon-recon-device-diversity auto-memory.
 - All guardrails apply. Visual diagnostics filed in
-  memory/diagnostics_to_review.md as you go.
+  brain/diagnostics_to_review.md as you go.
 
 Default to Opus 4.7; Sonnet 4.6 only for very concrete mechanical work.
 Continue iterating until I explicitly stop.
