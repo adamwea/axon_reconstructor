@@ -23,3 +23,27 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 - **resources.profiles elimination — per-srun-flag fallback when slot is missing**: when `--cpus-per-task` is passed on the command line, does the resolver use that directly, or compute from `os.sched_getaffinity(0)`? Both are reasonable; pick during the implementation slice. See `trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`".
 
 - **Auto-restart with chip-well-group phase scope** (`unitmatch` phase): the auto-restart logic walks `phase_sequence` per target. For chip-well groups, the "target" is a group, not a (dataset, well) pair. Verify the logic generalizes when the unitmatch phase lands.
+
+## Radivojevic slice 1 user-gate review
+
+`radivojevic_recon_algo_plan` slice 1 SHIPPED 2026-05-21. Full deliverables in:
+- `dev/notes/refs/radivojevic2023_paper.md` (citation + data/code availability)
+- `dev/notes/refs/radivojevic2023_algorithm_summary.md` (algorithm spec + input compat map)
+
+Per current_state.md "PRE-OVERNIGHT CLEARANCES" item #2, the loop pre-approval lets it proceed into slice 2 (sibling-package scaffold) WITHOUT pausing. Slice 3 (core algorithm impl) DOES gate on user review of these questions:
+
+1. **Paper identity confirmed?** Target paper is *Radivojevic & Rostedt Punga (2023), Functional imaging of conduction dynamics in cortical and spinal axons, eLife 12:e86512, DOI 10.7554/eLife.86512*. Please verify.
+
+2. **Clean-room approach confirmed?** Methodical search (eLife article page, bioRxiv preprint, ResearchGate, GitHub author search) found NO public code for the 2023 algorithm. Dryad deposit `doi:10.5061/dryad.gxd2547r1` contains DATA only (no code). The adjacent code repos (`axon_velocity` by Buccino 2022 — already used by axon_recon; `hana` by Bullmann 2019) implement DIFFERENT algorithms. Clean-room re-implementation is the only path. Please confirm OR identify a code source the search missed.
+
+3. **🔴 HIGH-IMPACT**: Does the algorithm need the RAW spike-triggered-average per-spike (the SPREAD of arrival times across electrodes), or just the AVERAGED template? The 2023 paper's multi-step tracking may use per-spike data to refine velocity estimates — this is what would distinguish it from Buccino 2022's graph-based approach which only consumes averaged templates. If RAW per-spike STA is needed, we'd need either (a) a new analyzers-phase output that caches per-spike STA arrays, or (b) accept averaged-only as a v1 limitation and document a v2 enhancement path. Please confirm by reading the methods section of the full paper text (PDF rendering not available in the loop's environment — the loop only had access to the abstract + algorithm overview via WebFetch).
+
+4. **Input compat map verification**: see the table in `radivojevic2023_algorithm_summary.md` §"Input compat with axon_velocity_gtrs". The proposed claim is that recon-stage `merged_template.npy` + `merged_channel_locations.npy` + sampling_rate (from analyzer manifest) are sufficient inputs for Radivojevic's algorithm (modulo question 3 above). Please verify.
+
+5. **Hyperparameter defaults**: paper text and figures will show concrete defaults. Until the loop can read the full methods, slice 3 will use reasonable initial guesses (initial threshold ~5σ, spatial coherence radius ~50 μm, temporal coherence window ~1 ms — all flagged for tuning in slice 6). Please flag if you have specific values from the paper to use as starting points.
+
+6. **Algorithm/phase name preference**: paper doesn't pick a nickname. Options for the sibling-package + phase name:
+   - `radivojevic_recon` (current sibling-package dir name; descriptive of WHO not WHAT)
+   - `electrical_imaging_recon` (descriptive of WHAT — matches the paper's framing of "electrical visualization")
+   - `axon_skeleton_recon` (descriptive of the KEY ALGORITHMIC STEP)
+   Pick one to lock in for slice 4 onward.

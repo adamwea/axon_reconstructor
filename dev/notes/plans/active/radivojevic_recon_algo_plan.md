@@ -73,7 +73,31 @@ another plan until the user answers. Gates at slices 1, 3, 4, 6, 9.
 
 ## Slices
 
-### Slice 1 — Literature + code search (RESEARCH ONLY, no code changes)
+### Slice 1 — Literature + code search (RESEARCH ONLY, no code changes) — SHIPPED 2026-05-21
+
+**Deliverables:**
+- ✅ `dev/notes/refs/radivojevic2023_paper.md` — citation (DOI 10.7554/eLife.86512, published 2023-08-22) + data availability (Dryad doi:10.5061/dryad.gxd2547r1) + code availability finding (**NONE** — clean-room required) + lineage of related papers (Buccino 2022 → axon_velocity, Bullmann 2019 → hana, Radivojevic 2016/2017 → earlier methods).
+- ✅ `dev/notes/refs/radivojevic2023_algorithm_summary.md` — algorithm spec (3 stages: adaptive thresholding + skeletonization + multi-step tracking), input/output spec, hardware assumptions (HD-MEA ~17.5 μm pitch, 20 kHz), input compat table vs `axon_velocity_gtrs`, list of slice-3 hyperparameter unknowns flagged for tuning.
+- ✅ USER GATE 1 questions logged to `dev/notes/memory/open_questions.md` under "Radivojevic slice 1 user-gate review" (6 questions; question 3 — averaged-vs-per-spike STA — is the highest-impact one).
+
+**Note on PDF reading**: the loop's environment lacks `pdftoppm` /
+`pdftotext`; the pre-populated literature/ PDFs couldn't be read in
+this iteration. All paper info gathered via WebFetch on the eLife
+article page + WebSearch. The figures-only PDF in literature/ is
+useful visual reference but doesn't carry the methods detail
+(suffix `-figures-v1` = supplementary figures only). When PDF
+extraction is available in a future env, slice 3's algorithm
+implementation should re-read the full methods section to verify
+hyperparameter defaults + answer question 3 above (raw per-spike STA
+vs averaged template).
+
+**Pre-overnight clearance**: per current_state.md "PRE-OVERNIGHT
+CLEARANCES" item #2, loop proceeds INTO slice 2 (sibling-package
+scaffold) without pausing. Slice 3 (core algorithm impl) DOES gate
+on user review of the open_questions.md entries.
+
+#### Original spec (preserved for slice 3 reference)
+
 
 **Goal**: pin the exact paper; exhaust code-availability search;
 produce a written algorithm summary; identify input requirements.
