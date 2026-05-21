@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from axon_recon.pipeline.output_paths import compute_mea_analysis_output_dir
@@ -14,6 +15,62 @@ def run_reconstruct_templates_resolve_sources_phase(inputs: TemplatesInputs) -> 
         data_file=inputs.h5_path,
         well=inputs.stream_id,
     )
+
+    # Dry-run short-circuit (dry_run_rollout slice 5 — resolve_sources).
+    # The phase itself is lightweight (path resolution + optional label
+    # probe), but for consistency with the other recon phases we still
+    # write a `dry_run_ok` summary and skip the (cheap-but-real) label
+    # probe + JSON write. Caller can then chain `--dry-run` smokes across
+    # every recon phase uniformly.
+    from axon_recon.pipeline.config import get_dry_run_override
+
+    if get_dry_run_override():
+        from axon_recon.pipeline.dry_run import write_dry_run_summary
+
+        templates_out_dir = well_out_dir / str(inputs.output_rel_root)
+        json_path = templates_out_dir / str(phase_cfg.json_relpath)
+        h5_path_obj = Path(str(inputs.h5_path)) if inputs.h5_path else None
+        inputs_resolved: list[dict[str, Any]] = []
+        validation_warnings: list[str] = []
+        if h5_path_obj is not None:
+            inputs_resolved.append(
+                {
+                    "name": "h5_path",
+                    "path": str(h5_path_obj),
+                    "exists": bool(h5_path_obj.exists()),
+                }
+            )
+            if not h5_path_obj.exists():
+                validation_warnings.append(
+                    f"h5_path not found at {h5_path_obj}; recording is "
+                    "required to resolve sources."
+                )
+
+        write_dry_run_summary(
+            phase_name="reconstruct.resolve_sources",
+            well_out_dir=well_out_dir,
+            stage_output_root_dir=templates_out_dir,
+            summary_json_path=json_path,
+            inputs_resolved=inputs_resolved,
+            outputs_would_produce=[
+                {"name": "summary_json", "path": str(json_path)},
+                {"name": "well_out_dir", "path": str(well_out_dir)},
+            ],
+            validation={
+                "missing_prerequisites": [],
+                "warnings": validation_warnings,
+            },
+        )
+        templates_runner.LOGGER.info(
+            "templates.resolve_sources: dry-run complete; summary at %s",
+            str(json_path),
+        )
+        return {
+            "phase": "reconstruct.resolve_sources",
+            "status": "dry_run_ok",
+            "well_out_dir": str(well_out_dir),
+            "stream_id": str(inputs.stream_id),
+        }
     alternate_well_out_dirs = (
         templates_runner._resolve_alternate_well_out_dirs(
             inputs=inputs, primary_well_out_dir=well_out_dir

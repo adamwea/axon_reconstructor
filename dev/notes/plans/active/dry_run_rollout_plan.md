@@ -163,7 +163,8 @@ For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load
 
 **Progress (sub-slices landing out-of-order with the other plans):**
 
-✅ **14 of 17 recon phases now have dry-run** (as of 2026-05-21):
+✅ **16 of 17 recon phases now have dry-run** (as of 2026-05-21,
+including resolve_sources + compute_template_similarity).
 - `kssynth` — SHIPPED via `kssynth_recon_integration_plan` slice 4e.
 - `analyzers` — SHIPPED.
 - `axon_velocity_gtrs` — SHIPPED.
@@ -179,9 +180,17 @@ For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load
   also refactored to resolve `core.clear_templates_cache.run_clear_templates_cache_phase`
   via submodule attribute lookup at call time (instead of import-time
   binding) so monkeypatch-on-core is observed.
+- `compute_template_similarity` — SHIPPED. Dry-run path skips the
+  per-pair similarity computation + plot rendering; reports the
+  would-be summary + matrix png paths.
+- `resolve_sources` — SHIPPED. Phase itself is lightweight (pure
+  path resolution + optional label probe) but the dry-run path writes
+  the standard summary for consistency so callers can chain --dry-run
+  across all recon phases uniformly.
 
-**Remaining**: 3 phases (`resolve_sources` + the two
-slated-for-deletion phases below).
+**Remaining**: 1 (extract_partial_templates and build_templates are
+slated for deletion by kssynth_recon_integration slice 5; skipping
+dry-run for them).
 
 - `resolve_sources` — TODO
 - ~~`analyzers`~~ — SHIPPED

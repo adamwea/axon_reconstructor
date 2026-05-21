@@ -17,6 +17,74 @@ def run_reconstruct_templates_compute_template_similarity_phase(
     well_out_dir, _, templates_out_dir, _ = templates_runner._resolve_templates_phase_environment(
         inputs
     )
+    phase_cfg = inputs.phases.compute_template_similarity
+    summary_json_path = templates_out_dir / str(phase_cfg.summary_json_relpath)
+
+    # Dry-run short-circuit (dry_run_rollout slice 5 — compute_template_similarity).
+    # Skips per-pair similarity computation + plot rendering; reports the
+    # would-be output set.
+    from axon_recon.pipeline.config import get_dry_run_override
+
+    if get_dry_run_override():
+        from axon_recon.pipeline.dry_run import write_dry_run_summary
+        from pathlib import Path
+
+        merged_units_dir_for_report: Path | None = None
+        validation_warnings: list[str] = []
+        try:
+            merged_units_dir_for_report, _ = templates_runner._resolve_templates_dirs(
+                well_out_dir=well_out_dir,
+                templates_out_dir=templates_out_dir,
+            )
+        except FileNotFoundError as exc:
+            validation_warnings.append(
+                f"merged templates dir not found: {exc}; "
+                "run reconstruct.build_templates or reconstruct.kssynth first."
+            )
+
+        inputs_resolved: list[dict[str, Any]] = []
+        if merged_units_dir_for_report is not None:
+            inputs_resolved.append(
+                {
+                    "name": "merged_units_dir",
+                    "path": str(merged_units_dir_for_report),
+                    "exists": bool(merged_units_dir_for_report.exists()),
+                }
+            )
+
+        write_dry_run_summary(
+            phase_name="reconstruct.compute_template_similarity",
+            well_out_dir=well_out_dir,
+            stage_output_root_dir=templates_out_dir,
+            summary_json_path=summary_json_path,
+            inputs_resolved=inputs_resolved,
+            outputs_would_produce=[
+                {"name": "summary_json", "path": str(summary_json_path)},
+                {
+                    "name": "similarity_matrix_png",
+                    "path": str(
+                        templates_runner.resolve_similarity_output_paths(
+                            templates_out_dir=templates_out_dir, similarity=phase_cfg
+                        )["template_similarity_matrix_png"]
+                    ),
+                },
+            ],
+            validation={
+                "missing_prerequisites": [],
+                "warnings": validation_warnings,
+            },
+        )
+        templates_runner.LOGGER.info(
+            "templates.compute_template_similarity: dry-run complete; summary at %s",
+            str(summary_json_path),
+        )
+        return {
+            "phase": "reconstruct.compute_template_similarity",
+            "status": "dry_run_ok",
+            "well_out_dir": str(well_out_dir),
+            "templates_out_dir": str(templates_out_dir),
+        }
+
     try:
         merged_units_dir, _ = templates_runner._resolve_templates_dirs(
             well_out_dir=well_out_dir,
