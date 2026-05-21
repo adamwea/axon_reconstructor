@@ -155,7 +155,7 @@ For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load
 
 **Progress (sub-slices landing out-of-order with the other plans):**
 
-✅ **13 of 17 recon phases now have dry-run** (as of 2026-05-21):
+✅ **14 of 17 recon phases now have dry-run** (as of 2026-05-21):
 - `kssynth` — SHIPPED via `kssynth_recon_integration_plan` slice 4e.
 - `analyzers` — SHIPPED.
 - `axon_velocity_gtrs` — SHIPPED.
@@ -166,9 +166,14 @@ For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load
   `reconstruct_phase_dry_run_short_circuit` in `stages/reconstruct/runner.py`.
 - `report_recons` + `report_recon_grid` + `report_full_chip_layout`
   + `report_summaries` — SHIPPED via same helper.
+- `clear_templates_cache` — SHIPPED. Phase short-circuits before the
+  rmtree; reports the cache dir as a would-be-removed output. Phase
+  also refactored to resolve `core.clear_templates_cache.run_clear_templates_cache_phase`
+  via submodule attribute lookup at call time (instead of import-time
+  binding) so monkeypatch-on-core is observed.
 
-**Remaining**: 4 phases (`resolve_sources`, `clear_templates_cache`,
-plus the two slated-for-deletion phases below).
+**Remaining**: 3 phases (`resolve_sources` + the two
+slated-for-deletion phases below).
 
 - `resolve_sources` — TODO
 - ~~`analyzers`~~ — SHIPPED
@@ -188,7 +193,7 @@ plus the two slated-for-deletion phases below).
 - ~~`report_recon_grid`~~ — SHIPPED (via shared helper)
 - ~~`report_full_chip_layout`~~ — SHIPPED (via shared helper)
 - ~~`report_summaries`~~ — SHIPPED (via shared helper)
-- `clear_templates_cache` — TODO
+- ~~`clear_templates_cache`~~ — SHIPPED
 
 This is the biggest slice. Consider sub-slices grouped by sub-domain (analyzers/templates, plots, reports).
 
