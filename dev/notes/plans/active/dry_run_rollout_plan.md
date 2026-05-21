@@ -128,17 +128,25 @@ One commit per slice. `claude:` prefix.
       return write_dry_run_summary(phase_name=..., ...)
   ```
 
-### Slice 3 — Preprocess stage phase short-circuits (one commit per phase)
-Per-phase dry-run short-circuits for every currently-enabled preprocess phase. Each commit: pick one phase, add the `if getattr(stage_config, "dry_run", False): return _write_dry_run_summary(...)` block at the top of its main work function, add a per-phase dry-run test asserting (a) the helper was called, (b) the expensive function path was NOT called, (c) summary JSON exists with `status: dry_run_ok`.
+### Slice 3 — Preprocess stage phase short-circuits — SHIPPED 2026-05-21
 
-Phases (post-`phase_roster_cleanup_plan` shape):
-- `save_rec_metadata`
-- `preprocess_segments`
-- `plot_segment_traces`
-- `plot_segment_channel_layouts`
-- `plot_raster_threshold`
+Single-intercept implementation: all preprocess phases dispatch through
+`_run_preprocess_selected_phase` in `preprocess/runner.py`, so the
+dry-run check goes at the top of that helper — one code path, every
+phase covered. Each phase still writes to its standard per-phase
+summary_json relpath; the dry-run summary preserves that contract.
 
-If the phase roster cleanup hasn't landed yet, include the about-to-be-deleted phases too — they get dry-run for the brief window until they're deleted; mechanical cost is small.
+Phases covered (5 of 5):
+- ~~`save_rec_metadata`~~ — SHIPPED
+- ~~`preprocess_segments`~~ — SHIPPED
+- ~~`plot_segment_traces`~~ — SHIPPED
+- ~~`plot_segment_channel_layouts`~~ — SHIPPED
+- ~~`plot_raster_threshold`~~ — SHIPPED
+
+Tests in `preprocess/tests/test_dry_run.py` (7 tests, parametrized
+across 5 phases + h5-missing + h5-existing warning paths). Heavy
+`_run_preprocess_phase_sequence` is stubbed to raise so any leak fails
+the test.
 
 ### Slice 4 — Spikesort stage phase short-circuits
 Same pattern. Phases (post-cleanup shape):

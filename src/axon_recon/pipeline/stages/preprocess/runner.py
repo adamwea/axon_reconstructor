@@ -3000,6 +3000,51 @@ def _run_preprocess_selected_phase(inputs: PreprocessInputs, *, selected_phase: 
 	paths = _resolve_preprocess_paths(inputs, plot_cfg=build_plot_cfg)
 	paths.preprocess_out_dir.mkdir(parents=True, exist_ok=True)
 	_clear_self_referential_symlink(paths.stage_log_source)
+
+	# Dry-run short-circuit (dry_run_rollout slice 3 — preprocess phases).
+	# Single intercept covers every preprocess phase since they all dispatch
+	# through this helper. Writes the per-phase summary at the same path the
+	# real run would, but with status=dry_run_ok and no compute.
+	from ...config import get_dry_run_override
+
+	if get_dry_run_override():
+		from ...dry_run import write_dry_run_summary
+
+		summary_relpath = _summary_relpath_for_phase(inputs, canonical_selected_phase)
+		summary_json_path = paths.preprocess_out_dir / Path(summary_relpath).expanduser()
+		h5_path = Path(inputs.h5_path) if inputs.h5_path else None
+		inputs_resolved: list[dict[str, Any]] = []
+		validation_warnings: list[str] = []
+		if h5_path is not None:
+			inputs_resolved.append(
+				{"name": "h5_path", "path": str(h5_path), "exists": h5_path.exists()}
+			)
+			if not h5_path.exists():
+				validation_warnings.append(
+					f"h5_path not found at {h5_path}; recording is required to run preprocess phases."
+				)
+		write_dry_run_summary(
+			phase_name=f"preprocess.{canonical_selected_phase}",
+			well_out_dir=paths.well_out_dir,
+			stage_output_root_dir=paths.preprocess_out_dir,
+			summary_json_path=summary_json_path,
+			inputs_resolved=inputs_resolved,
+			outputs_would_produce=[
+				{"name": "summary_json", "path": str(summary_json_path)},
+				{"name": "preprocess_out_dir", "path": str(paths.preprocess_out_dir)},
+			],
+			validation={
+				"missing_prerequisites": [],
+				"warnings": validation_warnings,
+			},
+		)
+		return {
+			"phase": f"preprocess.{canonical_selected_phase}",
+			"status": "dry_run_ok",
+			"well_out_dir": str(paths.well_out_dir),
+			"preprocess_out_dir": str(paths.preprocess_out_dir),
+		}
+
 	recording_metadata_paths = _resolve_recording_metadata_paths(inputs=inputs, preprocess_out_dir=paths.preprocess_out_dir)
 	outputs, phase_summaries, _common_electrodes = _run_preprocess_phase_sequence(
 		inputs=inputs,
