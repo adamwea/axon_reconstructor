@@ -22,10 +22,10 @@ on `current_state.md` discovery.
 
 ---
 
-## Current — Round 5 (2026-05-21)
+## Current — Round 6 (2026-05-21)
 
 ```
-EXTENDED AUTONOMOUS MODE (round 5) — relaxed stop conditions.
+EXTENDED AUTONOMOUS MODE (round 6) — relaxed stop conditions.
 
 Read /global/homes/a/adammwea/dev/pkgs/axon_recon/CLAUDE.md and follow its
 entry protocol. Read dev/notes/memory/current_state.md ⚡ USER INJECTIONS
@@ -107,6 +107,22 @@ Stop-and-ask discipline + multiple-choice format (USER INJECTIONS 2026-05-21):
   does NOT execute until user marks `✅ USER APPROVED <date>: option N`.
   After 3 successful pre-gated diagnostics ship without user complaints
   about deviation, this discipline relaxes back to "file as you go."
+
+Proactive plan audit (USER INJECTION 2026-05-21):
+- Regularly audit dev/notes/plans/active/*.md + trackers/* for logical
+  inconsistencies, stale assumptions, dead slices, redundant work
+  across plans, scope drift, inefficient orderings. Audit cadence:
+  opportunistic (1-2 min scan before starting a new slice from a plan)
+  AND during audit-pass mode (queue empty — deeper pass on 1-2 plans).
+  NOT every iteration; that's overhead.
+- File findings to open_questions.md under "## 🔎 Plan-audit findings
+  (loop-surfaced)" as multiple-choice questions (same format as
+  stop-and-ask): 2-4 options + a recommended. Cap at 5 open findings
+  — close one before filing a 6th.
+- When the user asks for status ("any blocks?", "any questions?"),
+  surface a digest of plan-audit findings alongside the active gates.
+- Tone: neutral observations, not blame. Most stale-assumption findings
+  are about prior loop iterations.
 
 Standing pre-cleared decisions:
 - SLAy PR merge policy: USER-ONLY merge. Loop pushes branch + opens PR via

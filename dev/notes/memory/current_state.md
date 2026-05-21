@@ -154,6 +154,38 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
   **Promote when stable**: after 3 pre-gated diagnostics ship with no user complaints about deviation-from-explicit-instruction, promote (B1) — the "no improvising around explicit instructions" rule — into a guardrail and delete (B2)/(B3)/(B4) since the cohort of attempts will have proven the behavior is internalized.
 
+- **[2026-05-21] Proactive plan audit — surface inconsistencies + inefficiencies as multiple-choice questions**: Loop must regularly audit `dev/notes/plans/active/*.md` (and `trackers/tech_debt.md`, `trackers/issues.md`) for logical problems and stale assumptions. When the user asks for status ("any blocks?", "any questions?", "where are we?"), these findings become first-class items surfaced alongside the active blockers.
+
+  **(A1) What to look for**:
+  - **Logical inconsistencies** — slice A says X, slice B says ¬X (e.g. one slice claims a phase will be deleted, another assumes it still exists)
+  - **Internal contradictions** — plan says "do X then Y", but Y consumes something X doesn't produce (broken dependency chain)
+  - **Stale assumptions** — plan written when guardrail Z was different, but Z has since changed and the plan didn't update (e.g. plan references `--force-replot` after it was renamed to `--replot`)
+  - **Dead slices** — slice superseded by other work but not marked SHIPPED / SUPERSEDED (frequent after big refactors)
+  - **Redundant slices** — two plans both schedule the same work; one should be the canonical owner
+  - **Scope drift** — plan kept accreting work beyond its original goal; could be split, or some scope should move to a different plan
+  - **Inefficient orderings** — plan does X then Y, but doing Y first would reveal whether X is even needed (cheap-info-first principle)
+  - **Resource mis-matches** — slice plans for `n_workers=4` when the standard NERSC allocation is `n_workers=16`; or plan's expensive step could be moved out of the critical path
+
+  **(A2) When to audit**:
+  - **Continuously, opportunistically**: before starting a new slice FROM a plan, spend 1-2 minutes scanning the plan's adjacent slices + their dependencies for the patterns above. Cheap; catches most inconsistencies before they bite.
+  - **At audit-pass mode** (queue empty per cadence ladder): do a deeper pass — read 1-2 active plans end-to-end + check against current_state.md + guardrails for stale assumptions.
+  - **After 5+ slices of a plan ship**: drift check — does the plan's stated goal still match what the slices are actually building?
+  - Do NOT audit every iteration; that's overhead. Audit-pass + opportunistic is the right cadence.
+
+  **(A3) How to surface findings**:
+  - Append to `dev/notes/memory/open_questions.md` under a new section `## 🔎 Plan-audit findings (loop-surfaced)` — one entry per finding, with the affected plan + slice + a 1-sentence statement of the problem.
+  - Each finding MUST be phrased as a multiple-choice question per the B1/B2 format: 2-4 options (e.g. "(1) fix the inconsistency by editing slice X; (2) accept the inconsistency and document; (3) split the plan; (4) defer"). Loop picks a "recommended" option; user picks/adjusts when reviewing.
+  - Findings are NOT urgent — they accumulate. When the user asks for status, the loop reads this section and surfaces a digest: "N plan-audit findings open; here are the top M by potential impact."
+  - When a finding is resolved (user picks an option, loop executes), strike through the entry and link forward to the resolving commit.
+
+  **(A4) Cap on volume**: at most 5 open audit findings at any time. If the loop finds a 6th, it must close (resolve OR defer-with-rationale) one of the existing 5 before filing the new one. Prevents accumulation of unactioned findings.
+
+  **(A5) Tone**: audit findings should be NEUTRAL observations, not blame. The loop is auditing its own past work as often as anyone else's — most stale-assumption findings are about prior loop iterations. Keep findings factual ("slice 6 says X; slice 11 says ¬X; this is a contradiction"), not editorial ("slice 6 was poorly written").
+
+  **Why**: per user 2026-05-21: "Include instructions to regularly search for logical inconsistencies or inefficiencies in plans. Turn those into questions for user when I ask." The user wants the loop to act as a continuous code/plan reviewer in addition to a slice executor — surfacing problems proactively rather than waiting for the user to discover them during review.
+
+  **Promote when stable**: after 3 audit findings get filed AND resolved without user complaints about the format, promote (A1)/(A2)/(A3)/(A4)/(A5) into a guardrail (`guardrails/plan_audit.md` would be a new doc) and delete this injection. The behavior stays — codified.
+
 ## 📝 User actions queued
 
 Manual items the loop can't or shouldn't do — surfaced here so the user has one place to find them. Loop appends as needed; user prunes when done.
