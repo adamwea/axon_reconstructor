@@ -37,15 +37,15 @@ arbor), and signal amplitudes mapped across the entire arbor.
 
 ### Hardware assumptions
 
-- HD-MEA family (MaxWell). Electrode pitch ~17.5 μm assumed; paper notes algorithm "degrades" at 35+ μm.
-- Sample rate VARIES per device — read from analyzer manifest per recording, do NOT hardcode:
+- **Current devices (MaxWell family — both MaxOne and MaxTwo)**: 26,400 electrodes, ~17.5 μm pitch. Paper's HD-MEA1k matches this exactly; algorithm performance "degrades" at 35+ μm pitch per the paper.
+- **Sample rate VARIES per device** — read from analyzer manifest per recording, do NOT hardcode:
   - MaxTwo: 10 kHz (current 80k DMEM cohort default)
   - MaxOne: 20 kHz (matches paper exactly)
-  - Other devices may join in the future; assume any HD-MEA-family sample rate is possible.
-- Channel count varies per device; algorithm scales with whatever subset is recorded.
-
-Paper notes: algorithm performance "degrades" at 35+ μm pitch. Our
-data (MaxWell MEA1k, ~17.5 μm in axon-tracking mode) is in spec.
+- **Future devices (NOT yet integrated; pipeline should remain device-agnostic)**:
+  - **ThreeBrain** — electrode count + pitch + sample rate TBD; will differ from MaxWell spec.
+  - **Sony HD-MEA** — same: TBD specs.
+  - **Modularity goal**: every phase that consumes recording data should read device parameters from the analyzer manifest at runtime, not from a YAML constant. See `trackers/tech_debt.md` for the low-priority "device-agnostic source data" guardrail tracking this principle pipeline-wide.
+- Channel count varies per device (and per recording mode within MaxWell); algorithm scales with whatever subset is recorded.
 
 ### Preprocessing requirements (upstream of this algorithm)
 

@@ -295,3 +295,34 @@ broken behavior) and `roadmap.md` (which is new ambitions).
   this lands. The stale-bombcell SLAy mtime fallback in
   `status._read_slay_label_column` (`bc_is_fresh`) becomes dead code once
   force-restart actually cleans the stage dir — drop it too.
+
+## Device-agnostic source data (low priority, design-only)
+
+**Problem**: `axon_recon` currently runs on MaxWell HD-MEA devices (MaxOne @ 20 kHz, MaxTwo @ 10 kHz). The pipeline already does the RIGHT thing in the sense that `metadata_get` + `debug.data.yml` are authoritative for per-recording sample rate and channel count — but there are scattered assumptions across phases that effectively encode "MaxWell-shaped data":
+- Some plot phases assume 26,400 electrodes' worth of channel-map shape
+- Some YAML defaults assume ~17.5 μm electrode pitch
+- Recording-loader code paths are MaxWell-flavored (file format, channel-mapping conventions)
+
+**Why it matters for the future**: Pipeline will eventually consume data from ThreeBrain and Sony HD-MEA devices. Those will have:
+- Different electrode counts (TBD per device)
+- Different pitches (TBD)
+- Different sample rates (TBD)
+- Different raw file formats (likely)
+- Different channel-mapping / activity-scan conventions
+
+**Goal**: Every phase that consumes recording data should:
+1. Read device parameters from the analyzer manifest at runtime — never hardcode 26400, 17.5 μm, or 20 kHz anywhere in src/.
+2. Scale derived quantities (radii in electrodes, pitch-dependent thresholds, upsample factors) as ratios of manifest-reported values, not as absolutes.
+3. Tolerate any HD-MEA-family device whose analyzer manifest reports valid `(sample_rate_hz, n_channels, electrode_locations[n,2], pitch_um)` quadruple.
+4. Where a phase legitimately can't be device-agnostic (e.g. a plot's grid layout is shaped to a specific array), gate it on a `supported_devices` declaration and skip cleanly on others.
+
+**Suggested cleanup approach (when this becomes a priority)**:
+- Audit pass: `grep -rn '26400\|17.5\|20.0\|20_000\|0.05.*1000' src/` — any literal that matches a MaxWell spec is suspect.
+- Introduce `DeviceProfile` dataclass (device_name, n_channels, pitch_um, sample_rate_hz_default, raw_file_format, ...) read from the analyzer manifest. Every phase consumes the profile, not raw constants.
+- For per-device YAML calibration sets, use `device_profile: maxone | maxtwo | threebrain | sony` as a top-level YAML key selecting which sub-block of hyperparameters applies. Defer until empirical results show different devices need different calibrations.
+
+**Touch size**: M-L. Distributed across many phases. Best done incrementally — touch one phase per slice as it's audited for new-device support.
+
+**Ordering**: Strictly post-Era-3 (kssynth + unitlink + Radivojevic integration). No new devices in scope for v1 iteration; this is a v2+ concern. Document the principle now (per user 2026-05-21) so future contributors don't bake in new MaxWell assumptions; defer execution until a non-MaxWell device actually enters scope.
+
+**See also**: `project-axon-recon-device-diversity` auto-memory captures the per-device sample-rate awareness rule that's already in effect.
