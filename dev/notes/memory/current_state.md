@@ -120,19 +120,19 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 - **🛑 [2026-05-21 — CRITICAL behavioral injection] STOP-AND-ASK discipline for diagnostics (next 3 attempts MANDATORY)**: The first Radivojevic SOFT-gate diagnostic attempt failed on 3 user-explicit requirements (use plot_recons / pick high-branch unit / produce comparison) because the loop **improvised around friction** instead of stopping to ask. New mandatory behavior:
 
-  **(B1) When blocked on or facing friction with an EXPLICIT user instruction about a surface area, the loop MUST STOP and write a focused question to `open_questions.md` rather than improvising a substitute approach.** Specifically — the loop is FORBIDDEN from:
+  **(B1) When blocked on or facing friction with an EXPLICIT user instruction about a surface area, the loop MUST STOP and write a focused MULTIPLE-CHOICE question to `open_questions.md` rather than improvising a substitute approach.** The "ask" form MUST be options (2-4 numbered choices), NOT a bare halt with prose description. Each option labeled `label / touch size / tradeoff`; loop picks a "recommended" option (most defensible default) and the user picks or adjusts. User-side resolution: mark `✅ USER APPROVED <date>: option N` above the question; loop executes that option. (Amended 2026-05-21 per user: "for now, instead of stopping ask it to just give me choices like you just did.") Specifically — the loop is FORBIDDEN from:
    - Building new plotting code in a sibling repo when the user said "use existing plot_recons"
    - Substituting a different unit/cluster/well when the user picked the target
    - Producing a single-algorithm output when the user asked for a comparison
    - Reducing scope on an explicit deliverable to make the immediate iteration succeed
 
-  **(B2) For the NEXT 3 diagnostic-generation iterations, the loop MUST PAUSE BEFORE GENERATING EACH DIAGNOSTIC and wait for explicit user greenlight on the execution plan.** The pause writes the plan to `open_questions.md` as "🛑 PRE-DIAGNOSTIC GATE N — confirm this plan before I execute" with:
+  **(B2) For the NEXT 3 diagnostic-generation iterations, the loop MUST PAUSE BEFORE GENERATING EACH DIAGNOSTIC and surface a multiple-choice question for the user.** The pause writes the plan to `open_questions.md` as "🛑 PRE-DIAGNOSTIC GATE N — pick plan before I execute" with the EXECUTION PLAN as option 1 (the loop's recommended path) AND 1-3 alternative options (e.g. "tweak input choice", "switch rendering path", "abandon this diagnostic for now"). The user picks, the loop executes. If the user replies with adjustments instead of picking, the loop revises the plan and surfaces an amended multiple-choice question. Required fields per option:
    - Exact input data path
    - Exact code path that will produce the visual (existing-phase reuse vs new code)
    - Exact comparator (if applicable) and how it's being rendered
    - Expected output layout
-   - Any sub-steps where the loop anticipates friction
-  Loop does NOT begin diagnostic generation until that gate is RESOLVED by the user. After 3 successful pre-gated diagnostics, this discipline relaxes back to "file as you go" — by then the loop has demonstrated it's internalized the lesson.
+   - Any sub-steps where the loop anticipates friction (each one becomes its OWN potential mid-execution multiple-choice halt per B1)
+  Loop does NOT begin diagnostic generation until the user picks an option. After 3 successful pre-gated diagnostics, this discipline relaxes back to "file as you go" — by then the loop has demonstrated it's internalized the lesson.
 
   **(B3) Root-cause analysis preserved for the loop to read** (so this isn't an opaque rule):
   - **What happened**: User asked for "side-by-side axon_velocity_gtrs vs radivojevic_recon comparison via plot_recons, high-branch unit, plenty of branches". Loop:

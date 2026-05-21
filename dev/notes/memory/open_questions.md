@@ -82,7 +82,17 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 For each, the correct response is: write a focused question to this file under "PRE-DIAGNOSTIC GATE 1 — friction encountered" and PAUSE.
 
-**Resolution criterion**: user reads this plan and either (a) greenlights as-is, (b) tweaks specific steps, or (c) redirects entirely. Loop does not execute step 1 until this gate has a `✅ USER APPROVED <date>` mark above the gate's title.
+**Resolution criterion**: user picks from the multiple-choice options below. Loop does not execute until the user marks `✅ USER APPROVED <date>: option N` above the gate's title.
+
+**Pick an option:**
+
+1. **Execute the plan above verbatim (Recommended)** — apples-to-apples comparison via plot_recons on the kssynth-produced merged_template for `unit_0598` (or its kssynth-equivalent ID once mapping confirmed). Touch M (mostly waiting + adapter). Includes the analyzers-discovery extension prerequisite.
+
+2. **Execute the plan but on a DIFFERENT high-branch unit** — if you have a specific unit ID you'd rather see compared (instead of `unit_0598`), tell the loop which. Loop runs everything else identically. Touch M.
+
+3. **Abandon the apples-to-apples requirement; ship a qualitative comparison NOW** — render axon_velocity_gtrs on unit_0598 via plot_recons (existing reference data, no rerun) + render radivojevic on the existing cluster-67 substitute via plot_recons (loop builds the adapter for radivojevic's ReconstructionResult). Different inputs but same rendering code. Touch S. Trades off "same axon" for "ships in next iteration."
+
+4. **Pause radivojevic diagnostics entirely; loop pivots to other work** — e.g. kssynth integration without the radivojevic comparison, or another tier-4 plan. Comparison diagnostic deferred to a later session. Touch zero.
 
 ## ✅ RESOLVED 2026-05-21 — kssynth slice 3b PATH 2: extend --input-root into analyzers discovery
 
