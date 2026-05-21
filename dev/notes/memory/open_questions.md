@@ -76,21 +76,33 @@ Loop attempted the first real-data smoke per USER GATE 3 spec. Findings:
   (cuts timeframes to 121-181), or raise pixel_um to 5-10 (cuts target
   pixels by 25-100x), or both. Then re-run + capture timing baseline.
 
-**Open question for user**:
-1. Is the user's GATE 3 spec correct about `merged_template.npy`
-   existing? OR are those files produced by an unrun pipeline phase
-   (e.g. kssynth slice 3b HEAVY)?
-2. If they don't exist yet, should the radivojevic smoke wait on
-   the kssynth heavy smoke, OR proceed with the pragmatic kilosort-
-   template substitute the loop adopted?
-3. The plot_recons side-by-side comparison was contingent on the
-   merged_template path — same gate.
+**Open questions — ✅ RESOLVED 2026-05-21**:
+1. User CONFIRMS: `merged_template.npy` files are produced by kssynth's per-unit postprocess (slice 4 SHIPPED — `_write_per_unit_templates_from_synth_output`). They don't exist in the reference data because the reference was built with the older pipeline; they'll exist in `dev_outputs/kssynth_slice3b/...` once kssynth slice 3b HEAVY runs.
+2. User CHOSE: **APPLES-TO-APPLES via kssynth heavy** — loop runs kssynth slice 3b heavy on M08073/well000 (~5-15 min for analyzers cache build + 30s kssynth), then re-runs radivojevic on the SAME high-branch unit (unit_0598 or whichever post-merge unit the user originally identified as the 9-branch reference). Two PNGs of the same axon, rendered by each algorithm. Direct head-to-head.
+3. plot_recons side-by-side comparison gates on the same — kssynth heavy unblocks it.
 
-**Status**: real-data smoke is BLOCKED on (a) tuning the Stage 2
-parameters for tractable runtime AND (b) the unit→cluster mapping
-question for the side-by-side comparison. Loop pivots to other plans
-or stays on the radivojevic stage 1 algorithmic core (next iteration
-will tune Stage 2 parameters for a usable smoke).
+**Concrete next loop iteration sequence**:
+1. Run kssynth slice 3b heavy smoke (PATH 2 — `--input-root` plumbing already shipped):
+   ```bash
+   axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml \
+     --target-dataset 260326 --limit-wells 1 --task-backend local_affinity \
+     --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
+     --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
+   axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
+     --target-dataset 260326 --limit-wells 1 --task-backend local_affinity \
+     --force-enable kssynth \
+     --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
+     --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
+   ```
+2. Locate the post-merge unit dir for the 9-branch unit (loop previously identified `unit_0598` via branches.json scan — that's the target). Confirm `merged_template.npy` + `merged_channel_locations.npy` exist there.
+3. Run radivojevic_recon on that unit's merged_template. Generate PNG.
+4. Generate axon_velocity_gtrs PNG via `plot_recons` (existing phase) on the SAME unit's reference recon output. Note: reference data has axon_velocity_gtrs output, so `plot_recons` can read it directly without rerun.
+5. Compose side-by-side `comparison.png`.
+6. File HARD-gate diagnostic in `diagnostics_to_review.md`.
+7. File real-data smoke entry in `smoke_log.md` (entry #4).
+8. PAUSE for user review.
+
+**Status**: UNBLOCKED. Loop's next sequence is fully spec'd; estimated ~20-30 min wall-time including kssynth heavy + radivojevic + PNG composition.
 
 ## Per-slice empirical findings
 
