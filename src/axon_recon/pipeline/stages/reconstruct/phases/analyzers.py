@@ -54,6 +54,7 @@ def _discover_analyzer_source_names(
     well_out_dir: Path,
     analyzer_cache_dir: Path | None,
     source_scope: str | None,
+    alternate_well_out_dirs: list[Path] | tuple[Path, ...] = (),
 ) -> list[str]:
     include_concat = bool(inputs.include_concat) and bool(inputs.phases.analyzers.concat.enabled)
     include_segments = bool(inputs.include_segments) and bool(
@@ -93,6 +94,7 @@ def _discover_analyzer_source_names(
         segments_use_existing_analyzer=bool(inputs.phases.analyzers.segments.use_existing_analyzer),
         segments_build_if_missing=bool(inputs.phases.analyzers.segments.build_if_missing),
         limit_segments=inputs.limit_segments,
+        alternate_well_out_dirs=tuple(alternate_well_out_dirs or ()),
     )
 
 
@@ -515,6 +517,7 @@ def _run_reconstruct_templates_analyzers_phase_body(
             well_out_dir=well_out_dir,
             analyzer_cache_dir=analyzer_cache_dir,
             source_scope=source_scope,
+            alternate_well_out_dirs=iteration_alternate_well_out_dirs,
         )
     except Exception:
         discovered_source_names = []

@@ -1667,6 +1667,7 @@ def discover_spikeinterface_analyzer_source_names(
 	segments_build_if_missing: bool = True,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
 	limit_segments: int | None = None,
+	alternate_well_out_dirs: list[Path] | tuple[Path, ...] = (),
 ) -> list[str]:
 	requested_names: set[str] | None = None
 	if requested_source_names is not None:
@@ -1726,6 +1727,28 @@ def discover_spikeinterface_analyzer_source_names(
 		seen_segment_names = set(source_names)
 		if segments_dir.exists() and segments_dir.is_dir():
 			for entry in sorted(segments_dir.iterdir()):
+				seg_name = _canonical_segment_source_name(entry)
+				if seg_name is None or seg_name in seen_segment_names:
+					continue
+				seen_segment_names.add(seg_name)
+				source_names.append(seg_name)
+		# Also probe alternate well_out_dirs (from --input-root) for segments —
+		# lets the analyzers phase discover sources when inputs live at a
+		# reference path while outputs land elsewhere. Per the kssynth slice
+		# 3b path-2 plumbing extension, BLOCKER resolution 2026-05-21.
+		for alt_well_out_dir in alternate_well_out_dirs or ():
+			alt_segments_reldir = segments_sources_reldir
+			if alt_segments_reldir is None:
+				continue
+			alt_p = Path(str(alt_segments_reldir).strip()).expanduser()
+			if alt_p.is_absolute():
+				alt_segments_dir = Path(str(alt_segments_reldir).lstrip("/")).expanduser()
+				alt_segments_dir = (Path(alt_well_out_dir) / alt_segments_dir).resolve()
+			else:
+				alt_segments_dir = (Path(alt_well_out_dir) / alt_p).resolve()
+			if not (alt_segments_dir.exists() and alt_segments_dir.is_dir()):
+				continue
+			for entry in sorted(alt_segments_dir.iterdir()):
 				seg_name = _canonical_segment_source_name(entry)
 				if seg_name is None or seg_name in seen_segment_names:
 					continue
