@@ -10,7 +10,7 @@ from axon_recon.pipeline.stages.reconstruct.models.results import UnitReconstruc
 
 
 def run_reconstruct_plot_branch_propagations_phase(inputs: ReconstructionInputs) -> dict[str, Any]:
-    from axon_recon.pipeline.config import get_no_plot_override
+    from axon_recon.pipeline.config import get_dry_run_override, get_no_plot_override
 
     env = reconstruct_runner._prepare_reconstruct_phase_environment(
         inputs=inputs, clear_output_root=False
@@ -19,6 +19,14 @@ def run_reconstruct_plot_branch_propagations_phase(inputs: ReconstructionInputs)
         env.reconstruction_out_dir
         / Path(str(inputs.phases.plot_branch_propagations.summary_json_relpath)).expanduser()
     )
+
+    if get_dry_run_override():
+        return reconstruct_runner.reconstruct_phase_dry_run_short_circuit(
+            inputs=inputs,
+            phase_name="plot_branch_propagations",
+            summary_json=summary_json,
+        )
+
     with with_checkpoint_marker(
         summary_json,
         phase_name="plot_branch_propagations",

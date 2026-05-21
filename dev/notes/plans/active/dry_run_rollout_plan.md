@@ -154,16 +154,23 @@ For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load
 ### Slice 5 — Reconstruct stage phase short-circuits
 
 **Progress (sub-slices landing out-of-order with the other plans):**
-- `kssynth` — SHIPPED 2026-05-21 via `kssynth_recon_integration_plan` slice 4e.
-- `analyzers` — SHIPPED 2026-05-21.
-- `axon_velocity_gtrs` — SHIPPED 2026-05-21.
-- `plot_templates_v2` — SHIPPED 2026-05-21.
-- `report_templates` — SHIPPED 2026-05-21.
 
-Remaining phases (post-cleanup shape; legacy `plot_templates` /
-`per_unit_processing` / `reports` already deleted per phase cleanup
-plan):
-- `resolve_sources`
+✅ **13 of 17 recon phases now have dry-run** (as of 2026-05-21):
+- `kssynth` — SHIPPED via `kssynth_recon_integration_plan` slice 4e.
+- `analyzers` — SHIPPED.
+- `axon_velocity_gtrs` — SHIPPED.
+- `plot_templates_v2` — SHIPPED.
+- `report_templates` — SHIPPED.
+- `plot_recons` + `plot_branch_propagations` + `plot_branch_velocities`
+  + `plot_unit_summary` — SHIPPED via shared helper
+  `reconstruct_phase_dry_run_short_circuit` in `stages/reconstruct/runner.py`.
+- `report_recons` + `report_recon_grid` + `report_full_chip_layout`
+  + `report_summaries` — SHIPPED via same helper.
+
+**Remaining**: 4 phases (`resolve_sources`, `clear_templates_cache`,
+plus the two slated-for-deletion phases below).
+
+- `resolve_sources` — TODO
 - ~~`analyzers`~~ — SHIPPED
 - `extract_partial_templates` (slated for deletion by
   `kssynth_recon_integration` slice 5 — skip dry-run for it; it's
@@ -172,16 +179,16 @@ plan):
 - ~~`kssynth`~~ — SHIPPED (the replacement phase)
 - ~~`plot_templates_v2`~~ — SHIPPED
 - ~~`report_templates`~~ — SHIPPED
-- ~~`axon_velocity_gtrs`~~ (renamed from `generate_gtrs`) — SHIPPED
-- `plot_recons`
-- `plot_branch_propagations`
-- `plot_branch_velocities`
-- `plot_unit_summary`
-- `report_recons`
-- `report_recon_grid`
-- `report_full_chip_layout`
-- `report_summaries`
-- `clear_templates_cache`
+- ~~`axon_velocity_gtrs`~~ — SHIPPED
+- ~~`plot_recons`~~ — SHIPPED (via shared helper)
+- ~~`plot_branch_propagations`~~ — SHIPPED (via shared helper)
+- ~~`plot_branch_velocities`~~ — SHIPPED (via shared helper)
+- ~~`plot_unit_summary`~~ — SHIPPED (via shared helper)
+- ~~`report_recons`~~ — SHIPPED (via shared helper)
+- ~~`report_recon_grid`~~ — SHIPPED (via shared helper)
+- ~~`report_full_chip_layout`~~ — SHIPPED (via shared helper)
+- ~~`report_summaries`~~ — SHIPPED (via shared helper)
+- `clear_templates_cache` — TODO
 
 This is the biggest slice. Consider sub-slices grouped by sub-domain (analyzers/templates, plots, reports).
 

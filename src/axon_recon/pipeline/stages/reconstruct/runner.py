@@ -623,6 +623,95 @@ def reconstruct_phase_plots_disabled_skip(
 	return payload
 
 
+def reconstruct_phase_dry_run_short_circuit(
+	*,
+	inputs: ReconstructionInputs,
+	phase_name: str,
+	summary_json: Path,
+	additional_outputs: tuple[tuple[str, Path], ...] = (),
+) -> dict[str, Any]:
+	"""Short-circuit a recon-stage per-unit phase under --dry-run.
+
+	Resolves the phase environment (well_out_dir, reconstruction_out_dir,
+	unit_ids) the same way the real phase would, then writes a
+	dry_run_ok summary via `pipeline.dry_run.write_dry_run_summary` and
+	returns the standard short-circuit dict — without invoking the
+	per-unit fanout impl.
+
+	Used by plot_recons / plot_branch_propagations / plot_branch_velocities
+	/ plot_unit_summary / report_recons / report_recon_grid (all share
+	the same env shape via `_prepare_reconstruct_phase_environment`).
+
+	`additional_outputs` is a tuple of (name, path) pairs for phase-
+	specific outputs (e.g. PDF reports, named subdirs); merged in
+	alongside the standard summary_json + reconstruction_out_dir.
+	"""
+
+	from axon_recon.pipeline.dry_run import write_dry_run_summary
+
+	env = _prepare_reconstruct_phase_environment(inputs=inputs, clear_output_root=False)
+
+	# Resolve templates dir for inputs reporting; non-fatal on miss
+	# (same pattern as axon_velocity_gtrs phase's dry-run path).
+	templates_dir_reported: Path | None = None
+	try:
+		from axon_recon.pipeline.stages.reconstruct.templates.runner import (
+			_resolve_templates_dirs,
+		)
+
+		templates_dir_reported, _ = _resolve_templates_dirs(
+			well_out_dir=env.well_out_dir,
+			templates_out_dir=env.well_out_dir / "recon_outputs",
+		)
+	except Exception as exc:
+		LOGGER.warning(
+			"reconstruct.%s dry-run: templates dir resolution failed: %s",
+			phase_name,
+			exc,
+		)
+
+	inputs_resolved: list[dict[str, Any]] = []
+	if templates_dir_reported is not None:
+		inputs_resolved.append(
+			{
+				"name": "merged_templates_dir",
+				"path": str(templates_dir_reported),
+				"exists": bool(templates_dir_reported.exists()),
+			}
+		)
+
+	outputs_would_produce: list[dict[str, Any]] = [
+		{"name": "summary_json", "path": str(summary_json)},
+		{"name": "reconstruction_out_dir", "path": str(env.reconstruction_out_dir)},
+	]
+	for output_name, output_path in additional_outputs:
+		outputs_would_produce.append(
+			{"name": str(output_name), "path": str(output_path)}
+		)
+
+	write_dry_run_summary(
+		phase_name=f"reconstruct.{phase_name}",
+		well_out_dir=env.well_out_dir,
+		stage_output_root_dir=env.reconstruction_out_dir,
+		summary_json_path=summary_json,
+		inputs_resolved=inputs_resolved,
+		outputs_would_produce=outputs_would_produce,
+		extra_fields={"n_units_resolved": int(len(env.unit_ids))},
+	)
+	LOGGER.info(
+		"reconstruct.%s: dry-run complete; summary at %s",
+		phase_name,
+		str(summary_json),
+	)
+	return {
+		"phase": f"reconstruct.{phase_name}",
+		"status": "dry_run_ok",
+		"well_out_dir": str(env.well_out_dir),
+		"reconstruction_out_dir": str(env.reconstruction_out_dir),
+		"n_units": int(len(env.unit_ids)),
+	}
+
+
 def _write_reconstruct_phase_summary(
 	*,
 	phase_name: str,
