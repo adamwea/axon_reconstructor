@@ -146,6 +146,8 @@ Don't update it when:
 | **Working memory** (current state, open questions, scratch) | `dev/notes/memory/*.md` | Often; refined as Claude works |
 | **Active plans** | `dev/notes/plans/active/*.md` | Touched per-slice during execution |
 | **Trackers** (tech debt, issues, roadmap) | `dev/notes/trackers/*.md` | When new items surface |
+| **Salloc smokes queued** | `dev/notes/trackers/salloc_smokes_queued.md` | When the loop needs to surface a smoke that requires an interactive allocation (user-only to run). Loop appends; user prunes when the smoke completes. |
+| **Real-data smoke log** | `dev/notes/trackers/smoke_log.md` | Append-only log of completed real-data smokes (login-node or salloc) with bug→fix chains. |
 | **Commit log** | `dev/notes/commit_log.md` | After every `claude:` commit |
 | **Loop prompts** (autonomous-mode `/loop` invocations) | `dev/notes/loop_prompts/*.md` | When authorizations change or directives ship |
 | **Archive** (old guardrails, handoffs) | `dev/notes/archive/` | Don't touch unless rescuing context |

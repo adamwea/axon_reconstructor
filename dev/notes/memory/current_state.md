@@ -158,38 +158,7 @@ User-authored directives that override plan / tier order until satisfied. Read F
 
 Manual items the loop can't or shouldn't do — surfaced here so the user has one place to find them. Loop appends as needed; user prunes when done.
 
-- **[2026-05-21] Run kssynth slice 3b HEAVY (analyzers + kssynth) on M08073/well000 DIV 36** — interactive allocation needed; loop kept getting SIGTERM'd at ~3-5 min into the load on the login node. Apples-to-apples radivojevic-vs-axon_velocity_gtrs diagnostic gates on this. **Command to run from an interactive allocation** (e.g. `salloc -A m4408 -N 1 -t 60 --qos=interactive -C cpu`):
-
-  ```bash
-  cd /global/u2/a/adammwea/dev/pkgs/axon_recon
-
-  # Analyzers (5-15 min). The host source overlay via PYTHONPATH is needed because the
-  # frozen May-19 shifter image predates the --input-root flag (commit ad87ad9 + load-side
-  # follow-up c8b8b11). HDF5_PLUGIN_PATH is set by neo's auto-install.
-  HDF5_PLUGIN_PATH=/global/homes/a/adammwea/hdf5_plugin_path_maxwell \
-  shifter --image=adammwea/axon-recon:pipeline-v2 \
-    env PYTHONPATH=/global/u2/a/adammwea/dev/pkgs/axon_recon/src \
-    python -m axon_recon.pipeline.cli stages reconstruct.analyzers \
-    --config dev/debug_NERSC/debug.runtime.yml \
-    --target-dataset 13 --limit-wells 1 --task-backend local_affinity \
-    --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
-    --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
-
-  # kssynth synthesize (~30s after analyzers).
-  HDF5_PLUGIN_PATH=/global/homes/a/adammwea/hdf5_plugin_path_maxwell \
-  shifter --image=adammwea/axon-recon:pipeline-v2 \
-    env PYTHONPATH=/global/u2/a/adammwea/dev/pkgs/axon_recon/src \
-    python -m axon_recon.pipeline.cli stages reconstruct.kssynth \
-    --config dev/debug_NERSC/debug.runtime.yml \
-    --target-dataset 13 --limit-wells 1 --task-backend local_affinity \
-    --force-enable kssynth \
-    --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
-    --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
-  ```
-
-  Expected outputs: `<output_root>/Media_Density_T5_.../000208/well000/recon_outputs/synth_sorter_output/per_unit/unit_<N>/{merged_template.npy, merged_channel_locations.npy, ...}` for every post-merge unit. Loop's next iteration picks up from there: scan for the 9-branch unit, run radivojevic on its merged_template, file PRE-DIAGNOSTIC GATE 1.
-
-  **Pre-req (env setup, one-time)**: MaxWell HDF5 plugin install in conda env — loop ran this already this session via `python -c 'from neo.rawio.maxwellrawio import auto_install_maxwell_hdf5_compression_plugin; auto_install_maxwell_hdf5_compression_plugin(force_download=False)'`. Plugin lives at `~/hdf5_plugin_path_maxwell/libcompression.so`. Worth documenting in `guardrails/env_parity.md` as a conda-env-only setup step (shifter image bakes it in).
+- **[2026-05-21] Salloc smokes queued — see `dev/notes/trackers/salloc_smokes_queued.md`**. New dedicated file (per user 2026-05-21) for smoke runs that need an interactive Slurm allocation. Currently queued: kssynth slice 3b HEAVY (analyzers + kssynth) on M08073/well000 DIV 36, gating the radivojevic apples-to-apples diagnostic. Loop appends here; user runs each entry inside `salloc`; entry is deleted (or moved to `smoke_log.md`) when the run completes.
 
 - **[2026-05-19] Delete the smoke-test repo `adamwea/__gh_auth_smoke_test`** on GitHub. Created during DIRECTIVE D pre-execution verification of `gh repo create` (commit `2124d2c`); `gh repo delete` requires the `delete_repo` token scope which the current token doesn't have. Either delete via web UI at https://github.com/adamwea/__gh_auth_smoke_test/settings (bottom of page → "Delete this repository") OR run `gh auth refresh -h github.com -s delete_repo` to add the scope and let the loop clean it up itself in the future. Not blocking anything; just clutter.
 
