@@ -206,8 +206,16 @@ slated-for-deletion phases below).
 This is the biggest slice. Consider sub-slices grouped by sub-domain (analyzers/templates, plots, reports).
 
 ### Slice 6 — Analysis stage phase short-circuits
-- `compute_metrics`
-- `unitmatch` (when it lands per `unitmatch_phase_plan.md`)
+
+Progress:
+- ~~`compute_metrics`~~ — SHIPPED 2026-05-21 (dry-run intercept in
+  `run_analysis_compute_metrics_stage` writes a dry_run_ok manifest
+  without scanning recon_outputs/units).
+- `propagation_video` — ALREADY HAS dry-run via the old
+  `stage_config.dry_run` field (different mechanism; pre-dates the
+  process-wide override). Could be retrofitted to also honor
+  `get_dry_run_override()` for consistency; not blocking.
+- `unitmatch` (when it lands per `unitmatch_phase_plan.md`) — TODO
 
 ### Slice 7 — New stages from the phase roster cleanup
 Once `init` and `cleanup` stages exist:

@@ -397,6 +397,72 @@ def run_analysis_compute_metrics_stage(
 		relpath=manifest_relpath,
 	)
 
+	# Dry-run short-circuit (dry_run_rollout slice 6 — analysis stage).
+	# Writes a `dry_run_ok` manifest at the standard location without
+	# scanning recon_outputs/units/ or building any parquet tables.
+	from ...config import get_dry_run_override
+
+	if get_dry_run_override():
+		from ...dry_run import write_dry_run_summary
+
+		recon_output_rel_root = str(
+			getattr(stage_config, "recon_output_rel_root", "recon_outputs") or "recon_outputs"
+		)
+		recon_outputs_dir = _resolve_under_well(
+			well_out_dir=well_out_dir, relpath=recon_output_rel_root
+		)
+		spikesort_outputs_dir = _resolve_under_well(
+			well_out_dir=well_out_dir, relpath="spikesort_outputs"
+		)
+		tables_relpath = str(getattr(stage_config, "tables_relpath", "tables") or "tables")
+		tables_dir = _resolve_under_analysis_output_root(
+			well_out_dir=well_out_dir,
+			output_rel_root=output_rel_root,
+			relpath=tables_relpath,
+		)
+		validation_warnings: list[str] = []
+		if not recon_outputs_dir.exists():
+			validation_warnings.append(
+				f"recon_outputs_dir not found at {recon_outputs_dir}; "
+				"run the reconstruct stage first."
+			)
+		write_dry_run_summary(
+			phase_name="analysis.compute_metrics",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			summary_json_path=manifest_path,
+			inputs_resolved=[
+				{
+					"name": "recon_outputs_dir",
+					"path": str(recon_outputs_dir),
+					"exists": recon_outputs_dir.exists(),
+				},
+				{
+					"name": "spikesort_outputs_dir",
+					"path": str(spikesort_outputs_dir),
+					"exists": spikesort_outputs_dir.exists(),
+				},
+			],
+			outputs_would_produce=[
+				{"name": "manifest_json", "path": str(manifest_path)},
+				{"name": "units_parquet", "path": str(tables_dir / "units.parquet")},
+				{
+					"name": "well_summary_parquet",
+					"path": str(tables_dir / "well_summary.parquet"),
+				},
+			],
+			validation={
+				"missing_prerequisites": [],
+				"warnings": validation_warnings,
+			},
+		)
+		return AnalysisResult(
+			well_out_dir=well_out_dir,
+			analysis_out_dir=stage_output_root_dir,
+			manifest_json=manifest_path,
+			outputs={"manifest_json": str(manifest_path)},
+		)
+
 	# Lay down the in_progress marker BEFORE any phase work. The final
 	# manifest write below overwrites this on success; on uncaught
 	# exception the context manager overwrites with status=error.
