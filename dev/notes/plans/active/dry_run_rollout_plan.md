@@ -1,6 +1,17 @@
 # `--dry-run` rollout across every phase
 
-Status: implementation plan. Realizes the `guardrails/dry_run.md` contract: every phase exposes `--dry-run` and short-circuits at input resolution. Same operating contract: one slice at a time, `claude:` commit prefix, append a line to `dev/notes/commit_log.md` after every commit.
+Status (2026-05-21): **MAJOR PROGRESS** — slices 1a + 2 + 3 + most of
+5 + most of 6 SHIPPED. CLI flag wired, helper landed, all preprocess
+phases done (5/5), 16/17 recon phases done (remaining 2 slated for
+deletion), 2/3 analysis phases done (compute_metrics + propagation_video;
+unitmatch pending). Remaining: spikesort stage (slice 4) — 11+ phases
+including the heavy `sort` phase that must not load CUDA/Kilosort under
+dry-run. Init + cleanup (slice 7) when those stages land.
+
+Realizes the `guardrails/dry_run.md` contract: every phase exposes
+`--dry-run` and short-circuits at input resolution. Same operating
+contract: one slice at a time, `claude:` commit prefix, append a line
+to `dev/notes/commit_log.md` after every commit.
 
 **See also:**
 - `guardrails/dry_run.md` — the contract this plan realizes.
