@@ -330,6 +330,81 @@ def test_build_task_allocation_plan_auto_cpus_per_task_defaults_to_1(tmp_path: P
 	assert plan.cpus_per_task_source == "default"
 
 
+def test_build_task_allocation_plan_slurm_env_wins_over_yaml_cpus_per_task(
+	tmp_path: Path, monkeypatch
+) -> None:
+	"""Per parallelism plan slice 9.5 + user 2026-05-21: when srun supplies
+	SLURM_CPUS_PER_TASK, that value wins over the YAML's task_allocation.
+	cpus_per_task. YAML is the fallback default."""
+	monkeypatch.setenv("SLURM_CPUS_PER_TASK", "128")
+	topology = _lab_topology(tmp_path)
+	plan = build_task_allocation_plan(
+		config=TaskAllocationConfig(
+			enabled=True,
+			backend="local_affinity",
+			bind="physical_cores",
+			cpus_per_task=16,  # YAML default — should be overridden by env
+			tasks_per_node="auto",
+			use_hyperthreads=False,
+		),
+		topology=topology,
+		target_count=8,
+	)
+	assert plan is not None
+	assert plan.cpus_per_task == 128
+	assert plan.cpus_per_task_source == "slurm_env:SLURM_CPUS_PER_TASK"
+
+
+def test_build_task_allocation_plan_yaml_used_when_slurm_env_absent(
+	tmp_path: Path, monkeypatch
+) -> None:
+	"""When SLURM_CPUS_PER_TASK is NOT set, the YAML cpus_per_task wins
+	(this preserves the existing MPI workload shape where YAML drives the
+	per-rank budget)."""
+	monkeypatch.delenv("SLURM_CPUS_PER_TASK", raising=False)
+	topology = _lab_topology(tmp_path)
+	plan = build_task_allocation_plan(
+		config=TaskAllocationConfig(
+			enabled=True,
+			backend="local_affinity",
+			bind="physical_cores",
+			cpus_per_task=16,
+			tasks_per_node="auto",
+			use_hyperthreads=False,
+		),
+		topology=topology,
+		target_count=8,
+	)
+	assert plan is not None
+	assert plan.cpus_per_task == 16
+	assert plan.cpus_per_task_source == "task_allocation.cpus_per_task"
+
+
+def test_build_task_allocation_plan_slurm_env_ignored_when_zero_or_garbage(
+	tmp_path: Path, monkeypatch
+) -> None:
+	"""SLURM_CPUS_PER_TASK with value <=0 or non-numeric falls through to
+	YAML — defensive against malformed env state."""
+	topology = _lab_topology(tmp_path)
+	for bad in ("0", "-3", "not-a-number", "  "):
+		monkeypatch.setenv("SLURM_CPUS_PER_TASK", bad)
+		plan = build_task_allocation_plan(
+			config=TaskAllocationConfig(
+				enabled=True,
+				backend="local_affinity",
+				bind="physical_cores",
+				cpus_per_task=16,
+				tasks_per_node="auto",
+				use_hyperthreads=False,
+			),
+			topology=topology,
+			target_count=8,
+		)
+		assert plan is not None
+		assert plan.cpus_per_task == 16, f"bad env={bad!r} unexpectedly took effect"
+		assert plan.cpus_per_task_source == "task_allocation.cpus_per_task"
+
+
 def test_task_slot_affinity_context_applies_and_restores_mock_affinity() -> None:
 	current_affinity = {0, 1, 2, 3}
 	set_calls: list[tuple[int, tuple[int, ...]]] = []

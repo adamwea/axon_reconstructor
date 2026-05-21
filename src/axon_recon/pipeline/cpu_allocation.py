@@ -532,6 +532,25 @@ def _derive_cpus_per_task(
 	*,
 	config: TaskAllocationConfig,
 ) -> tuple[int, str]:
+	# Precedence ladder (per user 2026-05-21, parallelism_post_migration_cleanup
+	# plan slice 9.5): externally-supplied values win over YAML defaults. YAML
+	# is the fallback for when nothing is specified at the srun/mpi level.
+	#
+	# 1. SLURM_CPUS_PER_TASK env (set by `srun -c K`). Wins under any backend,
+	#    including --task-backend local_affinity. If the user asked srun for
+	#    K cores per rank, the runtime must use K — not silently narrow to a
+	#    YAML default that strands the rest of the allocation.
+	# 2. YAML task_allocation.cpus_per_task (explicit int or non-"auto"
+	#    string). Used when nothing is set externally.
+	# 3. Fallback: 1.
+	slurm_env = os.environ.get("SLURM_CPUS_PER_TASK", "").strip()
+	if slurm_env:
+		try:
+			slurm_cpus = int(slurm_env)
+		except ValueError:
+			slurm_cpus = 0
+		if slurm_cpus > 0:
+			return max(1, slurm_cpus), "slurm_env:SLURM_CPUS_PER_TASK"
 	configured = getattr(config, "cpus_per_task", "auto")
 	if isinstance(configured, int):
 		return max(1, int(configured)), "task_allocation.cpus_per_task"
