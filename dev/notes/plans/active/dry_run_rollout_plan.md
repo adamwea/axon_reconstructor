@@ -76,12 +76,33 @@ Summary schema is fixed at the contract level (see `guardrails/dry_run.md` §3);
 One commit per slice. `claude:` prefix.
 
 ### Slice 1 — CLI flag + plumbing (no behavior)
-- Add `--dry-run` argparse arg to the shared parser (`pipeline/cli.py`).
-- Add `_DRY_RUN_OVERRIDE` + `set/get_dry_run_override` in `pipeline/config.py` matching the existing override pattern.
-- Wire into CLI main: set the override before dispatching, clear in `finally`.
-- Plumb to stage_config via the existing override-reading code path that builds stage_config from runtime config + overrides.
-- Tests: argparse parses the flag; override is set/cleared correctly; stage_config carries the attribute.
-- No phase changes yet. Existing tests stay green.
+
+#### Slice 1a — SHIPPED 2026-05-21 — process-wide override + CLI flag
+- Added `--dry-run` argparse arg to the shared `stages` subparser
+  (`pipeline/cli.py`).
+- Added `_DRY_RUN_OVERRIDE` + `set/get_dry_run_override` in
+  `pipeline/config.py` mirroring the existing override pattern
+  (`--no-plot`, `--profile`, `--scratch-output`, `--output-root`,
+  `--force-enable`).
+- Wired into CLI main: set the override before dispatching, clear in
+  `finally`.
+- 7 tests in `test_dry_run_override.py` cover setter/getter invariants
+  (None default, True/False distinct from None, clears with None),
+  CLI flag parsing (present + absent), and combinability with
+  `--force-enable` (the natural slice 3b smoke command).
+- Phases read `get_dry_run_override()` directly when they implement
+  their short-circuit (deferred to slices 3-7).
+
+#### Slice 1b — pending — stage_config dataclass attribute
+- Add `dry_run: bool = False` field to each stage_config dataclass
+  (preprocess, spikesort, reconstruct, analysis).
+- Thread `dry_run_override` kwarg through `parse_*_stage_config` and
+  the substage runners.
+- Optional — phases can read the process-wide override directly via
+  `get_dry_run_override()` per slice 1a. Slice 1b adds the dataclass
+  attribute for phases that prefer to consume from stage_config (more
+  testable: tests can set `stage_config.dry_run=True` without
+  manipulating a process-wide global).
 
 ### Slice 2 — `write_dry_run_summary` helper + base test
 - Create `src/axon_recon/pipeline/dry_run.py` with the helper from §2.

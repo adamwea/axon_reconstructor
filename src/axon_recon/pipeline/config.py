@@ -302,6 +302,28 @@ def get_force_enable_phases_override() -> frozenset[str] | None:
 	return _FORCE_ENABLE_PHASES_OVERRIDE
 
 
+# Process-wide --dry-run override. When True, every phase that implements
+# the dry-run short-circuit (see `guardrails/dry_run.md` + `plans/active/
+# dry_run_rollout_plan.md`) resolves inputs + validates prerequisites +
+# writes a `<phase>_summary.json` with `status: dry_run_ok`, then exits
+# without doing the heavy work. Lets the user (or the loop) verify
+# wiring + input resolution in seconds before kicking off a real run.
+# Set once at CLI entry by `pipeline/cli.py main()` from `--dry-run`,
+# cleared in the `finally` block.
+_DRY_RUN_OVERRIDE: bool | None = None
+
+
+def set_dry_run_override(enabled: bool | None) -> None:
+	"""Set the process-wide --dry-run override. Pass None to clear."""
+	global _DRY_RUN_OVERRIDE
+	_DRY_RUN_OVERRIDE = bool(enabled) if enabled is not None else None
+
+
+def get_dry_run_override() -> bool | None:
+	"""Return the current --dry-run override state, or None if unset."""
+	return _DRY_RUN_OVERRIDE
+
+
 def _warn_legacy_scratch_input_keys(*, scope: str) -> None:
 	LOGGER.warning(
 		"Legacy scratch input keys detected for %s; scratch_input_root/use_scratch_input_root are deprecated. "

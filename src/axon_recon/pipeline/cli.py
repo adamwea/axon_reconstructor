@@ -840,6 +840,19 @@ def _register_stage_sequence_parser(
 			"as they adopt the override."
 		),
 	)
+	parser.add_argument(
+		"--dry-run",
+		action="store_true",
+		dest="dry_run",
+		help=(
+			"Resolve inputs + validate prerequisites + write a "
+			"`<phase>_summary.json` with status=dry_run_ok, then exit "
+			"without doing heavy work. Realizes `guardrails/dry_run.md`. "
+			"Phases progressively adopt the dry-run short-circuit via "
+			"`plans/active/dry_run_rollout_plan.md`; until each phase "
+			"opts in, --dry-run is a no-op for that phase."
+		),
+	)
 	parser.set_defaults(handler=_run_stage_sequence_from_args)
 
 
@@ -1392,6 +1405,7 @@ def main(argv: list[str] | None = None) -> int:
 	# stage handler fires. select_execution_targets honors them at the leaf, so we
 	# don't need to plumb override parameters through every runner helper.
 	from .config import (
+		set_dry_run_override,
 		set_force_enable_phases_override,
 		set_no_plot_override,
 		set_output_root_override,
@@ -1446,6 +1460,14 @@ def main(argv: list[str] | None = None) -> int:
 		if phase_names_csv:
 			set_force_enable_phases_override(phase_names_csv)
 
+	# Same pattern for --dry-run: set the process-wide override, phases
+	# that have adopted the dry-run short-circuit read it via
+	# `get_dry_run_override()` at the top of their work function and
+	# return a stub summary instead of doing the heavy work. Cleared in
+	# the finally block.
+	if bool(getattr(args, "dry_run", False)):
+		set_dry_run_override(True)
+
 	handler = getattr(args, "handler", None)
 	if handler is None:
 		parser.print_help()
@@ -1473,6 +1495,7 @@ def main(argv: list[str] | None = None) -> int:
 		set_scratch_output_override(None)
 		set_output_root_override(None)
 		set_force_enable_phases_override(None)
+		set_dry_run_override(None)
 		try:
 			from .resource_usage import configure_phase_tuning_monitoring
 
