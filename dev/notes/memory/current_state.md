@@ -111,6 +111,31 @@ Manual items the loop can't or shouldn't do — surfaced here so the user has on
 
 - **[2026-05-19] Delete the smoke-test repo `adamwea/__gh_auth_smoke_test`** on GitHub. Created during DIRECTIVE D pre-execution verification of `gh repo create` (commit `2124d2c`); `gh repo delete` requires the `delete_repo` token scope which the current token doesn't have. Either delete via web UI at https://github.com/adamwea/__gh_auth_smoke_test/settings (bottom of page → "Delete this repository") OR run `gh auth refresh -h github.com -s delete_repo` to add the scope and let the loop clean it up itself in the future. Not blocking anything; just clutter.
 
+- **[2026-05-21 09:35 — UPDATE] ✅ kssynth slice 3b SHORT-PATH smoke CONFIRMED working end-to-end**. Empirical validation:
+  ```
+  axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
+    --target-dataset 0 --limit-wells 1 \
+    --dry-run --force-enable kssynth \
+    --output-root /pscratch/sd/a/adammwea/dev_outputs/<slice>
+  ```
+  exits status=success in ~5 seconds on real M08073 data; writes a well-formed
+  `kssynth_summary.json` with `status: dry_run_ok`, missing-cache warning,
+  outputs_would_produce reporting per_unit_dir + summary_json correctly.
+  Similarly `reconstruct.analyzers --dry-run` + `preprocess --dry-run` both
+  complete cleanly. **`--output-root` IS REQUIRED** — without it, the dry-run
+  summary lands in the read-only reference data dir (verified empirically:
+  the loop accidentally wrote `synth_sorter_output/kssynth_summary.json` +
+  `context/analyzers_summary.json` to the reference well during a first
+  pass; both cleaned up immediately).
+
+  **Heavy smoke (real analyzers + real kssynth.synthesize) still needs the
+  data-routing decision below — `--output-root` redirects OUTPUTS but the
+  analyzers phase also needs INPUTS (preproc + spikesort outputs) which
+  exist only at the reference path. So heavy smoke is gated on either
+  (path 1) loosening cache-subdir rule, (path 2) alternate_well_out_dirs
+  plumbing, or (path 3) symlink approach.** Original decision text preserved
+  below.
+
 - **[2026-05-21] Decision needed: kssynth slice 3b smoke data-routing**. The slice 3b plan note assumes the smoke runs in-place on `260326/M08073/AxonTracking/000208/well000` (DIV 36) — but the reference well's `recon_outputs/cache/` is empty and writing it would technically mutate the read-only reference data (per the working-data-scope rule). Redirecting via `--output-root /pscratch/.../dev_outputs/kssynth_slice3b/` cleanly avoids the mutation, but creates an input-resolution problem: the analyzers loader looks for preproc + spikesort outputs under `<output_root>/Media_Density_T5_.../260326/M08073/AxonTracking/000208/well000/` and those exist ONLY at the reference path. Three resolution paths:
   1. **Loosen the rule for `cache/` subdirs** — they're explicitly rebuildable, never "ground-truth reference output". Loop writes the cache in-place; no other reference artifacts touched. Smallest change.
   2. **Add `alternate_well_out_dirs` plumbing to the analyzers loader** so an iteration well can read inputs from the reference well_out_dir while writing outputs to the dev_outputs/ well_out_dir. The loader already has `alternate_well_out_dirs` in its signature for similar purposes (templates/runner.py `_load_templates_phase_analyzers`). Needs a `--input-root` CLI flag or equivalent. Touch is M.

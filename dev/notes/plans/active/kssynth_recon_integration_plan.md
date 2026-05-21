@@ -224,7 +224,36 @@ analyzer cache).
   has run on at least one well (the smoke is a two-step: analyzers first,
   then kssynth).
 
-#### Slice 3b — pending (needs analyzer cache or user-initiated run)
+#### Slice 3b SHORT-PATH — SHIPPED 2026-05-21
+
+Validation that the full wiring chain WORKS on real NERSC data, without
+the heavy analyzer build. Empirically confirmed:
+
+```
+axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
+  --target-dataset 0 --limit-wells 1 \
+  --dry-run --force-enable kssynth \
+  --output-root /pscratch/sd/a/adammwea/dev_outputs/<slice>
+```
+
+exits `status: success` in ~5 seconds. Writes a well-formed
+`kssynth_summary.json` with `status: dry_run_ok`, the expected
+missing-cache warning, and `outputs_would_produce` correctly reporting
+`per_unit_dir` + `summary_json` paths. Reference data untouched
+(`--output-root` redirects everything cleanly).
+
+Equivalent dry-run smokes:
+- `reconstruct.analyzers --dry-run` ✓
+- `preprocess --dry-run` ✓
+
+`--output-root` is required to avoid polluting reference data with the
+dry-run summary. The slice's bigger heavy smoke (real analyzers +
+real `kssynth.synthesize`) still gates on the data-routing decision
+in `current_state.md` "User actions queued" — see that doc for the
+3-path options (loosen cache-subdir rule / alternate_well_out_dirs
+plumbing / symlink).
+
+#### Slice 3b HEAVY — pending (needs analyzer cache or user-initiated run)
 - Confirm an analyzer cache exists at
   `<well>/recon_outputs/cache/analyzers/segments/`. If not: user runs
   `axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml
