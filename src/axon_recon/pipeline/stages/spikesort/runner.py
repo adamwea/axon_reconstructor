@@ -3471,6 +3471,47 @@ def run_spikesort_concat_binary_stage(
 		stage_config=stage_config,
 	)
 	summary_json = paths["summary_json"]
+
+	# Dry-run short-circuit (dry_run_rollout slice 4 — concat_binary).
+	# CRITICAL: BEFORE the heavy imports (axon_recon.pipeline.stages.spikesort.core.concat_binary,
+	# save_concatenated_recording, etc.) — they're function-local later in
+	# this body, so the dry-run path doesn't pay their cost.
+	from ...config import get_dry_run_override
+
+	if get_dry_run_override():
+		from ...dry_run import write_dry_run_summary
+
+		segment_manifest_path = Path(str(paths.get("segment_manifest_path", "")))
+		recording_dir = Path(str(paths.get("recording_dir", "")))
+		write_dry_run_summary(
+			phase_name="spikesort.concat_binary",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			summary_json_path=summary_json,
+			inputs_resolved=[
+				{
+					"name": "segment_manifest_path",
+					"path": str(segment_manifest_path),
+					"exists": bool(segment_manifest_path.exists()),
+				},
+			],
+			outputs_would_produce=[
+				{"name": "summary_json", "path": str(summary_json)},
+				{"name": "recording_dir", "path": str(recording_dir)},
+			],
+			extra_fields={
+				"concat_binary_enabled": bool(
+					getattr(stage_config, "concat_binary_enabled", False)
+				),
+			},
+		)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={"summary_json": str(summary_json)},
+		)
+
 	_write_marker(summary_json, phase_name="concat_binary")
 
 	if not bool(getattr(stage_config, "concat_binary_enabled", False)):
@@ -4439,11 +4480,6 @@ def run_spikesort_concat_analyzer_stage(
 	stage_config: Any,
 	force_restart: bool,
 ) -> SpikesortResult:
-	from .core.concat_analyzer import (
-		DEFAULT_CONCAT_ANALYZER_EXTENSIONS,
-		run_concat_analyzer_phase,
-	)
-
 	well_out_dir = compute_mea_analysis_output_dir(
 		output_root=mea_output_root,
 		data_file=h5_path,
@@ -4462,6 +4498,63 @@ def run_spikesort_concat_analyzer_stage(
 		relpath=analyzer_relpath,
 	)
 	summary_json = (stage_output_root_dir / "concat_analyzer_summary.json").resolve()
+
+	# Dry-run short-circuit (dry_run_rollout slice 4 — concat_analyzer).
+	# CRITICAL: BEFORE the spikeinterface_full import + recording/sorting
+	# load (which read multi-GB binary files). Reports analyzer_dir as
+	# would-be-produced output + sorter_output_dir as input (with exists
+	# flag + warning when missing).
+	from ...config import get_dry_run_override
+
+	if get_dry_run_override():
+		from ...dry_run import write_dry_run_summary
+
+		expected_sorter_output_dir = stage_output_root_dir / "sorter_output"
+		validation_warnings: list[str] = []
+		if not expected_sorter_output_dir.exists():
+			validation_warnings.append(
+				f"sorter_output not found at {expected_sorter_output_dir}; "
+				"run spikesort.sort first."
+			)
+
+		write_dry_run_summary(
+			phase_name="spikesort.concat_analyzer",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			summary_json_path=summary_json,
+			inputs_resolved=[
+				{
+					"name": "sorter_output_dir",
+					"path": str(expected_sorter_output_dir),
+					"exists": bool(expected_sorter_output_dir.exists()),
+				},
+			],
+			outputs_would_produce=[
+				{"name": "summary_json", "path": str(summary_json)},
+				{"name": "analyzer_dir", "path": str(analyzer_dir)},
+			],
+			validation={
+				"missing_prerequisites": [],
+				"warnings": validation_warnings,
+			},
+			extra_fields={
+				"concat_analyzer_enabled": bool(
+					getattr(stage_config, "concat_analyzer_enabled", False)
+				),
+			},
+		)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={"summary_json": str(summary_json)},
+		)
+
+	from .core.concat_analyzer import (
+		DEFAULT_CONCAT_ANALYZER_EXTENSIONS,
+		run_concat_analyzer_phase,
+	)
+
 	_write_marker(summary_json, phase_name="concat_analyzer")
 
 	if not bool(getattr(stage_config, "concat_analyzer_enabled", False)):

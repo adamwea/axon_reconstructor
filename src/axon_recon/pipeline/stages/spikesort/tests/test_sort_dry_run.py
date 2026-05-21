@@ -257,6 +257,99 @@ def test_spikesort_cleanup_analyzers_dry_run(
 	assert on_disk["cleanup_analyzers_dry_run_yaml"] is True
 
 
+def test_spikesort_concat_binary_dry_run(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
+) -> None:
+	"""concat_binary dry-run skips the heavy core imports + the
+	build/write of the concatenated recording. Reports segment_manifest
+	+ recording_dir."""
+
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	well_out_dir = _stub_compute_well_out(monkeypatch, tmp_path)
+
+	# Stub `_resolve_concat_binary_paths` to return predictable paths so
+	# we don't need a full stage_config-shaped object.
+	def _stub_resolve_concat_binary_paths(*, well_out_dir, stage_output_root_dir, stage_config):
+		return {
+			"summary_json": stage_output_root_dir / "cache" / "concat_binary_summary.json",
+			"segment_manifest_path": stage_output_root_dir / "cache" / "manifest.json",
+			"recording_dir": stage_output_root_dir / "cache" / "concat_binary" / "recording",
+		}
+
+	monkeypatch.setattr(
+		spikesort_runner, "_resolve_concat_binary_paths", _stub_resolve_concat_binary_paths
+	)
+	monkeypatch.setattr(
+		spikesort_runner,
+		"_write_marker",
+		lambda *args, **kwargs: (_ for _ in ()).throw(
+			AssertionError("_write_marker should not run during dry-run")
+		),
+	)
+
+	set_dry_run_override(True)
+	result = spikesort_runner.run_spikesort_concat_binary_stage(
+		h5_path=tmp_path / "data.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path,
+		output_rel_root="spikesort_outputs",
+		stage_config=SimpleNamespace(concat_binary_enabled=True),
+		force_restart=False,
+	)
+	summary_path = (
+		well_out_dir / "spikesort_outputs" / "cache" / "concat_binary_summary.json"
+	)
+	on_disk = json.loads(summary_path.read_text())
+	assert on_disk["status"] == "dry_run_ok"
+	assert on_disk["phase"] == "spikesort.concat_binary"
+	output_names = [item["name"] for item in on_disk["outputs_would_produce"]]
+	assert "recording_dir" in output_names
+
+
+def test_spikesort_concat_analyzer_dry_run(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
+) -> None:
+	"""concat_analyzer dry-run skips spikeinterface imports + recording
+	load. Reports sorter_output_dir (with missing-prereq warning when
+	absent) + analyzer_dir."""
+
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	well_out_dir = _stub_compute_well_out(monkeypatch, tmp_path)
+	monkeypatch.setattr(
+		spikesort_runner,
+		"_write_marker",
+		lambda *args, **kwargs: (_ for _ in ()).throw(
+			AssertionError("_write_marker should not run during dry-run")
+		),
+	)
+
+	stage_config = SimpleNamespace(
+		concat_analyzer_enabled=True,
+		concat_analyzer_relpath="concat_analyzer",
+	)
+	set_dry_run_override(True)
+
+	spikesort_runner.run_spikesort_concat_analyzer_stage(
+		h5_path=tmp_path / "data.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path,
+		output_rel_root="spikesort_outputs",
+		stage_config=stage_config,
+		force_restart=False,
+	)
+	summary_path = well_out_dir / "spikesort_outputs" / "concat_analyzer_summary.json"
+	on_disk = json.loads(summary_path.read_text())
+	assert on_disk["status"] == "dry_run_ok"
+	assert on_disk["phase"] == "spikesort.concat_analyzer"
+	# sorter_output missing → warning surfaced.
+	assert any(
+		"sorter_output not found" in w
+		for w in on_disk["validation"]["warnings"]
+	)
+
+
 def test_spikesort_snapshot_sorter_output_dry_run(
 	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
 ) -> None:

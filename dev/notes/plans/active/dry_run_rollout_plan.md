@@ -176,17 +176,19 @@ Progress:
   location (with `exists` flag + warning if missing) + snapshot_dir as
   output. 1 test confirms `_write_marker` never fires under --dry-run.
 
-Remaining phases (post-cleanup shape):
-- `concat_binary` (renamed from `bootstrap_concat_binary`) — TODO
+All 6 spikesort phases now have dry-run (SHIPPED 2026-05-21):
 - ~~`sort`~~ — SHIPPED
 - ~~`snapshot_sorter_output`~~ — SHIPPED
-- `concat_analyzer` — TODO
-- ~~`cleanup_concat_binary`~~ — SHIPPED 2026-05-21. Dry-run skips
-  the rmtree of the concat_binary cache; reports target_dir as
-  would-be-removed.
-- ~~`cleanup_analyzers`~~ — SHIPPED 2026-05-21. Dry-run skips both
-  `_write_marker` AND the conditional rmtree; reports target_dir +
-  the legacy `cleanup_analyzers_dry_run` YAML knob in extras.
+- ~~`concat_binary`~~ — SHIPPED (skips heavy si imports + recording build).
+- ~~`concat_analyzer`~~ — SHIPPED (skips spikeinterface imports +
+  recording/sorting load).
+- ~~`cleanup_concat_binary`~~ — SHIPPED. Dry-run skips the rmtree of
+  the concat_binary cache; reports target_dir as would-be-removed.
+- ~~`cleanup_analyzers`~~ — SHIPPED. Dry-run skips both `_write_marker`
+  AND the conditional rmtree; reports target_dir + the legacy
+  `cleanup_analyzers_dry_run` YAML knob in extras.
+
+Slice 4 status: COMPLETE.
 
 For `sort` specifically (already done above): dry-run must NOT load
 Kilosort, NOT load CUDA, NOT load the recording into memory. Just
