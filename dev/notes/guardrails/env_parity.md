@@ -167,6 +167,24 @@ governing artifact for a given concern shifts.
   (login-node smoke) AND shifter (after rebuild). Parity isn't proved
   until both pass.
 
+## Conda-env-only setup steps (NOT covered by `pip install`)
+
+Some capabilities the conda env needs aren't installable via PyPI — they need a manual setup step. The shifter image bakes these into the Dockerfile build; the conda env requires them to be run once after `pip install -e .[dev]`. Each step here is a one-shot, idempotent install.
+
+- **MaxWell HDF5 decompression plugin** (required for loading reference data's preprocessed_segments via spikeinterface):
+
+  ```
+  python -c "from neo.rawio.maxwellrawio import auto_install_maxwell_hdf5_compression_plugin; auto_install_maxwell_hdf5_compression_plugin(force_download=False)"
+  ```
+
+  Plugin lands at `~/hdf5_plugin_path_maxwell/libcompression.so`. The neo helper also sets `HDF5_PLUGIN_PATH=~/hdf5_plugin_path_maxwell` at module import; for explicit-shell invocations (login-node smokes, etc.), export it manually:
+
+  ```
+  export HDF5_PLUGIN_PATH=$HOME/hdf5_plugin_path_maxwell
+  ```
+
+  Skipping this step makes `spikeinterface.load(...)` of MaxWell-compressed `.json` recordings fail with `Can't synchronously read data (can't open directory (/usr/local/hdf5/lib/plugin). Please verify its existence)`. Discovered during kssynth slice 3b heavy smoke prep, 2026-05-21.
+
 ## Open exceptions / follow-ups
 
 - **Unification plan in flight**: `plans/active/env_install_unification_plan.md`
