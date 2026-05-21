@@ -682,6 +682,33 @@ def build_task_allocation_plan(
 	reserved_unit_count = min(len(allocation_units), max(0, int(getattr(config, "reserve_cpus", 0) or 0)))
 	allocatable_units = allocation_units[reserved_unit_count:]
 	available_unit_count = len(allocatable_units)
+	# Clamp cpus_per_task to what the topology actually exposes (per
+	# parallelism plan slice 9.5 + user 2026-05-21 follow-up). When
+	# srun supplies SLURM_CPUS_PER_TASK=K but the rank is only given
+	# fewer allocation units (typical: -c 128 --hint=nomultithread on
+	# Perlmutter exposes the rank to 64 physical cores when 64 logical
+	# siblings are the second-thread set), the original cpus_per_task
+	# would make slot_capacity = 0 and the runtime aborts with
+	# "produced no available task slots". Clamping preserves the
+	# "use what srun gave me" intent: one slot with all available
+	# cores, NOT a hard failure.
+	if available_unit_count > 0 and int(cpus_per_task) > int(available_unit_count):
+		LOGGER.info(
+			"task allocation clamped cpus_per_task: requested=%d source=%s available=%d clamped_to=%d",
+			int(cpus_per_task),
+			str(cpus_per_task_source),
+			int(available_unit_count),
+			int(available_unit_count),
+			extra={
+				"event": "task_allocation_cpus_per_task_clamped",
+				"cpus_per_task_requested": int(cpus_per_task),
+				"cpus_per_task_source": str(cpus_per_task_source),
+				"cpus_per_task_available": int(available_unit_count),
+				"cpus_per_task_clamped_to": int(available_unit_count),
+			},
+		)
+		cpus_per_task = int(available_unit_count)
+		cpus_per_task_source = f"{cpus_per_task_source}+clamped_to_available_units"
 	slot_capacity = max(0, int(available_unit_count // max(1, int(cpus_per_task))))
 	cpu_capacity_tasks = int(slot_capacity)
 	ram_capacity_tasks = _capacity_limit_from_float(

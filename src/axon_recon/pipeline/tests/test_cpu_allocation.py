@@ -335,9 +335,11 @@ def test_build_task_allocation_plan_slurm_env_wins_over_yaml_cpus_per_task(
 ) -> None:
 	"""Per parallelism plan slice 9.5 + user 2026-05-21: when srun supplies
 	SLURM_CPUS_PER_TASK, that value wins over the YAML's task_allocation.
-	cpus_per_task. YAML is the fallback default."""
-	monkeypatch.setenv("SLURM_CPUS_PER_TASK", "128")
-	topology = _lab_topology(tmp_path)
+	cpus_per_task. YAML is the fallback default. Env value chosen below
+	the test topology's available core count so the topology-clamp doesn't
+	fire (clamp behavior is tested separately)."""
+	monkeypatch.setenv("SLURM_CPUS_PER_TASK", "20")
+	topology = _lab_topology(tmp_path)  # 24 physical cores
 	plan = build_task_allocation_plan(
 		config=TaskAllocationConfig(
 			enabled=True,
@@ -351,7 +353,7 @@ def test_build_task_allocation_plan_slurm_env_wins_over_yaml_cpus_per_task(
 		target_count=8,
 	)
 	assert plan is not None
-	assert plan.cpus_per_task == 128
+	assert plan.cpus_per_task == 20
 	assert plan.cpus_per_task_source == "slurm_env:SLURM_CPUS_PER_TASK"
 
 
@@ -378,6 +380,34 @@ def test_build_task_allocation_plan_yaml_used_when_slurm_env_absent(
 	assert plan is not None
 	assert plan.cpus_per_task == 16
 	assert plan.cpus_per_task_source == "task_allocation.cpus_per_task"
+
+
+def test_build_task_allocation_plan_clamps_when_slurm_env_exceeds_available(
+	tmp_path: Path, monkeypatch
+) -> None:
+	"""When SLURM_CPUS_PER_TASK exceeds the topology's available unit
+	count (typical: srun -c 128 --hint=nomultithread on Perlmutter
+	exposes the rank to 64 physical cores), clamp down to the available
+	count rather than aborting with 'no available task slots'. Honors
+	the 'use what srun gave me' intent."""
+	monkeypatch.setenv("SLURM_CPUS_PER_TASK", "9999")  # way more than the test topology has
+	topology = _lab_topology(tmp_path)
+	plan = build_task_allocation_plan(
+		config=TaskAllocationConfig(
+			enabled=True,
+			backend="local_affinity",
+			bind="physical_cores",
+			cpus_per_task=16,  # YAML default — overridden by env, then clamped
+			tasks_per_node="auto",
+			use_hyperthreads=False,
+		),
+		topology=topology,
+		target_count=1,
+	)
+	assert plan is not None
+	assert plan.slots, "expected at least one slot (clamp should preserve allocation)"
+	assert plan.cpus_per_task <= len(topology.cores)
+	assert "clamped_to_available_units" in plan.cpus_per_task_source
 
 
 def test_build_task_allocation_plan_slurm_env_ignored_when_zero_or_garbage(
