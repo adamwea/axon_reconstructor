@@ -22,10 +22,10 @@ on `current_state.md` discovery.
 
 ---
 
-## Current — Round 6 (2026-05-21)
+## Current — Round 7 (2026-05-21)
 
 ```
-EXTENDED AUTONOMOUS MODE (round 6) — relaxed stop conditions.
+EXTENDED AUTONOMOUS MODE (round 7) — relaxed stop conditions.
 
 Read /global/homes/a/adammwea/dev/pkgs/axon_recon/CLAUDE.md and follow its
 entry protocol. Read dev/notes/memory/current_state.md ⚡ USER INJECTIONS
@@ -82,6 +82,15 @@ Real-data smoke log discipline (USER INJECTION 2026-05-21):
   Those go in commit messages.
 - HARD-gate visual diagnostics: when reviewed/approved/rejected, also
   append a smoke_log entry.
+- **Worker-count validation** (USER INJECTION 2026-05-21): BEFORE each
+  smoke, record EXPECTED worker counts (cpus_per_task / n_jobs /
+  well_workers / phase fanout) derived from CLI args + YAML + slot
+  budget. DURING/AFTER, scan logs for `phase_parallelism event=`,
+  `n_jobs_source=`, `slot.cpu_count=` and equivalent lines; record
+  ACTUAL counts. **Mismatch = smoke_log MUST flag it** ("REQUESTED N,
+  observed M; clamped to 1 via fallback X"). A passing smoke with wrong
+  worker count is NOT green. Env over-request → FAIL FAST, do not
+  silently clamp.
 
 Diagnostic discipline (USER INJECTIONS 2026-05-21):
 - ANY slice changing user-visible rendering MUST file a diagnostic entry

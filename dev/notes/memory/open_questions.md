@@ -2,6 +2,34 @@
 
 TBD decisions awaiting user input or empirical data. Each entry has a clear resolution criterion. When resolved, move the conclusion to `current_state.md`, `guardrails/`, or a plan; delete the entry from here.
 
+## 🔎 Plan-audit findings (loop-surfaced)
+
+Per USER INJECTION 2026-05-21 (A1-A5), the loop proactively audits active plans + trackers for logical inconsistencies, stale assumptions, dead slices, redundant work, scope drift, inefficient orderings, and resource mismatches. Each finding here is a multiple-choice question. Cap: 5 open findings at any time.
+
+### Finding #1 — `resources.profiles` elimination not yet executed; profile clamping still active in smokes (user-flagged 2026-05-21)
+
+**Observation**: User flagged 2026-05-21 that recent smokes show profile-based clamping still active and clamping INCORRECTLY (specifically: cpus_per_task=N from `--profile perlmutter_cpu` yields actual n_jobs=1 in MPI workers via the `inputs.n_jobs`-fallback path). Quote: "Profile was still clamping, and incorrectly."
+
+**Current state of the relevant plans**:
+- `trackers/tech_debt.md` §"Minimize / eliminate `resources.profiles`" — status `open`. Ordered AFTER phase-roster cleanup, debug_mode YAML purge, and force-restart collapse. No plan doc spun up yet.
+- `plans/active/parallelism_post_migration_cleanup_plan.md` — slices 3+4+5+6+7+8+9 SHIPPED; slices 1 (retire `resolve_stage_parallelism` + `StageParallelism.well_workers`) + 2 (route `inputs.n_jobs` reads through `resolve_inner_worker_count`) + 10 (final allowlist drop + guardrails doc) STILL QUEUED. Slice 2 specifically targets the `inputs.n_jobs → n_jobs=1 collapse` failure mode the user is seeing.
+
+**Why this is a real finding**: the parallelism plan's mid-flight state means worker-count behavior is currently in a transitional regime. Slices 1+2+10 are the ones that actually close the gap between "what was requested" and "what got run". Until they ship, smokes WILL show clamping drift — and the user is observing exactly that.
+
+**Pick an option:**
+
+1. **Ship parallelism plan slices 1 + 2 + 10 as the immediate priority (Recommended)** — these are the slices that close the worker-count drift loop the user is observing. Touch L (multi-file refactor across runner.py + execution/context.py + logging + 10+ test fixtures + the smoke-test verification per slice 2's spec). After they ship, smokes can validate `cpus_per_task=N → actual_n_jobs=N` end-to-end. Defers the broader `resources.profiles` elimination but unblocks correct smoke validation.
+
+2. **Spin up the `resources.profiles` elimination plan now and run it in parallel with the parallelism plan** — promote the tech-debt entry into a proper plan doc, decompose into slices, schedule alongside the queued parallelism slices. More work upfront but addresses both the immediate drift AND the long-term YAML-profile cleanup in one push. Touch L+L; could span multiple sessions.
+
+3. **Patch-fix the specific `inputs.n_jobs → n_jobs=1 collapse` bug in MPI workers without doing the full slices 1+2** — small targeted fix to `resolve_inner_worker_count`'s slot-propagation through MPI. Touch S. Cheapest but doesn't close the underlying drift; clamping continues to be a footgun.
+
+4. **Defer until user can re-run a specific smoke and capture the exact log output** — currently the loop is inferring the issue from user testimony + the plan's stated mid-flight state. A specific log snippet from one of the user's recent smokes would let the loop diagnose exactly which code path is misbehaving. Touch zero until user produces the log.
+
+**Loop recommendation**: (1) — slices 1+2+10 of the parallelism plan are the principled fix and they're already designed; just need to execute. Touch is L but spans a finite scope. Option (2) is more ambitious but risks scope-blowup. Option (3) is a workaround that leaves the long-term debt in place. Option (4) is fine if user wants empirical evidence first.
+
+**Resolution criterion**: user marks `✅ USER APPROVED <date>: option N` above this finding. Loop executes the chosen option. Until then, finding stays open. (Note: this is the FIRST loop-surfaced plan-audit finding under the discipline established 2026-05-21.)
+
 ## Awaiting empirical data (deferred until plan reaches the relevant slice)
 
 - **Two-halves split granularity**: temporal midpoint is what UMPy expects. Could split finer for more same-neuron pairs per unit, but UMPy shape is hardcoded to `(..., 2)`. Decide after `unitlink` v1 results.
