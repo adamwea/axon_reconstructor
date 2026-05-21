@@ -4,11 +4,15 @@
 
 ## Entry protocol (every session)
 
-1. Read this file.
-2. Read `dev/notes/guardrails/README.md` and the topic files it lists. Treat these as locked contracts unless the user explicitly asks for a guardrail change.
-3. Read `dev/notes/memory/current_state.md` to absorb what's shipped, what's in-flight, what's queued. **The §"⚡ USER INJECTIONS" section at the top is authoritative — apply those directives at the earliest applicable slice before falling back to plan tier order. Promote resolved injections to guardrails / slice protocol / plans, then delete the entry.**
-4. Read `dev/notes/memory/open_questions.md` for pending decisions.
-5. Glance at `dev/notes/plans/active/` to know what plans exist; read the one you're working on cover-to-cover before starting a slice from it.
+1. **Read `dev/notes/brain/objectives.md` FIRST.** This is the persistent goal slot — what we're actually trying to do. Re-read every iteration; do NOT let it scroll past in context. If the next slice candidate doesn't advance one of these objectives, the slice is OUT-OF-SCOPE and goes to `open_questions.md` as a multiple-choice question, not executed.
+2. **Glance at `dev/notes/brain/trusted_outputs.md`** top section — current trust state. Any slice that touches a phase covered by a Tier 1 trusted output (TR-xxx) MUST verify against it.
+3. **Glance at `dev/notes/brain/dependency_graph.md`** for nodes the current slice's surface area touches — this drives the change-propagation list (what needs re-verification when contracts shift). If the graph is still skeleton (pre-Z1), default to conservative re-verification of trusted-output baselines.
+4. **Glance at `dev/notes/brain/metrics.md`** for any metric whose refinement-target overlaps the slice surface. Plan to measure post-slice + auto-rollback if degraded.
+5. Read this file (CLAUDE.md) — entry protocol + slice protocol + context-window rules.
+6. Read `dev/notes/guardrails/README.md` and the topic files it lists. Treat as locked contracts unless the user explicitly asks for a guardrail change.
+7. Read `dev/notes/memory/current_state.md` — shipped / in-flight / queued. **§"⚡ USER INJECTIONS" is authoritative**; apply at the earliest applicable slice. Promote resolved injections to guardrails / slice protocol / plans, then delete the entry.
+8. Read `dev/notes/memory/open_questions.md` for pending decisions (including `🔎 Plan-audit findings` and any `🛑 PRE-DIAGNOSTIC GATE` blocks).
+9. Glance at `dev/notes/plans/active/` to know what plans exist; read the one you're working on cover-to-cover before starting a slice from it.
 
 ## Slice protocol (every commit-sized unit of work)
 
@@ -143,6 +147,12 @@ Don't update it when:
 
 | Resource | Path | Update frequency |
 |---|---|---|
+| **TODO** (user-facing next-actions list) | `dev/notes/TODO.md` | When tasks land or surface; user prunes resolved |
+| **Brain — objectives** (persistent goal slot) | `dev/notes/brain/objectives.md` | Rarely; user-anchored |
+| **Brain — trusted outputs** (verifier anchor) | `dev/notes/brain/trusted_outputs.md` | When user pins / promotes; loop appends candidates |
+| **Brain — dependency graph** (DAG + propagation) | `dev/notes/brain/dependency_graph.md` | Loop updates as side-effect of slices changing contracts |
+| **Brain — metrics** (rollback triggers) | `dev/notes/brain/metrics.md` | Loop updates baselines after smokes; new metrics need user approval |
+| **Brain — slice contracts** (compressed returns) | `dev/notes/brain/slice_contracts.md` | Append-only; one entry per shipped slice |
 | **Guardrails** (locked code contracts) | `dev/notes/guardrails/*.md` | Rarely; only when a contract changes |
 | **Working memory** (current state, open questions, scratch) | `dev/notes/memory/*.md` | Often; refined as Claude works |
 | **Active plans** | `dev/notes/plans/active/*.md` | Touched per-slice during execution |
