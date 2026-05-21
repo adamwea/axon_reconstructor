@@ -203,6 +203,46 @@ deps.
 
 ### Slice 3 — Core algorithm implementation (most complex slice)
 
+**Status (2026-05-21)**: STAGE 1 COMPLETE end-to-end. 6 sub-steps
+shipped in the sibling repo at `~/dev/pkgs/radivojevic2023_recon_algo/`:
+
+- **3.1** (commit `5b06fbf`): `core/upsampling.py` — Whittaker-Shannon
+  sinc interpolation; 15 tests.
+- **3.2** (commit `3f363d7`): `core/noise_estimation.py` — paper-
+  faithful window-based + robust MAD estimators; 16 tests.
+- **3.3** (commit `6403403`): `core/adaptive_thresholding.py` —
+  Step 1 planar 9-STD threshold + local-max peak detection. Sanity
+  test confirms zero false positives on 10k Gaussian samples
+  (matches Fig 5B). 17 tests.
+- **3.3b** (commit `3e97770`): `core/derivatives.py` — μV/μs time-
+  derivative helper, per USER GATE 2 option B resolution. 12 tests.
+- **3.4** (commit `bb3b3d4`): `core/adaptive_thresholding.py` —
+  Step 2 confined 2-STD thresholding (50 μm spatial + ±1 temporal
+  frame). Same `find_confined_peaks_step_n` function serves Step 3.
+  7 new tests.
+- **3.5** (commit `8a76a7b`): `core/stage_1.py` —
+  `detect_axon_peaks` orchestrator composing
+  upsample → derivative → noise estimation → step 1 → step 2 →
+  step 3. Returns `Stage1Result` dataclass with per-step peak lists,
+  sorted union, noise STD, per-step thresholds, upsampled_rate_hz,
+  dt_us. STAGE 1 callable end-to-end on real STAs with one function.
+  9 tests.
+
+Package now **81 tests total**, all green. USER GATE 3 surfaced
+2026-05-21 in `memory/open_questions.md`. Stage 2 (image
+skeletonization) is the next milestone — proposed sub-steps:
+- (6a) `core/electrical_image.py` — build 2D voltage maps per timeframe
+- (6b) `core/skeletonization.py` — morphological thinning of the maps
+- (6c) `core/stage_2.py` — stage-2 orchestrator
+
+USER GATES landed so far:
+- USER GATE 1: ✅ RESOLVED 2026-05-21 (paper identity, clean-room
+  approach, averaged template sufficient, input compat, hyperparams,
+  phase name — all 6 answers locked in).
+- USER GATE 2: ✅ RESOLVED 2026-05-21 (chose option B for derivative
+  helper; promote to option-C orchestrator after Steps 2 + 3 land).
+- USER GATE 3: PENDING — surfaced after STAGE 1 COMPLETE.
+
 **Goal**: best-effort implementation of the algorithm's core processing
 chain per the slice-1 summary doc.
 
