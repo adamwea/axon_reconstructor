@@ -218,11 +218,79 @@ def run_reconstruct_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 	  5. Translate the `WriterResult` to a `kssynth_summary.json` payload
 	     and persist it.
 
+	Slice 4e — dry-run short-circuit:
+	  When the process-wide `--dry-run` override is set, the phase
+	  resolves output dirs + checks for analyzer cache existence + writes
+	  a `dry_run_ok` summary, then returns without invoking
+	  `kssynth.synthesize` or loading analyzers. Lets the caller verify
+	  wiring + input resolution in seconds before kicking off the heavy
+	  compute (per `guardrails/dry_run.md`).
+
 	Returns the summary dict for the stage runner to inspect.
 	"""
 
 	well_out_dir, templates_out_dir, synth_out_dir = _resolve_kssynth_output_dirs(inputs)
 	summary_path = templates_out_dir / KSSYNTH_SUMMARY_RELPATH
+
+	# Dry-run short-circuit (slice 4e).
+	from axon_recon.pipeline.config import get_dry_run_override
+
+	if get_dry_run_override():
+		from axon_recon.pipeline.dry_run import write_dry_run_summary
+
+		analyzer_cache_dir: Path | None = None
+		try:
+			from .build_templates import _resolve_build_templates_context
+
+			context = _resolve_build_templates_context(inputs)
+			analyzer_cache_dir = context.analyzer_cache_dir
+		except Exception as exc:
+			LOGGER.warning("kssynth dry-run: analyzer cache resolution failed: %s", exc)
+
+		inputs_resolved: list[dict[str, Any]] = []
+		validation_warnings: list[str] = []
+		if analyzer_cache_dir is not None:
+			cache_exists = analyzer_cache_dir.exists()
+			inputs_resolved.append(
+				{
+					"name": "analyzer_cache_dir",
+					"path": str(analyzer_cache_dir),
+					"exists": bool(cache_exists),
+				}
+			)
+			if not cache_exists:
+				validation_warnings.append(
+					f"analyzer_cache_dir not found at {analyzer_cache_dir}; run "
+					"`reconstruct.analyzers` first to populate it."
+				)
+
+		outputs_would_produce: list[dict[str, Any]] = [
+			{"name": "synth_sorter_output", "path": str(synth_out_dir)},
+			{"name": "per_unit_dir", "path": str(synth_out_dir / KSSYNTH_PER_UNIT_RELDIR)},
+			{"name": "summary_json", "path": str(summary_path)},
+		]
+		write_dry_run_summary(
+			phase_name="reconstruct.kssynth",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=templates_out_dir,
+			summary_json_path=summary_path,
+			inputs_resolved=inputs_resolved,
+			outputs_would_produce=outputs_would_produce,
+			validation={
+				"missing_prerequisites": [],
+				"warnings": validation_warnings,
+			},
+		)
+		LOGGER.info(
+			"reconstruct.kssynth: dry-run complete; summary at %s", summary_path
+		)
+		return {
+			"phase": "reconstruct.kssynth",
+			"status": "dry_run_ok",
+			"well_out_dir": str(well_out_dir),
+			"templates_out_dir": str(templates_out_dir),
+			"synth_sorter_output_relpath": KSSYNTH_OUTPUT_RELDIR,
+		}
 
 	try:
 		from kssynth.api import synthesize

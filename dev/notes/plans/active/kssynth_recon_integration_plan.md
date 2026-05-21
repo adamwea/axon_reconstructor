@@ -1,7 +1,9 @@
 # kssynth recon-stage integration plan
 
-> **Status (2026-05-21)**: slices 0/1a/1b/2a/2b/3a/4/4c/4d SHIPPED.
-> Slice 3b (login-node smoke) pending — needs analyzer cache.
+> **Status (2026-05-21)**: slices 0/1a/1b/2a/2b/3a/4/4c/4d/4e SHIPPED.
+> Slice 3b (login-node smoke) pending — needs analyzer cache or dry-run
+> path (4e enables a short-path dry-run smoke that verifies wiring
+> without analyzer compute).
 > Slice 5 (enable + retire predecessors) destructive — gated on slice 3b.
 > Companion to `ks_synthesizer_package_plan.md` slice 9 (which delegated
 > this work here). Sibling to `unitmatch_phase_plan.md` — kssynth's
@@ -282,6 +284,38 @@ analyzer cache).
 **Original 1-sentence spec (preserved)**: `plot_templates_v2`,
 `report_templates`, `axon_velocity_gtrs` each get a YAML toggle
 `templates_source: build_templates | kssynth`.
+
+### Slice 4e — dry-run short-circuit — SHIPPED
+
+**SHIPPED 2026-05-21** — first concrete consumer of
+`dry_run_rollout_plan` slice 2's `write_dry_run_summary` helper.
+
+- `phases/kssynth.py::run_reconstruct_kssynth_phase` now checks
+  `get_dry_run_override()` at the top of its work block. When set, it
+  resolves output dirs + checks for the analyzer cache existence, then
+  writes a `dry_run_ok` summary and returns — without invoking
+  `kssynth.synthesize`, without loading analyzers.
+- Validation surfaces a clear warning when `analyzer_cache_dir` is
+  missing ("run `reconstruct.analyzers` first to populate it") so the
+  caller knows what's gated.
+- Outputs reported: `synth_sorter_output`, `per_unit_dir`,
+  `summary_json`.
+- 2 new tests in `test_kssynth_phase.py` (10 total in the file now):
+  one for the missing-cache path, one for the existing-cache path.
+  Both confirm the expensive code (analyzer load + `kssynth.synthesize`)
+  is NEVER called when `--dry-run` is set.
+- Combined with slice 1a's `--dry-run` CLI flag + slice 4d's
+  phase_sequence wiring + slice 2b's `--force-enable kssynth`, the
+  command:
+  ```
+  axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
+    --target-dataset N --limit-wells 1 --task-backend local_affinity \
+    --dry-run --force-enable kssynth
+  ```
+  completes in seconds and verifies the entire wiring chain end-to-end.
+  This is the SHORT-PATH 3b-equivalent smoke (the heavier "actually
+  build analyzers + run kssynth" smoke still needs the data-routing
+  decision documented in `current_state.md` "User actions queued").
 
 ### Slice 4d — wire kssynth into recon phase_sequence resolution — SHIPPED
 

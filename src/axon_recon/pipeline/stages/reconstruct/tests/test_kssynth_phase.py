@@ -273,3 +273,138 @@ def test_per_unit_postprocess_raises_on_unit_id_length_mismatch(tmp_path: Path) 
 			synth_out_dir=synth_out,
 			unit_ids=(1, 2, 3, 4, 5),
 		)
+
+
+# ---------------------------------------------------------------------
+# Slice 4e: dry-run short-circuit. When `get_dry_run_override()` is True,
+# the phase writes a `dry_run_ok` summary without invoking
+# `kssynth.synthesize` or loading analyzers.
+# ---------------------------------------------------------------------
+
+
+@pytest.fixture
+def _reset_dry_run_override():
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	set_dry_run_override(None)
+	yield
+	set_dry_run_override(None)
+
+
+def test_kssynth_phase_dry_run_writes_summary_and_skips_synthesize(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
+) -> None:
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	monkeypatch.setattr(
+		kssynth_phase, "_resolve_kssynth_output_dirs", _stub_resolve(tmp_path)
+	)
+	# These should NOT be called during dry-run.
+	analyzers_load_called = {"count": 0}
+	synthesize_called = {"count": 0}
+
+	def _fail_load(_inputs):
+		analyzers_load_called["count"] += 1
+		raise AssertionError("analyzer load should not happen in dry-run")
+
+	def _fail_synthesize(**_):
+		synthesize_called["count"] += 1
+		raise AssertionError("synthesize should not happen in dry-run")
+
+	monkeypatch.setattr(kssynth_phase, "_load_segment_analyzers", _fail_load)
+
+	import kssynth.api
+
+	monkeypatch.setattr(kssynth.api, "synthesize", _fail_synthesize)
+
+	# Stub the build_templates context lookup so the dry-run can fill in
+	# the analyzer_cache_dir input without needing a real TemplatesInputs.
+	fake_cache_dir = tmp_path / "well_out" / "recon_outputs" / "cache" / "analyzers"
+
+	class _FakeCtx:
+		analyzer_cache_dir = fake_cache_dir
+
+	def _fake_resolve_ctx(_inputs):
+		return _FakeCtx()
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates._resolve_build_templates_context",
+		_fake_resolve_ctx,
+	)
+
+	set_dry_run_override(True)
+
+	result = kssynth_phase.run_reconstruct_kssynth_phase(SimpleNamespace())
+
+	assert result["status"] == "dry_run_ok"
+	assert result["phase"] == "reconstruct.kssynth"
+	assert analyzers_load_called["count"] == 0
+	assert synthesize_called["count"] == 0
+
+	summary_path = (
+		tmp_path / "well_out" / "recon_outputs" / kssynth_phase.KSSYNTH_SUMMARY_RELPATH
+	)
+	assert summary_path.exists()
+	on_disk = json.loads(summary_path.read_text())
+	assert on_disk["status"] == "dry_run_ok"
+	assert on_disk["phase"] == "reconstruct.kssynth"
+	# Cache dir is reported as not-existing — fixture didn't create it.
+	cache_entries = [
+		item for item in on_disk["inputs_resolved"] if item["name"] == "analyzer_cache_dir"
+	]
+	assert len(cache_entries) == 1
+	assert cache_entries[0]["exists"] is False
+	# Validation warning about the missing cache is surfaced.
+	assert any(
+		"analyzer_cache_dir not found" in w
+		for w in on_disk["validation"]["warnings"]
+	)
+	# Outputs that WOULD be produced.
+	output_names = [item["name"] for item in on_disk["outputs_would_produce"]]
+	assert "synth_sorter_output" in output_names
+	assert "per_unit_dir" in output_names
+	assert "summary_json" in output_names
+
+
+def test_kssynth_phase_dry_run_reports_existing_cache(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
+) -> None:
+	"""When the analyzer cache directory exists, dry-run reports it
+	without the missing-cache warning."""
+
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	monkeypatch.setattr(
+		kssynth_phase, "_resolve_kssynth_output_dirs", _stub_resolve(tmp_path)
+	)
+	monkeypatch.setattr(kssynth_phase, "_load_segment_analyzers", lambda _: [object()])
+
+	fake_cache_dir = tmp_path / "well_out" / "recon_outputs" / "cache" / "analyzers"
+	fake_cache_dir.mkdir(parents=True, exist_ok=True)
+
+	class _FakeCtx:
+		analyzer_cache_dir = fake_cache_dir
+
+	monkeypatch.setattr(
+		"axon_recon.pipeline.stages.reconstruct.phases.build_templates._resolve_build_templates_context",
+		lambda _: _FakeCtx(),
+	)
+
+	set_dry_run_override(True)
+
+	result = kssynth_phase.run_reconstruct_kssynth_phase(SimpleNamespace())
+	assert result["status"] == "dry_run_ok"
+
+	summary_path = (
+		tmp_path / "well_out" / "recon_outputs" / kssynth_phase.KSSYNTH_SUMMARY_RELPATH
+	)
+	on_disk = json.loads(summary_path.read_text())
+	cache_entries = [
+		item for item in on_disk["inputs_resolved"] if item["name"] == "analyzer_cache_dir"
+	]
+	assert cache_entries[0]["exists"] is True
+	# No missing-cache warning when the cache is present.
+	assert not any(
+		"analyzer_cache_dir not found" in w
+		for w in on_disk["validation"]["warnings"]
+	)
