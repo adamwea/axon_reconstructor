@@ -85,3 +85,36 @@ Don't prune. This is a historical record. If an entry becomes superseded, link f
 - **Diagnostics**: run logs at `/pscratch/sd/a/adammwea/run_logs/53089489_*` (not pruned)
 - **Regression baseline established**: NO (but the 15-of-16 success rate is the target for future multi-well sweeps on this cohort family)
 - **Status**: closed for the 2 fixed bugs; **followup-pending** for the host-OOM (see `trackers/issues.md`)
+
+### 2026-05-21 — radivojevic_recon first real-data smoke (cluster 67, M08073 well000 DIV 36)
+
+- **Smoke command**: `python` invocation against `radivojevic2023_recon_algo.reconstruct(...)` (sibling repo at `~/dev/pkgs/radivojevic2023_recon_algo/`). NOT axon-recon CLI yet (no axon_recon adapter phase exists yet — that's slice 5 of `radivojevic_recon_algo_plan.md`).
+- **Cohort / data**: M08073 / 000208 (DIV 36, MaxTwo, 10 kHz raw) / well000. Used `templates.npy` directly from `spikesort_outputs/sorter_output_snapshot/`. Cluster 67 picked as the highest-amplitude kilosort cluster with ≥200 spikes (amp 73.3 μV, n_spikes=1328).
+- **Plan + slice**: `radivojevic_recon_algo_plan` slice 3 sub-step 9 (real-data smoke per USER GATE 3).
+- **Commits at time of smoke**: axon_recon `aa2445f`; radivojevic2023_recon_algo `e02d566`.
+- **Outcome**: ⚠️ pass-with-findings — algorithm core CALLABLE on real HD-MEA shape data; found a real algorithmic bug along the way (MAD noise estimator collapses on sparse templates).
+- **What ran end-to-end**: `reconstruct(trace[266,61], channel_positions_um, sampling_rate_hz=10_000, upsample_factor=2, pixel_um=10.0, noise_estimator='window', noise_window=(0, 15), n_spikes=1328)` → Stage1 → Stage2 → Stage3 → ReconstructionResult.
+- **Quantitative result**:
+  - Wall time: 0.80 seconds (after tuning Stage 2 to upsample_factor=2 + pixel_um=10.0).
+  - noise_std: 0.0015 μV/μs (window-based on first 15 frames of upsampled derivative).
+  - Thresholds: 0.0135 / 0.0030 / 0.0015 μV/μs (9/2/1 STD).
+  - Peaks detected: step1=97, step2=66, step3=9 → 172 total. 12 of 266 channels have at least one peak (expected — kilosort templates are sparse: only channels near the unit's center are active).
+  - Stage 2 skeleton: 10949 pixels across all 120 frames; 933 unique (x, y) pixels in the union.
+  - Stage 3 links: direct=52, skeleton_assisted=1, indirect=19 → 72 total inter-frame edges.
+- **Bugs revealed**:
+  - **MAD noise estimator collapses on sparse kilosort templates** → still pending design follow-up. For sparse inputs where most channels are near zero, `np.median(|x - median(x)|)` → 0, making thresholds 0, making EVERY sample a "peak" (got 659 step-1 peaks in the bad run). WORKAROUND adopted: switched to window-based estimator on quiescent first frames. **Real fix candidates** (next slice):
+    1. Per-channel MAD then take median of non-zero per-channel STDs.
+    2. Auto-pick a quiescent time window via lowest-energy frames.
+    3. Document `noise_estimator="window"` as the recommended default for sparse-template input (kilosort) and `"mad"` for dense input (full-recording STA).
+  - **GATE 3 spec assumed `merged_template.npy` files exist on disk** → they don't. Per-unit STAs are inside `gtr.pkl` (axon_velocity-pickled, shifter-only). Loop substituted with raw kilosort `templates.npy`. Documented in `memory/open_questions.md` as 3 questions for user.
+- **Diagnostics**: `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_first_run/cluster_67/radivojevic_recon/`
+  - `run_summary.json` — full result metadata
+  - `peaks_all.tsv` — per-step peak list (channel_idx, time_idx, amplitude)
+  - `links.tsv` — per-edge inter-frame links (method, channel_a/b, time_a/b, distance_um, dt_us)
+  - `skeleton_union_xy.npy` — union-of-all-frames binary skeleton (183x202 bool)
+  - `skeleton_pixels_per_frame.npy` — frame-wise pixel counts
+  - `per_channel_peak_counts.npy` — per-channel peak histogram
+- **Regression baseline established**: YES — cluster 67 on this DIV / well = 172 peaks / 72 links / 933 unique skeleton xy / 0.80s runtime. Future regressions on same input + same knobs should match within ±5%.
+- **Status**: closed (algorithm core proven runnable on real HD-MEA shape data); follow-ups:
+  - **MAD vs window noise estimator** design decision pending (next sub-step or USER GATE 4).
+  - **Side-by-side plot_recons comparison** still blocked on user's clarification of the `merged_template.npy` data-layout question (open_questions.md).
