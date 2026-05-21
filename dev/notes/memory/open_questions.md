@@ -31,13 +31,19 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 **User authorized**: Loop proceeds through Stage 2 (image skeletonization: sub-steps 6a + 6b + 6c) AND Stage 3 (multi-step tracking / peak interlinking) **without intermediate gates**. No pause between stages. First end-to-end real-data run becomes the natural next gate.
 
-**Concrete spec for the next gate trigger** (the first real-data smoke):
-- Pick a representative unit from M08073 80k DMEM well000 (DIV 36, `260326/M08073/000208/well000` is the known-good baseline — see `smoke_log.md` entry 2026-05-18).
-- Load its `merged_template.npy` + `merged_channel_locations.npy` from the reference path (read-only).
-- Run the full Stage 1 → Stage 2 → Stage 3 pipeline.
-- Save the output axon trajectory under `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_first_run/<unit_id>/`.
-- **MANDATORY**: file a HARD-gate entry in `dev/notes/memory/diagnostics_to_review.md` with the visualization (per CLAUDE.md visual-diagnostics rule — first real output of a new algorithm). Hard gate because if the visual is wrong, the whole subsequent integration into the recon stage is wrong.
-- **MANDATORY**: file a real-data smoke entry in `dev/notes/trackers/smoke_log.md` per the smoke-log discipline rule.
+**Concrete spec for the next gate trigger** (the first real-data smoke + side-by-side method comparison):
+- **Unit selection**: pick a unit from M08073 80k DMEM well000 (`260326/M08073/000208/well000`, DIV 36, known-good baseline) **WITH PLENTY OF BRANCHES** per its existing `axon_velocity_gtrs` reconstruction. Loop should scan the reference data's existing axon_velocity_gtrs outputs (under `analyzed_data/.../well000/recon_outputs/`), look at per-unit branch counts or visualization complexity, and pick a high-branch-count unit (target: ≥ ~8-12 inter-branch segments, comparable to the paper's example cell with 23 axon terminals if possible). The high-branch-count unit makes algorithmic differences between axon_velocity_gtrs and radivojevic_recon visually obvious; a 2-branch unit would be too easy / hide differences.
+- **Reuse the existing `plot_recons` phase** for visualization — DO NOT build new plotting code. plot_recons takes a reconstruction output and renders it; the comparison comes from running plot_recons on BOTH outputs:
+  - **A**: existing `axon_velocity_gtrs` output (already exists at the reference path; no rerun needed)
+  - **B**: new `radivojevic_recon` output (run the chosen unit's `merged_template.npy` + `merged_channel_locations.npy` through Stage 1 → Stage 2 → Stage 3)
+  - plot_recons rendering of BOTH side-by-side isolates the algorithmic difference (not the plotting difference).
+- **Output layout**:
+  - `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_first_run/<unit_id>/axon_velocity_gtrs/...` — A's plot_recons rendering
+  - `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_first_run/<unit_id>/radivojevic_recon/...` — B's plot_recons rendering
+  - `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_first_run/<unit_id>/comparison.png` — side-by-side composite for the HARD-gate review
+- **MANDATORY**: HARD-gate entry in `dev/notes/memory/diagnostics_to_review.md` pointing at the comparison composite. User compares the two reconstructions: same axon visible? Different number of detected branches? Velocity estimates qualitatively similar? Either method visually wrong on this unit?
+- **MANDATORY**: real-data smoke entry in `dev/notes/trackers/smoke_log.md` per the smoke-log discipline rule, capturing unit_id + branch counts from both methods + runtime.
+- **Reusing plot_recons**: per loop's audit of the recon stage's existing phase code, `plot_recons` is in `src/.../phases/plot_recons.py` (or equivalent) and reads from `<well>/recon_outputs/<unit>/merged_template.npy` + a reconstruction artifact. For the radivojevic_recon variant, the loop needs to: (1) ship a thin adapter that writes a radivojevic-recon's `Stage3Result` into the same on-disk shape `plot_recons` expects, OR (2) call `plot_recons`'s plotting helpers directly with both methods' outputs. (1) is cleaner; (2) is faster to draft. Loop picks at execution time.
 - Then PAUSE for user review — that's the next user gate.
 
 **Original gate body preserved below for archeology:**
