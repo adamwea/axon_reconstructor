@@ -22,10 +22,10 @@ on `current_state.md` discovery.
 
 ---
 
-## Current — Round 4 (2026-05-21)
+## Current — Round 5 (2026-05-21)
 
 ```
-EXTENDED AUTONOMOUS MODE (round 4) — relaxed stop conditions.
+EXTENDED AUTONOMOUS MODE (round 5) — relaxed stop conditions.
 
 Read /global/homes/a/adammwea/dev/pkgs/axon_recon/CLAUDE.md and follow its
 entry protocol. Read dev/notes/memory/current_state.md ⚡ USER INJECTIONS
@@ -82,6 +82,31 @@ Real-data smoke log discipline (USER INJECTION 2026-05-21):
   Those go in commit messages.
 - HARD-gate visual diagnostics: when reviewed/approved/rejected, also
   append a smoke_log entry.
+
+Diagnostic discipline (USER INJECTIONS 2026-05-21):
+- ANY slice changing user-visible rendering MUST file a diagnostic entry
+  in dev/notes/memory/diagnostics_to_review.md. Multi-stage algorithms
+  file at EACH stage transition (not just the final end-to-end gate).
+- Diagnostics MUST include a rendered image (PNG/SVG/PDF) as the
+  user-visible artifact. npy / tsv / parquet ALONE is data, not a
+  diagnostic. Data files can accompany the image for downstream consumers.
+
+Stop-and-ask discipline + multiple-choice format (USER INJECTIONS 2026-05-21):
+- When blocked on or facing friction with an EXPLICIT user instruction
+  (e.g. "use existing X", "pick high-branch unit", "produce comparison"),
+  STOP. Do NOT improvise a substitute approach. The substitute may look
+  like progress but answers a question the user didn't ask.
+- The "ask" form MUST be 2-4 numbered options in open_questions.md, each
+  with `label / touch-size / tradeoff`, AND a "recommended" option called
+  out. NOT a bare prose halt. Format mirrors the assistant's
+  AskUserQuestion tool calls: do the analysis, curate options, let the
+  user pick a number.
+- For the NEXT 3 diagnostic-generation iterations: PAUSE BEFORE each
+  diagnostic and surface a multiple-choice PRE-DIAGNOSTIC GATE in
+  open_questions.md (full plan as option 1, alternatives 2-4). Loop
+  does NOT execute until user marks `✅ USER APPROVED <date>: option N`.
+  After 3 successful pre-gated diagnostics ship without user complaints
+  about deviation, this discipline relaxes back to "file as you go."
 
 Standing pre-cleared decisions:
 - SLAy PR merge policy: USER-ONLY merge. Loop pushes branch + opens PR via
