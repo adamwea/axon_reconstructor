@@ -4155,6 +4155,60 @@ def run_spikesort_snapshot_sorter_output_stage(
 		relpath=snapshot_relpath,
 	)
 	summary_json = (stage_output_root_dir / "snapshot_sorter_output_summary.json").resolve()
+
+	# Dry-run short-circuit (dry_run_rollout slice 4 — snapshot_sorter_output).
+	# Skips the file-copy step; reports sorter_output_dir + snapshot_dir.
+	from ...config import get_dry_run_override
+
+	if get_dry_run_override():
+		from ...dry_run import write_dry_run_summary
+
+		# Report the EXPECTED sorter_output location (the natural one;
+		# don't fall back through `_resolve_existing_sorter_output_dir`'s
+		# stage-root fallback which would mask a missing-prereq).
+		expected_sorter_output_dir = stage_output_root_dir / "sorter_output"
+		validation_warnings: list[str] = []
+		if not expected_sorter_output_dir.exists():
+			validation_warnings.append(
+				f"sorter_output not found at {expected_sorter_output_dir}; "
+				"run spikesort.sort first."
+			)
+
+		inputs_resolved: list[dict[str, Any]] = [
+			{
+				"name": "sorter_output_dir",
+				"path": str(expected_sorter_output_dir),
+				"exists": bool(expected_sorter_output_dir.exists()),
+			}
+		]
+
+		write_dry_run_summary(
+			phase_name="spikesort.snapshot_sorter_output",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			summary_json_path=summary_json,
+			inputs_resolved=inputs_resolved,
+			outputs_would_produce=[
+				{"name": "summary_json", "path": str(summary_json)},
+				{"name": "snapshot_dir", "path": str(snapshot_dir)},
+			],
+			validation={
+				"missing_prerequisites": [],
+				"warnings": validation_warnings,
+			},
+			extra_fields={
+				"snapshot_sorter_output_enabled": bool(
+					getattr(stage_config, "snapshot_sorter_output_enabled", False)
+				),
+			},
+		)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={"summary_json": str(summary_json)},
+		)
+
 	_write_marker(summary_json, phase_name="snapshot_sorter_output")
 
 	if not bool(getattr(stage_config, "snapshot_sorter_output_enabled", False)):

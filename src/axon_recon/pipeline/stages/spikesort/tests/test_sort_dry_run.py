@@ -159,3 +159,56 @@ def test_spikesort_sort_dry_run_disabled_phase_warning(
 	on_disk = json.loads(summary_path.read_text())
 	assert any("sort_enabled=False" in w for w in on_disk["validation"]["warnings"])
 	assert on_disk["sort_enabled"] is False
+
+
+def test_spikesort_snapshot_sorter_output_dry_run(
+	monkeypatch: pytest.MonkeyPatch, tmp_path: Path, _reset_dry_run_override
+) -> None:
+	"""snapshot_sorter_output dry-run reports snapshot_dir + warns when
+	sorter_output is missing. Skips the file-copy step."""
+
+	from axon_recon.pipeline.config import set_dry_run_override
+
+	well_out_dir = _stub_compute_well_out(monkeypatch, tmp_path)
+
+	# Stub the heavy `_write_marker` so we'd see if it runs (it shouldn't).
+	marker_called = {"count": 0}
+
+	def _fail_marker(*args, **kwargs):
+		marker_called["count"] += 1
+		raise AssertionError("_write_marker should not run during dry-run")
+
+	monkeypatch.setattr(spikesort_runner, "_write_marker", _fail_marker)
+
+	stage_config = SimpleNamespace(
+		snapshot_sorter_output_enabled=True,
+		snapshot_sorter_output_relpath="sorter_output_snapshot",
+		snapshot_sorter_output_skip_if_exists=True,
+	)
+	set_dry_run_override(True)
+
+	result = spikesort_runner.run_spikesort_snapshot_sorter_output_stage(
+		h5_path=tmp_path / "data.h5",
+		stream_id="well000",
+		mea_output_root=tmp_path,
+		output_rel_root="spikesort_outputs",
+		stage_config=stage_config,
+		force_restart=False,
+	)
+	assert marker_called["count"] == 0
+	summary_path = (
+		well_out_dir / "spikesort_outputs" / "snapshot_sorter_output_summary.json"
+	)
+	assert summary_path.exists()
+	on_disk = json.loads(summary_path.read_text())
+	assert on_disk["status"] == "dry_run_ok"
+	assert on_disk["phase"] == "spikesort.snapshot_sorter_output"
+	# sorter_output is missing → warning surfaced.
+	assert any(
+		"sorter_output not found" in w
+		for w in on_disk["validation"]["warnings"]
+	)
+	# snapshot_dir is reported as a would-be-output.
+	output_names = [item["name"] for item in on_disk["outputs_would_produce"]]
+	assert "snapshot_dir" in output_names
+	assert on_disk["snapshot_sorter_output_enabled"] is True

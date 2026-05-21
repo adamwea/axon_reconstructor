@@ -168,15 +168,18 @@ Progress:
 - ~~`sort`~~ — SHIPPED 2026-05-21. Dry-run intercept at the top of
   `run_spikesort_stage` (before Kilosort/CUDA imports + recording load).
   Reports h5_path + sorter + sort_engine as extras; warns when h5
-  missing or when sort_enabled=False in YAML. 3 tests in
-  `tests/test_sort_dry_run.py` (happy path with stubbed cleanup,
-  missing h5 warning, disabled-phase warning). Heavy work (cleanup,
-  sort kicks) NEVER invoked under --dry-run.
+  missing or when sort_enabled=False in YAML. 3 tests cover happy
+  path + missing h5 + disabled phase. Heavy work (cleanup, sort kicks)
+  NEVER invoked under --dry-run.
+- ~~`snapshot_sorter_output`~~ — SHIPPED 2026-05-21. Dry-run intercept
+  BEFORE `_write_marker` + file-copy. Reports expected sorter_output_dir
+  location (with `exists` flag + warning if missing) + snapshot_dir as
+  output. 1 test confirms `_write_marker` never fires under --dry-run.
 
 Remaining phases (post-cleanup shape):
 - `concat_binary` (renamed from `bootstrap_concat_binary`) — TODO
 - ~~`sort`~~ — SHIPPED
-- `snapshot_sorter_output` — TODO
+- ~~`snapshot_sorter_output`~~ — SHIPPED
 - `concat_analyzer` — TODO
 - `cleanup_concat_binary` — TODO
 - `cleanup_analyzers` — TODO
