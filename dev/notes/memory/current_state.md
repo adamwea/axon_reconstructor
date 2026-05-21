@@ -155,7 +155,21 @@ Manual items the loop can't or shouldn't do — surfaced here so the user has on
   plumbing, or (path 3) symlink approach.** Original decision text preserved
   below.
 
-- **[2026-05-21] Decision needed: kssynth slice 3b smoke data-routing**. The slice 3b plan note assumes the smoke runs in-place on `260326/M08073/AxonTracking/000208/well000` (DIV 36) — but the reference well's `recon_outputs/cache/` is empty and writing it would technically mutate the read-only reference data (per the working-data-scope rule). Redirecting via `--output-root /pscratch/.../dev_outputs/kssynth_slice3b/` cleanly avoids the mutation, but creates an input-resolution problem: the analyzers loader looks for preproc + spikesort outputs under `<output_root>/Media_Density_T5_.../260326/M08073/AxonTracking/000208/well000/` and those exist ONLY at the reference path. Three resolution paths:
+- **[2026-05-21 ✅ DECIDED] kssynth slice 3b smoke data-routing — USER CHOSE PATH 2 (--input-root plumbing)**. Loop's next slice in the kssynth_recon_integration plan is to add `alternate_well_out_dirs` (or equivalent `--input-root` CLI flag) plumbing to the analyzers loader so dev_outputs/ wells can read inputs (preproc + spikesort outputs) from the reference well_out_dir while writing outputs (cache/, synth_sorter_output/, etc.) to the dev_outputs/ well_out_dir. Touch is M (loader signature + CLI flag + plumbing through resolve_session_inputs). Once shipped, the slice 3b heavy smoke runs as:
+  ```bash
+  axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml \
+    --target-dataset N --limit-wells 1 --task-backend local_affinity \
+    --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
+    --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
+  axon-recon stages reconstruct.kssynth --config dev/debug_NERSC/debug.runtime.yml \
+    --target-dataset N --limit-wells 1 --task-backend local_affinity \
+    --force-enable kssynth \
+    --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
+    --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
+  ```
+  Reference-data immutability preserved; clean separation between iteration outputs and reference inputs. Original 3-options block deleted; preserve in commit `e966f2c`'s diff for archeology.
+
+  **Original block preserved for archeology**: The slice 3b plan note assumes the smoke runs in-place on `260326/M08073/AxonTracking/000208/well000` (DIV 36) — but the reference well's `recon_outputs/cache/` is empty and writing it would technically mutate the read-only reference data (per the working-data-scope rule). Redirecting via `--output-root /pscratch/.../dev_outputs/kssynth_slice3b/` cleanly avoids the mutation, but creates an input-resolution problem: the analyzers loader looks for preproc + spikesort outputs under `<output_root>/Media_Density_T5_.../260326/M08073/AxonTracking/000208/well000/` and those exist ONLY at the reference path. Three resolution paths:
   1. **Loosen the rule for `cache/` subdirs** — they're explicitly rebuildable, never "ground-truth reference output". Loop writes the cache in-place; no other reference artifacts touched. Smallest change.
   2. **Add `alternate_well_out_dirs` plumbing to the analyzers loader** so an iteration well can read inputs from the reference well_out_dir while writing outputs to the dev_outputs/ well_out_dir. The loader already has `alternate_well_out_dirs` in its signature for similar purposes (templates/runner.py `_load_templates_phase_analyzers`). Needs a `--input-root` CLI flag or equivalent. Touch is M.
   3. **Symlink approach** — `mkdir -p /pscratch/.../dev_outputs/kssynth_slice3b/.../well000/` then symlink `preprocess_outputs/` and `spikesort_outputs/` from the reference. Outputs land in the dev_outputs tree; inputs read through the symlinks. Touch is S but fragile (paths embedded in summary.json reference symlink targets).
