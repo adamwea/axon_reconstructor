@@ -160,15 +160,32 @@ across 5 phases + h5-missing + h5-existing warning paths). Heavy
 the test.
 
 ### Slice 4 — Spikesort stage phase short-circuits
-Same pattern. Phases (post-cleanup shape):
-- `concat_binary` (renamed from `bootstrap_concat_binary`)
-- `sort`
-- `snapshot_sorter_output`
-- `concat_analyzer`
-- `cleanup_concat_binary`
-- `cleanup_analyzers`
 
-For `sort` specifically: dry-run must NOT load Kilosort, NOT load CUDA, NOT load the recording into memory. Just verify the recording manifest exists, the sorter_output dir is writable, params look sane, then write the summary.
+Per-phase rollout. `sort` is the most critical because it has CUDA +
+Kilosort imports that MUST NOT fire during dry-run.
+
+Progress:
+- ~~`sort`~~ — SHIPPED 2026-05-21. Dry-run intercept at the top of
+  `run_spikesort_stage` (before Kilosort/CUDA imports + recording load).
+  Reports h5_path + sorter + sort_engine as extras; warns when h5
+  missing or when sort_enabled=False in YAML. 3 tests in
+  `tests/test_sort_dry_run.py` (happy path with stubbed cleanup,
+  missing h5 warning, disabled-phase warning). Heavy work (cleanup,
+  sort kicks) NEVER invoked under --dry-run.
+
+Remaining phases (post-cleanup shape):
+- `concat_binary` (renamed from `bootstrap_concat_binary`) — TODO
+- ~~`sort`~~ — SHIPPED
+- `snapshot_sorter_output` — TODO
+- `concat_analyzer` — TODO
+- `cleanup_concat_binary` — TODO
+- `cleanup_analyzers` — TODO
+
+For `sort` specifically (already done above): dry-run must NOT load
+Kilosort, NOT load CUDA, NOT load the recording into memory. Just
+verify the recording manifest exists, the sorter_output dir is
+writable, params look sane, then write the summary. This contract
+is satisfied by the slice-4-sort implementation.
 
 ### Slice 5 — Reconstruct stage phase short-circuits
 

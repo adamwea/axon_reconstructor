@@ -10757,6 +10757,69 @@ def run_spikesort_stage(inputs: SpikesortInputs) -> SpikesortResult:
 	)
 	stage_output_root_dir.mkdir(parents=True, exist_ok=True)
 	summary_json = stage_output_root_dir / "spikesort_summary.json"
+
+	# Dry-run short-circuit (dry_run_rollout slice 4 — sort phase).
+	# CRITICAL: this MUST fire BEFORE any Kilosort/CUDA imports or
+	# recording loads. The check is at the top of the work block so no
+	# heavy work happens. Reports h5_path + sorter + sorter_output dir
+	# as inputs/outputs without invoking the sort.
+	from ...config import get_dry_run_override
+
+	if get_dry_run_override():
+		from ...dry_run import write_dry_run_summary
+
+		h5_path_obj = Path(str(inputs.h5_path)) if inputs.h5_path else None
+		sorter_output_dir = stage_output_root_dir / "sorter_output"
+		concat_binary_dir = stage_output_root_dir / "concat_binary"
+		validation_warnings: list[str] = []
+		inputs_resolved: list[dict[str, Any]] = []
+		if h5_path_obj is not None:
+			inputs_resolved.append(
+				{
+					"name": "h5_path",
+					"path": str(h5_path_obj),
+					"exists": bool(h5_path_obj.exists()),
+				}
+			)
+			if not h5_path_obj.exists():
+				validation_warnings.append(
+					f"h5_path not found at {h5_path_obj}; recording is required to spike-sort."
+				)
+		if not bool(inputs.sort_enabled):
+			validation_warnings.append(
+				"sort_enabled=False in YAML; a real run would skip the sort. "
+				"Force-enable via --force-enable spikesort.sort if you want this to run."
+			)
+		write_dry_run_summary(
+			phase_name="spikesort.sort",
+			well_out_dir=well_out_dir,
+			stage_output_root_dir=stage_output_root_dir,
+			summary_json_path=summary_json,
+			inputs_resolved=inputs_resolved,
+			outputs_would_produce=[
+				{"name": "summary_json", "path": str(summary_json)},
+				{"name": "sorter_output_dir", "path": str(sorter_output_dir)},
+				{"name": "concat_binary_dir", "path": str(concat_binary_dir)},
+			],
+			validation={
+				"missing_prerequisites": [],
+				"warnings": validation_warnings,
+			},
+			extra_fields={
+				"sorter": str(getattr(inputs, "sorter", "")),
+				"sort_engine": str(getattr(inputs, "sort_engine", "mea_analysis") or "mea_analysis"),
+				"sort_enabled": bool(inputs.sort_enabled),
+			},
+		)
+		return SpikesortResult(
+			well_out_dir=well_out_dir,
+			spikesort_out_dir=stage_output_root_dir,
+			summary_json=summary_json,
+			outputs={
+				"summary_json": str(summary_json),
+			},
+		)
+
 	effective_force_restart = bool(inputs.force_restart)
 	applied_debug_limits = _spikesort_applied_debug_limits_from_inputs(inputs)
 	_log_phase_step_start(
