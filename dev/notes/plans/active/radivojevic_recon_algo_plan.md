@@ -140,10 +140,47 @@ produce a written algorithm summary; identify input requirements.
 - Confirm or revise the input-delta map (which prerequisite data we
   need to compute that we don't already have).
 
-### Slice 2 — Sibling-package scaffold
+### Slice 2 — Sibling-package scaffold — SHIPPED 2026-05-21
 
-**Goal**: turn `~/dev/pkgs/radivojevic2023_recon_algo/` into a proper
-sibling package (matches kssynth / unitlink shape).
+`~/dev/pkgs/radivojevic2023_recon_algo/` is now a proper sibling
+package matching the kssynth / unitlink shape. Initial commit on the
+local `main` branch (no remote yet — pre-approved via DIRECTIVE D's
+sibling-repo authorization, but the loop didn't `gh repo create` since
+the algorithm core isn't yet implemented; user should confirm whether
+to publish the empty scaffold now or wait until slice 3 has shipped
+something runnable).
+
+**Deliverables:**
+- ✅ `git init` (initial commit landed on local `main`).
+- ✅ `pyproject.toml` — name=`radivojevic2023_recon_algo`, version
+  0.1.0, deps (numpy, scipy, scikit-image for morphological
+  skeletonization); `[project.optional-dependencies]` for dev +
+  spikeinterface. `[project.urls]` link the paper + Dryad data.
+- ✅ Package layout: `src/radivojevic2023_recon_algo/{__init__,api,
+  core/,io/}.py` matching the kssynth/unitlink convention.
+- ✅ `api.reconstruct()` exists as a stub raising NotImplementedError
+  (slice 3 wires the real impl).
+- ✅ `core/` + `io/` packages are empty stubs with module docstrings
+  for the future stage modules.
+- ✅ Empty `tests/__init__.py` + `tests/test_scaffold.py` (5 sanity
+  tests: import, version, api symbol, NotImplementedError, sub-package
+  imports). All 5 pass under `pip install -e .` + pytest.
+- ✅ `LICENSE` (MIT, matching kssynth/unitlink).
+- ✅ `README.md` with scaffold disclaimer + paper citation +
+  attribution boilerplate + package-layout overview.
+- ✅ `.gitignore` (Python project boilerplate).
+
+**Hyperparameter values updated in slice 1's algorithm-summary doc**:
+discovered pre-extracted PDF text in
+`notes/archive/old_ai_notes_for_reference/radivojevic_2023_methods_mining.txt`
+(596 lines) which the user had populated previously. This carries
+the concrete hyperparameter defaults — 9/2/1 STD noise thresholds,
+50/100/200 μm radii, 200 kHz Whittaker-Shannon up-sampling — that
+slice 3 will use as starting points. Open-questions Q5 updated to
+reflect this.
+
+#### Original spec (preserved for reference)
+
 
 **Actions**:
 - `git init` (skip if user already did)

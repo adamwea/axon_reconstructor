@@ -54,17 +54,35 @@ data (MaxWell MEA1k, ~17.5 μm in axon-tracking mode) is in spec.
 
 ## Algorithm steps (from the eLife abstract + algorithm overview)
 
-### Stage 1: Adaptive thresholding
+### Stage 1: Adaptive thresholding (3 sub-steps)
 
-- Detects signal peaks (negative voltage excursions) in the STA across
-  the spatiotemporal recording.
-- "Adaptive" = progressively relaxed spatial/temporal constraints —
-  i.e. the threshold is not a single static value; it's relaxed
-  iteratively to capture lower-amplitude peaks while preserving spatial
-  coherence.
-- **Hyperparams (TBD from full methods)**: initial threshold (in σ
-  units of the noise?), relaxation rate, spatial coherence radius
-  (μm), temporal coherence window (ms).
+Detects signal peaks (negative voltage excursions) in the STA across
+the spatiotemporal recording. Operates on the TIME DERIVATIVE of the
+averaged voltage trace (μV/μs), not the raw voltage. Recordings are
+up-sampled to 200 kHz via Whittaker-Shannon interpolation BEFORE
+thresholding.
+
+**Concrete hyperparameters from paper methods** (extracted from the
+pre-populated `notes/archive/old_ai_notes_for_reference/radivojevic_2023_methods_mining.txt`
+in the sibling-package literature dir, lines 295-380; see paper Figure
+3 + Figure 5B for performance curves):
+
+- **Step 1 — simple planar threshold = 9 STD of estimated noise**.
+  Catches HIGH-amplitude AP peaks (~45% of all true peaks per Figure 5B).
+  Noise estimated from inactive periods across all electrodes.
+- **Step 2 — confined thresholds = 2 STD of noise, 50 μm spatial radius**.
+  Locally applied at the (x, y, t) coordinates of step-1 peaks.
+  Catches medium-amplitude peaks (~74% cumulative).
+- **Step 3 — same shape as step 2 but = 1 STD of noise, 100 μm spatial radius**.
+  Catches low-amplitude peaks (~98% cumulative).
+
+Performance per Figure 5B: zero false-positive peaks at the 9/2/1 STD
+levels respectively (validated via Bayes-optimal template-matching as
+ground truth, with a 70% match threshold separating true from false
+peaks).
+
+"Greedy algorithm" principle — each step's results constrain the next
+step's search regions.
 
 ### Stage 2: Skeletonization
 
@@ -75,21 +93,35 @@ data (MaxWell MEA1k, ~17.5 μm in axon-tracking mode) is in spec.
 - **Hyperparams (TBD)**: image resolution, morphological structuring
   element, smoothing kernel.
 
-### Stage 3: Multi-step tracking
+### Stage 3: Multi-step tracking (3 sub-strategies)
 
-- Iterates over consecutive timeframes (in order of action-potential
-  propagation).
-- Three sub-strategies for connecting peaks frame-to-frame:
-  1. **Direct matching** — if peak in frame T+1 is within radius D of a
-     peak in frame T, link them.
-  2. **Skeleton-assisted routing** — if no direct match, follow the
-     skeletonized pathway from stage 2 to find the most likely
-     connection.
-  3. **Indirect prediction** — if no skeleton path either, use the
-     estimated local conduction velocity to predict where the peak
-     should be in T+1 and search in a wider radius.
-- **Hyperparams (TBD)**: direct-match radius (μm), skeleton-traversal
-  cost, velocity-extrapolation window (ms), max-jump distance (μm).
+Iterates over consecutive timeframes (in order of action-potential
+propagation, Δt ~5-10 μs at 200 kHz sample rate). Three sub-strategies
+for connecting peaks frame-to-frame:
+
+**Concrete hyperparameters from paper methods** (same source as stage 1):
+
+1. **Direct interconnection** — closest signal peaks within
+   **100 μm Euclidean distance** mapped in two consecutive timeframes
+   are connected. Catches ~70% of all mapped peaks per Figure 6.
+2. **Skeletonization-assisted interconnection** — for unmatched peaks
+   within **200 μm Euclidean range** mapped in two consecutive
+   timeframes, the inter-peak area is skeletonized (stage 2) to infer
+   the propagation trajectory. Catches additional ~15% (85% cumulative).
+3. **Indirect interconnection** — for "discontinuous" peaks mapped in
+   every-OTHER timeframe (not consecutive — i.e. one frame missing in
+   between), the trajectory is reconstructed using:
+   (a) skeletonized remnants of the inter-peak area, AND
+   (b) the conduction velocity estimated from previously reconstructed
+       trajectories, used as a selection criterion for optimal trajectory
+       AND to predict the spatial coordinates of the missing
+       intermediate-frame peak.
+   Catches additional ~6% (91% cumulative).
+
+Conduction velocity refinement: after each tracking step, local
+velocities (mm/s or m/s) are estimated from the time-distance pairs of
+the reconstructed trajectory segments. These feed the indirect
+interconnection's predictor.
 
 ## Outputs
 
@@ -168,10 +200,11 @@ update this doc.
 - ✅ Paper identified (`radivojevic2023_paper.md`).
 - ✅ Public code searched — none found for the 2023 algorithm; clean-room
   required.
-- ✅ This algorithm-summary doc written (high-level; depth limited by
-  inability to read the full methods PDF locally — `pdftotext` /
-  `pdftoppm` not available in this env; full methods would need browser
-  access to the eLife article).
+- ✅ This algorithm-summary doc written. Hyperparameter values FOUND
+  in the pre-populated `notes/archive/old_ai_notes_for_reference/radivojevic_2023_methods_mining.txt`
+  in the sibling-package dir (lines 295-380 + later sections cover
+  the data analysis section). Doc reflects concrete defaults from
+  paper.
 - ✅ Input compat map vs `axon_velocity_gtrs` written.
 - ⏭️ USER GATE 1 questions logged to `open_questions.md`.
 
@@ -179,3 +212,14 @@ Per current_state.md "PRE-OVERNIGHT CLEARANCES" item #2, this slice is
 pre-approved to continue into slice 2 (sibling-package scaffold) WITHOUT
 pausing — slice 3 (core algorithm impl) DOES wait for user to review
 these slice-1 questions.
+
+## Sources for algorithm detail
+
+- eLife article page (abstract + algorithm overview) via WebFetch:
+  https://elifesciences.org/articles/86512
+- Pre-extracted paper methods text (provided by user, archived under
+  the sibling package): `notes/archive/old_ai_notes_for_reference/radivojevic_2023_methods_mining.txt`
+  — 596 lines covering Methods / Data analysis / propagation sections
+  with concrete hyperparameter values + algorithm step descriptions.
+- Pre-extracted full text: `notes/archive/old_ai_notes_for_reference/radivojevic_2023_extracted.txt`
+  — 1379 lines.

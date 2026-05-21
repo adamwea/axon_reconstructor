@@ -40,7 +40,7 @@ Per current_state.md "PRE-OVERNIGHT CLEARANCES" item #2, the loop pre-approval l
 
 4. **Input compat map verification**: see the table in `radivojevic2023_algorithm_summary.md` §"Input compat with axon_velocity_gtrs". The proposed claim is that recon-stage `merged_template.npy` + `merged_channel_locations.npy` + sampling_rate (from analyzer manifest) are sufficient inputs for Radivojevic's algorithm (modulo question 3 above). Please verify.
 
-5. **Hyperparameter defaults**: paper text and figures will show concrete defaults. Until the loop can read the full methods, slice 3 will use reasonable initial guesses (initial threshold ~5σ, spatial coherence radius ~50 μm, temporal coherence window ~1 ms — all flagged for tuning in slice 6). Please flag if you have specific values from the paper to use as starting points.
+5. **Hyperparameter defaults — UPDATED 2026-05-21**: ✅ Concrete values FOUND in pre-extracted `notes/archive/old_ai_notes_for_reference/radivojevic_2023_methods_mining.txt` in the sibling-package dir. Defaults captured in `radivojevic2023_algorithm_summary.md`: Step 1 = 9 STD noise, Step 2 = 2 STD / 50 μm radius, Step 3 = 1 STD / 100 μm radius. Direct interconnection = 100 μm, skeleton-assisted = 200 μm. Up-sampling = 200 kHz (Whittaker-Shannon). These will be the slice-3 defaults; please flag if any need adjustment for our data (HD-MEA1k 20 kHz sample rate matches paper).
 
 6. **Algorithm/phase name preference**: paper doesn't pick a nickname. Options for the sibling-package + phase name:
    - `radivojevic_recon` (current sibling-package dir name; descriptive of WHO not WHAT)
