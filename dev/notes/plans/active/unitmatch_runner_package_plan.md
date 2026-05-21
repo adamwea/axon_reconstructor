@@ -221,7 +221,27 @@ Decision in §10 open questions: is `analyzers="auto"` discovery worth the compl
 
 One commit per slice. `claude:` prefix. Logged in the new repo's `commit_log.md`.
 
+**Status (2026-05-21)**: Slices 1-7 SHIPPED. The unitlink package at
+`~/dev/pkgs/unitlink/` has all v1 modules + tests:
+- `src/unitlink/core/` — sorter_output_reader.py, union_grid.py,
+  two_halves.py (slices 2-4)
+- `src/unitlink/` — classical.py (slice 5 — UnitMatchPy wrapper),
+  output_writer.py (slice 6)
+- `src/unitlink/api.py` — `match()` orchestrator composing all of
+  the above (slice 7)
+- `src/unitlink/cli.py` — `unitlink` CLI entry (slice 7)
+- Tests for each module + end-to-end test (`tests/test_api_end_to_end.py`).
+- `pyproject.toml` + `pip install -e .` works.
+
+Slices 8 (v2 deep backend), 9 (v3 threshold calibration), and 10
+(axon_recon integration) are deferred:
+- Slice 10 lives in `unitmatch_phase_plan.md` (slices 1-4 SHIPPED;
+  slice 5 enable + smoke gated on kssynth slice 9 producing the
+  per-DIV synth_sorter_output inputs).
+- Slices 8 + 9 are v2/v3 work; not yet picked up.
+
 ### Slice 1 — scaffolding (no behavior)
+**Status**: SHIPPED — repo at ~/dev/pkgs/unitlink/.
 - New git repo at `~/dev/pkgs/unitlink/` with `pyproject.toml`, `README.md`, `LICENSE` (MIT), `commit_log.md`, basic CI.
 - Empty `src/unitlink/` with stub `api.match()` raising `NotImplementedError`.
 - Pip-installable, CI green on the stub test.
