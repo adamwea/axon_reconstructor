@@ -104,9 +104,29 @@ One commit per slice. `claude:` prefix.
   testable: tests can set `stage_config.dry_run=True` without
   manipulating a process-wide global).
 
-### Slice 2 — `write_dry_run_summary` helper + base test
-- Create `src/axon_recon/pipeline/dry_run.py` with the helper from §2.
-- Unit test: `test_dry_run.py` exercises the helper with a synthetic input set, asserts the summary JSON conforms to the contract schema.
+### Slice 2 — `write_dry_run_summary` helper + base test — SHIPPED 2026-05-21
+
+- New module `src/axon_recon/pipeline/dry_run.py` exports
+  `write_dry_run_summary(*, phase_name, well_out_dir, stage_output_root_dir,
+  summary_json_path, inputs_resolved, outputs_would_produce, validation=None,
+  extra_fields=None) -> Path`. Enforces the schema from `guardrails/dry_run.md`
+  §3 (status=dry_run_ok, base fields well_out_dir / stage_output_root_dir /
+  phase / inputs_resolved / outputs_would_produce / validation).
+- Defaults: empty `validation={missing_prerequisites:[], warnings:[]}` when
+  caller passes None.
+- Phase-specific extras allowed via `extra_fields=` — merged AFTER base
+  fields so base shape always wins on conflict.
+- Tests (7 in `tests/test_dry_run_summary.py`): base schema, default empty
+  validation, validation carried through, parent-dir creation, extras
+  accepted, extras can't shadow base, input-items normalized to the canonical
+  `{name, path, exists}` shape.
+- Phases adopting the dry-run short-circuit (slices 3-7) consume this
+  helper. Combined with slice 1a's `get_dry_run_override()`, the per-phase
+  short-circuit looks like:
+  ```python
+  if get_dry_run_override():
+      return write_dry_run_summary(phase_name=..., ...)
+  ```
 
 ### Slice 3 — Preprocess stage phase short-circuits (one commit per phase)
 Per-phase dry-run short-circuits for every currently-enabled preprocess phase. Each commit: pick one phase, add the `if getattr(stage_config, "dry_run", False): return _write_dry_run_summary(...)` block at the top of its main work function, add a per-phase dry-run test asserting (a) the helper was called, (b) the expensive function path was NOT called, (c) summary JSON exists with `status: dry_run_ok`.
