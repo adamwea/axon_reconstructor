@@ -111,7 +111,24 @@ For each, the correct response is: write a focused question to this file under "
 
 **Original BLOCKER body preserved below for archeology:**
 
-## 🔴 BLOCKER — kssynth slice 3b PATH 2: `--input-root` doesn't reach analyzers source-discovery (2026-05-21)
+## 🔴 BLOCKER (PARTIAL FIX 2026-05-21, commit `f33821b`) — kssynth slice 3b PATH 2: `--input-root` analyzers source-discovery + load
+
+**Update**: Loop shipped option 1 (extend --input-root plumbing to analyzers source-discovery) per user resolution. Commit `f33821b`. Discovery extension works — `discovered_source_count` rose from 0 → 2 on M08073 DIV 36 dataset 13 with `--limit-segments 2`. But the LOAD side still yields `source_count=0` / `units_ok=0`. There's a second gap between `_iter_templates_phase_analyzers` (which DOES accept alternate_well_out_dirs) and the unit-manifest generation downstream.
+
+**Likely candidates for the load-side gap**:
+- A. Some intermediate path resolution (e.g. the spikesort sorter_output dir, the analyzer cache dir, or a sub-path) is computed from `well_out_dir` directly without consulting alternate roots.
+- B. The load returns successfully but the segments at the alternate path can't actually be loaded by spikeinterface (broken JSON paths, missing files, dependency issues).
+- C. Force-restart-suppressing logic at line 505 of analyzers.py wipes alternate roots before discovery — but we ran without --force-restart.
+
+**Loop recommendation** (PROPOSE — needs user pick to proceed):
+
+1. **Continue option 1 deeper** [L touch, code]: investigate `_iter_templates_phase_analyzers` + `load_spikeinterface_analyzers` to find the path-resolution gap. Probably another 2-3 hours of plumbing extension. Most principled but expensive.
+2. **Pivot to PATH 1 (loosen cache-subdir rule)** [S touch, ops only]: drop `--output-root` for the smoke. Analyzers write IN-PLACE to reference well's `cache/`. The reference data integrity rule treated `cache/` as fair game ("explicitly rebuildable, never ground-truth reference output"). After the smoke, `cache/` is left populated which IS arguably useful for future radivojevic runs. NO new code to ship.
+3. **PATH 3 (symlinks)** [S touch but fragile]: pre-create `<dev>/Media_Density_T5_.../260326/.../well000/` and symlink `preprocess_outputs` + `spikesort_outputs` from reference. Original analysis flagged "paths embedded in summary.json reference symlink targets" as the fragility risk.
+
+**Original BLOCKER description preserved below:**
+
+### 🔴 BLOCKER — kssynth slice 3b PATH 2: `--input-root` doesn't reach analyzers source-discovery (2026-05-21, original)
 
 **Symptom**: After running `reconstruct.analyzers --input-root <ref> --output-root <dev>` on M08073/well000/DIV 36 (dataset 13), the analyzers phase completes in 12s with:
 - `status: None` (not error, not ok — empty)
