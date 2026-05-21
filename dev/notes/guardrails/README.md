@@ -42,6 +42,7 @@ Don't update a guardrail when:
 | [`output_locations.md`](output_locations.md) | Logs → pscratch; code → `/global/homes`; what's tracked in repo vs gitignored |
 | [`dry_run.md`](dry_run.md) | Every phase exposes `--dry-run` and short-circuits at input resolution. Universal cheap-smoke-test path. |
 | [`env_parity.md`](env_parity.md) | `axon_recon` conda env and the shifter image must have equivalent capabilities, EXCEPT Kilosort+CUDA stack and NERSC/HPC/SLURM plumbing. New conda dep mirrors into Dockerfile in the same slice, or surfaces a "rebuild needed" USER INJECTION. |
+| [`loop_cadence.md`](loop_cadence.md) | `ScheduleWakeup.reason` format ("Next iteration in {N}s — {sentence}") + cadence ladder (90s actively iterating / 120s between slices / 300s audit / 600-1200s blocked). Promoted from a 2026-05-21 USER INJECTION. |
 
 ## Format (light)
 
