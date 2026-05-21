@@ -16,6 +16,16 @@ salloc -A m4408 -N 1 -t 60 --qos=interactive -C cpu
 
 Adjust `-t` for longer runs; `-C gpu` for GPU-bound smokes (e.g. `spikesort.sort`).
 
+**Inside `salloc`, wrap each pipeline invocation in `srun`** so the allocation actually parallelizes across the node's cores instead of running serially in the login-like shell. For a 1-well / 1-target smoke (most entries here), the right shape is one rank with the full node's CPU budget:
+
+```
+srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread <command...>
+```
+
+(Perlmutter cpu node = 128 physical cores; `-c 128` + `--cpu-bind=cores --hint=nomultithread` pins one task to all physical cores without hyperthread oversubscription. The pipeline's `--task-backend local_affinity` picks the budget up from `slot.cpu_count` automatically.)
+
+For multi-target smokes that benefit from MPI fan-out across targets, use `srun -n N -c $((128/N)) --task-backend mpi` instead.
+
 ---
 
 ## Queued
@@ -37,17 +47,24 @@ cd /global/u2/a/adammwea/dev/pkgs/axon_recon
 
 # Analyzers (5-15 min). Builds preprocessed_segments analyzer cache from
 # the reference path's input data, writes to dev_outputs/.
+# --force-restart clears the partial state from the prior login-node
+# SIGTERM kills (per user 2026-05-21).
 HDF5_PLUGIN_PATH=/global/homes/a/adammwea/hdf5_plugin_path_maxwell \
+srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread \
 shifter --image=adammwea/axon-recon:pipeline-v2 \
   env PYTHONPATH=/global/u2/a/adammwea/dev/pkgs/axon_recon/src \
   python -m axon_recon.pipeline.cli stages reconstruct.analyzers \
   --config dev/debug_NERSC/debug.runtime.yml \
   --target-dataset 13 --limit-wells 1 --task-backend local_affinity \
+  --force-restart \
   --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
   --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/
 
-# kssynth synthesize (~30s after analyzers complete).
+# kssynth synthesize (~30s after analyzers complete). No --force-restart
+# here because the analyzers step above produces a fresh cache and
+# kssynth has nothing to clean.
 HDF5_PLUGIN_PATH=/global/homes/a/adammwea/hdf5_plugin_path_maxwell \
+srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread \
 shifter --image=adammwea/axon-recon:pipeline-v2 \
   env PYTHONPATH=/global/u2/a/adammwea/dev/pkgs/axon_recon/src \
   python -m axon_recon.pipeline.cli stages reconstruct.kssynth \
