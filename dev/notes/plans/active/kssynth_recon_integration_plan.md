@@ -502,34 +502,40 @@ auditing the slice 4 ↔ slice 5 contract:
   phase, not a plot phase, so it's skipped by `--replot`. Verify in
   slice 3.
 
-### Slice 7 — Audit OLD upsampling logic (extract_partial_templates / build_templates)
+### Slice 7 — Audit how OLD pipeline's analyzers were configured (wider ms_before/ms_after window)
 
-**Why**: kssynth's per-unit `merged_template.npy` is currently NON-upsampled (verified 2026-05-21 salloc smoke: shape `(13439, 70)` at MaxTwo 10 kHz raw = 7ms window). The old `extract_partial_templates` + `build_templates` pair produced an UPSAMPLED template (gtr.template in `axon_velocity_gtrs/gtr.pkl` is shape `(13439, 300)` for the same unit). User-confirmed 2026-05-21: "There's an upsampling step that happens before making the templates that end up in the gtr.pkl. happens during either the extract_partial_templates phase or the build_templates phase typically."
+**Why**: kssynth's per-unit `merged_template.npy` is 70 samples at MaxTwo 10 kHz (ms_before=2 + ms_after=5 = 7ms — kssynth's own defaults). axon_velocity_gtrs's `gtr.template` for the same unit is 300 samples at the SAME 10 kHz raw (verified 2026-05-21 from gtr.pkl: `fs=10000`, `_upsample=1`) — that's a 30ms window from the analyzer phase. So the OLD pipeline analyzers used a much wider ms_before/ms_after configuration.
 
-**Scope**: git-archeology pass — locate the deleted `extract_partial_templates.py` + `build_templates.py` in git history (commits before Era 3 cleanup; see `phase_roster_cleanup_plan.md`). Document:
-- Upsample method (Whittaker-Shannon? sinc? scipy?).
-- Upsample factor as a function of raw sample rate (constant ratio? target Hz? device-dependent?).
-- Where in the per-unit template pipeline the upsample applied (before merge? after merge?).
-- Any other pre-processing the OLD pipeline did that kssynth currently omits.
+Per user 2026-05-21: "since you're having 70 samples instead of 30, there's some difference in the pre and post ms values being used for the analyzer." Also: "kssynth shouldn't be running its own parameters or code." kssynth has hard-coded ms_before=2/ms_after=5 in its internal analyzer build — should defer to the analyzer phase's configured policy.
 
-**Output**: a short markdown audit doc under `dev/notes/brain/refs/` (e.g. `old_template_upsample_audit.md`) summarizing the findings. Becomes the spec input for slice 8.
+**Scope**: git-archeology + YAML inspection:
+1. Find where the OLD analyzer policy set ms_before/ms_after for the recon-stage extraction (likely a YAML field under `reconstruct.analyzers.segments.policy` or similar). Document the actual values.
+2. Find where kssynth's hard-coded ms_before=2 / ms_after=5 lives (`kssynth.synthesize` or its analyzer-build call site in `phases/kssynth.py`).
+3. Confirm `_upsample=1` in gtr.pkl means the OLD pipeline did NOT upsample — the template width difference is purely the analyzer window, not post-processing.
+
+**Output**: a short markdown audit doc under `dev/notes/brain/refs/old_pipeline_analyzer_window.md`. Becomes the spec input for slice 8.
 
 **Touch**: S (git log + read + summarize; no code changes).
 
-### Slice 8 — Add upsample option to kssynth (sibling package + axon_recon phase)
+### Slice 8 — Make kssynth defer to analyzer phase's configured policy (NOT use its own params)
 
 **Depends on**: slice 7 audit doc.
 
-**Why**: drop-in parity with the OLD pipeline. Once kssynth supports upsampling, axon_velocity_gtrs and other downstream consumers can use kssynth output directly without needing the OLD pipeline's reconstructed upsample step.
+**Why**: per user 2026-05-21: "if anything, kssynth could call the analyzer phase as specified — but it shouldn't be running its own parameters or code, which it seems like it's doing." kssynth currently hardcodes its analyzer build (ms_before=2, ms_after=5, random_spikes_percentage=100%). To produce templates equivalent to what the OLD pipeline fed axon_velocity_gtrs, kssynth must use the SAME analyzer policy that `reconstruct.analyzers` is configured with.
 
 **Scope**:
-1. **kssynth sibling package** (`~/dev/pkgs/kssynth/`): add `upsample_factor` / `upsample_method` / `target_rate_hz` (whichever shape slice 7 recommends) to `kssynth.synthesize(...)` API. Apply during per-unit template post-processing (after merge_templates). Tests cover shape change + sample-rate metadata propagation.
-2. **axon_recon `reconstruct.kssynth` phase**: add corresponding YAML knob + config field. Default: matches OLD pipeline's upsample (per slice 7 audit) so downstream consumers see no behavior change.
-3. **Smoke**: re-run kssynth on M08073/well000 DIV 36 unit_598 with upsample enabled; confirm shape matches the gtr.template shape (`(13439, 300)` or whatever slice 7 documents).
-4. **Update**: `brain/dependency_graph.md` for the new contract on kssynth's per-unit output; `brain/slice_contracts.md` entry.
+1. **axon_recon `reconstruct.kssynth` phase**: instead of building analyzers internally with hard-coded params, either (a) require `reconstruct.analyzers` to have run first (consume cached analyzers from `recon_outputs/cache/analyzers/`), OR (b) call the analyzer-build path with the YAML-configured `analyzers.segments.policy` (NOT kssynth's defaults).
+2. **kssynth sibling package**: deprecate/remove hard-coded ms_before / ms_after defaults; require caller to supply them OR pass loaded analyzers directly. Tests adjusted.
+3. **Smoke**: re-run kssynth on M08073/well000 DIV 36 unit_598 with the OLD analyzer policy; confirm shape matches gtr.template `(13439, 300)`.
+4. **Update**: `brain/dependency_graph.md` (kssynth now strictly depends on analyzers phase output), `brain/slice_contracts.md` entry.
+
+**Note on upsampling — CORRECTED 2026-05-21**: per user, the OLD pipeline DID upsample (inside extract_partial_templates / build_templates, NOT inside axon_velocity itself — that's why gtr._upsample=1, axon_velocity sees the already-upsampled template and doesn't further upsample). So slice 8 must include BOTH:
+- (a) Defer to analyzer phase config for ms_before/ms_after (NOT kssynth defaults).
+- (b) Apply the OLD upsampling step that extract_partial_templates / build_templates did (slice 7 audit documents the method + factor).
+With (a)+(b) both shipped, kssynth's per-unit `merged_template.npy` becomes a true drop-in replacement for the OLD pipeline output that axon_velocity_gtrs consumes.
 
 **Touch**: M (sibling package + axon_recon integration + tests + smoke).
 
 **Use-cases unblocked**:
-- Drop-in OLD-pipeline replacement (downstream `axon_velocity_gtrs` consumes kssynth output equivalently).
-- Apples-to-apples radivojevic-vs-axon_velocity_gtrs comparison can use kssynth output for BOTH algorithms (currently axon_velocity used OLD upsampled, radivojevic uses non-upsampled or its own upsample — methodological gap).
+- kssynth output becomes a drop-in replacement for OLD pipeline's merged templates (axon_velocity_gtrs consumes equivalently).
+- Apples-to-apples radivojevic-vs-axon_velocity_gtrs comparison can use kssynth output for BOTH algorithms with confidence the underlying STA is identical.
