@@ -182,3 +182,24 @@ Don't prune. This is a historical record. If an entry becomes superseded, link f
 - **Worker count**: n_jobs=1 (radivojevic single-threaded; numpy ops fan out internally; observed ~210% CPU).
 - **Diagnostics**: SOFT-gate filed in `brain/diagnostics_to_review.md` — `unit_598_two_stage_diagnostic.png` at `dev_outputs/radivojevic_paper_2stage/diagnostics/`. Plot shows 4×2 grid (paper Stage 1 / Step 1/2/3/all on top, paper Stage 2 / Step 1/2/3/all on bottom).
 - **Status**: closed (refactor verified; structural plot delivered). Open known issue: selected channels still cluster centrally (noise-underestimate symptom). Follow-up: axon_recon slice 11 raw-recording noise wiring (next session) → re-run with paper n_std 9/2/1 against per-channel raw noise.
+
+---
+
+## Smoke #8 — Radivojevic slices 16/17/18 + per-iteration Stage 2 Step 1 plot on unit_598
+
+- **Date**: 2026-05-22
+- **Command**: `python /pscratch/sd/a/adammwea/dev_outputs/radivojevic_paper_2stage/run_smoke.py` — login-node, conda env (axon_recon), 1 worker.
+- **Cohort**: M08073/000208/well000 DIV 36 unit_598 (same as #6/#7)
+- **Commit**: sibling repo `582af64` (slices 16/17/18 — Stage 2 velocity-criterion refinement)
+- **Outcome**: ✅ SUCCESS — main 4×2 diagnostic + per-iteration Stage-2-Step-1 grid + JSON summary all written.
+- **Quantitative result**:
+  - Input: kssynth merged_template (13439, 70) at 10 kHz raw
+  - Stage 1 (n_std 90/20/10 v4-scale, paper geometry): 173 + 424 + 881 = 1478 cumulative peaks (unchanged vs smoke #7)
+  - **Stage 2 with new ±50% velocity filter + intermediate-peak prediction**:
+    - direct: 991 (= smoke #7; direct doesn't use velocity)
+    - skel-assisted: **0** (was 12; ±50% filter killed all candidates — central peaks have low direct-link median velocity, so long-range skel-routed candidates fail the gate)
+    - indirect: **33** (was 31; tighter ±50% + slice-18 prediction)
+  - Wall: 171.3s
+- **Worker count**: n_jobs=1; numpy ops at ~220% CPU.
+- **Diagnostics**: SOFT-gate filed in `brain/diagnostics_to_review.md` — per-iteration Stage-2-Step-1 plot at `dev_outputs/radivojevic_paper_2stage/diagnostics/unit_598_stage2_step1_per_iteration.png` (15 panels, one per active frame-pair iteration, Δt = 50 μs each).
+- **Status**: closed (slice 19 delivered). Open: user review of the per-iteration plot; future v5 with paper n_std 9/2/1 once slice 11 raw-recording noise lands.

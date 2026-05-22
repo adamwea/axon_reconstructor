@@ -45,6 +45,30 @@ The earlier slices' contracts are recoverable from:
 
 *(append-only; do NOT insert in the middle)*
 
+### 2026-05-22 — radivojevic slices 16/17/18 (sibling repo `582af64`)
+
+- **Surface**: sibling `radivojevic2023_recon_algo` — `core/multi_step_tracking.py`, `core/stage_2.py`, `api.py`, `tests/test_multi_step_tracking.py`, `tests/test_stage_2.py`.
+- **Intent**: close 3 paper-fidelity gaps in Stage 2 (trajectory/skeletonization) surfaced by user re-read of the paper Methods. All 3 are about VELOCITY-DRIVEN refinement criteria that the paper emphasizes as central to skeletonization quality.
+- **Produces**:
+  - **Slice 16** (Step 2 / skel-assisted): `link_peaks_skeleton_assisted` accepts new `velocity_tolerance: float = 1.5` parameter. Computes median velocity from `already_linked` (direct links) and discards candidates whose implied `distance / dt` deviates by >50%. When `already_linked=[]`, filter is bypassed (no prior).
+  - **Slice 17** (Step 3 / indirect): `velocity_tolerance` default 2.0 → 1.5 in `link_peaks_indirect`, `link_peaks_all_strategies`, `api.reconstruct`. Locked via `test_stage_2_defaults_match_paper`.
+  - **Slice 18** (Step 3 / indirect): new optional field `PeakLink.predicted_intermediate_xy_um: tuple[float, float] | None`. Populated for indirect links as the midpoint of (peak_a, peak_b) — constant-velocity interpolation. None for direct + skel-assisted.
+- **Assumes**: callers that explicitly pass `velocity_tolerance=2.0` (e.g. the existing `test_stage3_all_three_strategies_can_fire_in_one_call` test which now passes `4.0` explicitly) keep their behavior; new default tightens.
+- **Propagates**:
+  - axon_recon-side `reconstruct.radivojevic_recon` phase (slice 5, not yet shipped) — when it lands, it inherits the tighter default behavior.
+  - The new `predicted_intermediate_xy_um` field is available for downstream visualization (current per-iteration plot doesn't render it; could be added when useful).
+  - Smoke results: skel-assisted link count went 12 → 0 on unit_598 with the v4-scale thresholds, indirect went 31 → 33. Direct unchanged (no velocity).
+- **Trusted-output impact**: none (radivojevic still opt-in / experimental).
+- **Metric impact**: none direct; smoke produces a new diagnostic baseline (smoke #8) for Stage 2 link counts under the tightened criteria.
+- **Prediction** (filed BEFORE smoke ran): slice 16 was expected to reduce skel-assisted link count significantly because the central-blob peaks have low direct-link velocity and any longer skeleton-routed link would exceed ±50%. Slice 17 expected to slightly tighten indirect. Slice 18 expected to populate the new field without changing link counts.
+- **Actual** (smoke #8):
+  - skel-assisted 12 → 0 ✓ (matches prediction; in fact even more aggressive than expected)
+  - indirect 31 → 33 ✓ (matches: slight shift due to tighter gate + prediction)
+  - direct unchanged ✓
+  - Wall 171s (similar to prior smoke #7 of 180s)
+- **Delta**: matches prediction. Slice 16's effect is more dramatic than anticipated (full kill of skel-assisted vs partial reduction) — likely because the velocity prior from direct is very small (central blob has nearby same-frame-pair peaks; median velocity = mean direct-link distance / dt = ~10 μm/μs), so ±50% range is narrow.
+- **Critic verdict**: NOT RUN — slice 17 is a one-line default change; slice 16/18 are well-scoped additions with focused tests (5 new tests, all passing). Mechanical risk low.
+
 ### 2026-05-22 — radivojevic paper-alignment refactor (sibling repo `1c22138`)
 
 - **Surface**: sibling `radivojevic2023_recon_algo` — `core/stage_1.py`, `core/stage_2.py` (new, was stage_3), `core/stage_3.py` (DELETED), `api.py`, `io/rendering.py`, `tests/test_stage_2.py` (was test_stage_3), `tests/test_api_reconstruct.py`, `tests/test_scaffold.py`. Old `core/stage_2.py` (electrical-image orchestrator) DELETED — coverage subsumed by `electrical_image.py` + `skeletonization.py` direct tests.

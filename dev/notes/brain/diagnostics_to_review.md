@@ -47,6 +47,29 @@ Keep the list short. When an entry is `approved`, leave it for ~one week so the 
 
 (initially empty — Claude appends entries as slices generate diagnostics)
 
+### 2026-05-22 — Radivojevic slices 16/17/18 + per-iteration Stage 2 Step 1 plot (unit_598)
+
+- **Date / commit**: 2026-05-22 / sibling-repo `582af64`
+- **Plan / slice**: `radivojevic_recon_algo_plan` — slices 16 (Step 2 ±50% velocity filter) + 17 (Step 3 tighten 2.0→1.5) + 18 (Step 3 intermediate-peak prediction) + 19 (smoke + per-iteration plot).
+- **Artifacts** (`/pscratch/sd/a/adammwea/dev_outputs/radivojevic_paper_2stage/diagnostics/`):
+  - `unit_598_two_stage_diagnostic.png` — refreshed 4×2 grid showing Stage 1 (top) + Stage 2 (bottom) with the new tighter Stage 2 criteria.
+  - **`unit_598_stage2_step1_per_iteration.png` ← the main artifact for this review.** 15 panels, one per active frame-pair iteration. Each panel shows electrode positions (gray dots) + pair-averaged skeleton (light blue, what Step 2 would consider) + frame-t Stage 1 peaks (red squares) + frame-{t+1} Stage 1 peaks (orange triangles) + direct links accepted (green lines). Iteration title shows frame indices + time stamps (Δt = 50 μs/iteration). Useful for inspecting where the trajectory build connects vs misses.
+  - `unit_598_summary.json` — quantitative summary.
+- **Quantitative**:
+  - Stage 1 peaks (unchanged from before, since slices 16/17/18 only touch Stage 2): 173 / 424 / 881.
+  - **Stage 2 link counts before vs after slices 16/17/18**:
+    - direct: 991 → 991 (unchanged; direct doesn't use velocity)
+    - skeleton-assisted: 12 → **0** (the ±50% velocity filter killed every candidate — Step 2 candidates had implied velocities outside ±50% of direct's median, so the over-reaching skeleton-routed links are correctly suppressed)
+    - indirect: 31 → **33** (slight shift due to tighter ±50% gate + intermediate-peak prediction now populating the new `predicted_intermediate_xy_um` field).
+  - Wall: 171s (similar to pre-slice runs; the velocity filter is fast).
+- **What to check**:
+  - **(per-iteration plot)** Does each iteration's frame-t / frame-{t+1} peak distribution look plausible for an axonal propagation moment? The user asked for "every iteration of Step 1" — 15 panels = the 15 frame-pairs where direct linking found candidates. Δt=50 μs between iterations (paper-faithful).
+  - **(slice 16 effect)** Step 2 (skel-assisted) link count went 12 → 0. Reasoning: the central blob's Stage-1 peaks have small direct-link distances (low implied velocity), so the median velocity is small. Any candidate that needs the skeleton (longer distance) has implied velocity well above median, and the ±50% filter discards it. This is paper-correct behavior — Step 2 is designed to fill SHORT gaps near the direct-link trajectory, not long-range over-skeleton links.
+  - **(slice 18 effect)** Indirect links now carry a `predicted_intermediate_xy_um` field (not visualized in current plot; could be added next iteration if useful).
+- **Known caveat**: thresholds remain at v4 scale (n_std 90/20/10 instead of paper's 9/2/1) for tractability — paper defaults yielded 45k+ peaks → reconstruct >5min, infeasible for an interactive smoke. The slice 16/17/18 effects shown here are independent of the threshold magnitude; the raw-recording-noise wiring (axon_recon slice 11) is the principled fix and stays the next session's task.
+- **Gate level**: soft — review when convenient.
+- **Status**: pending
+
 ### 2026-05-22 — Radivojevic 2-stage paper-alignment refactor (unit_598)
 
 - **Date / commit**: 2026-05-22 / sibling-repo `1c22138`

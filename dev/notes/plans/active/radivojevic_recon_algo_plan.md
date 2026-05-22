@@ -570,3 +570,65 @@ Our package's current implementation:
 | 6 | Slice 15 | Integration smoke — validates slices 10-14 together. |
 
 Per-slice tests run in CI (radivojevic2023_recon_algo's `tests/`). Real-data smoke (slice 15) goes to `dev/notes/trackers/smoke_log.md`.
+
+---
+
+## Paper-fidelity Stage-2 refinement-criteria slices (added 2026-05-22 from re-read of Methods + Discussion)
+
+**Context**: After the 2-stage paper-alignment refactor (sibling `1c22138`) shipped, the user pointed at the persistent central-blob symptom and said "the issue is clearly skeletonization." Re-reading the paper Methods section on tracking confirmed three Stage-2-side gaps in our impl that govern skeletonization quality:
+
+> "Trajectories whose velocities deviated from previously estimated values by more than 50% were discarded." (Step 2 — skel-assisted)
+>
+> "Conduction velocities estimated in the previous steps were used as criteria for selecting optimal propagation trajectories and predicting spatial coordinates of data for the second timeframe." (Step 3 — indirect, both filter + predict)
+
+The paper's mechanism: Step 1 (direct) anchors the velocity prior; Step 2 + Step 3 use that prior as a strict ±50% gate; Step 3 additionally reconstructs the missing intermediate-frame peak position. Our impl had ±100% on Step 3 and no velocity gate at all on Step 2 → skeleton hits between distant peaks pass freely, contributing to over-linking.
+
+### Slice 16 — Step 2 (skel-assisted) velocity filter (±50% from Step-1 median)
+
+**Scope**: Add `velocity_tolerance` parameter (default 1.5 = ±50%) to `link_peaks_skeleton_assisted`. Compute reference velocity from `already_linked` (the direct links passed in); discard skel-assisted candidates whose implied velocity (`distance_um / dt_us`) deviates by >50% of the median.
+
+**Tests added**:
+- `test_skel_assisted_velocity_filter_discards_outliers`: synthetic 3-pair setup where one candidate is ±60% of median velocity → discarded; another at ±30% → kept.
+- `test_skel_assisted_no_filter_when_no_direct_links`: when `already_linked=[]` (no velocity prior available), accept all candidates that pass the geometry + skeleton check.
+
+**Touch**: S-M (parameter addition + filter logic + 2 tests). Independent of other slices.
+
+### Slice 17 — Step 3 (indirect) tighten velocity tolerance from 2.0 → 1.5
+
+**Scope**: Change `velocity_tolerance` default in `link_peaks_indirect` (and the corresponding pass-through in `link_peaks_all_strategies` + `api.reconstruct`) from 2.0 (= ±100%) to 1.5 (= ±50%) per paper. Update `test_stage_2_defaults_match_paper` to lock the value.
+
+**Tests added**:
+- Update existing `test_stage_2_defaults_match_paper` to also assert `velocity_tolerance == 1.5`.
+
+**Touch**: S (default change + test update). Independent.
+
+### Slice 18 — Step 3 (indirect) predict intermediate-frame peak position
+
+**Scope**: Per paper: *"predicting spatial coordinates of data for the second timeframe."* When an indirect candidate (peak_a at frame t, peak_b at frame t+2) clears the velocity + skeleton checks, predict the intermediate peak's xy position at frame t+1 using the velocity. Simplest approach: midpoint along the Bresenham line between peak_a and peak_b (since velocity is constant under the model). Store on `PeakLink` as a new optional field `predicted_intermediate_xy_um: tuple[float, float] | None`.
+
+**Tests added**:
+- `test_indirect_predicts_intermediate_xy_midpoint`: synthetic indirect pair → predicted intermediate is the midpoint.
+- `test_indirect_no_prediction_for_other_methods`: direct + skel-assisted links have `predicted_intermediate_xy_um = None`.
+
+**Touch**: M (new field on PeakLink + prediction logic + 2 tests).
+
+### Slice 19 — Smoke + per-iteration Stage-2-Step-1 diagnostic on unit_598 (paper defaults)
+
+**Scope**: re-run radivojevic on unit_598 with paper defaults (`n_std_step1=9, n_std_step2=2, n_std_step3=1` — no scaling), slice 16/17/18 changes in place. Produce:
+- (a) Updated 2-stage 4×2 grid (refresh of the smoke-#7 plot) showing new link counts under the tightened Stage-2 criteria.
+- (b) Per-iteration panels for **Stage 2 Step 1 (direct)**: one panel per frame-pair (t, t+1) with link activity. Each panel shows electrode positions + frame-t peaks + frame-{t+1} peaks (different colors) + accepted direct links + the pair-averaged skeleton overlay (so the user can see what skeletonization would consider for Step 2 if direct misses).
+
+**Acceptance criteria**:
+- Stage 2 link counts under tighter criteria are LOWER than the pre-slice-16 baseline (over-linking is reduced).
+- Per-iteration panels show clear frame-by-frame progression of the trajectory build.
+
+**Touch**: S (smoke + diagnostic file).
+
+### Sequencing for slices 16-19
+
+| Order | Slice | Why |
+|---|---|---|
+| 1 | Slice 17 | Trivial default tweak; ships first as a no-risk warm-up. |
+| 2 | Slice 16 | Step 2 velocity filter — the biggest expected behavior change. |
+| 3 | Slice 18 | Step 3 intermediate-peak prediction — additive (new field). |
+| 4 | Slice 19 | Integration smoke + diagnostic — validates 16+17+18 together. |
