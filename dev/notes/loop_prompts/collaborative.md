@@ -51,11 +51,24 @@ process a user-picked answer from a prior iteration. The loop is a
 question-curator + non-destructive answer-executor. NOT a code-shipper.
 
 **Chat output discipline (CRITICAL)**: every iteration that surfaces a
-question MUST output the question text (the full multiple-choice block)
-to chat as the LAST THING in the iteration. The user reads chat, not
-open_questions.md, for the immediate interaction loop. The
-open_questions.md write is for persistence across sessions; the chat
-output is for the user's eyes RIGHT NOW.
+question MUST do BOTH:
+1. Write the full multiple-choice block to brain/open_questions.md (with
+   label / touch-size / tradeoff / recommended fields). This is for
+   persistence across sessions.
+2. Call the `AskUserQuestion` tool with the SAME question. This renders
+   as a clickable UI in Claude Code — the user picks via the UI, not by
+   typing "option 1". Map open_questions.md's full block to the tool's
+   option format: each option becomes `{label: <short label>, description:
+   <touch-size + tradeoff one-line>}`. Put the Recommended option FIRST
+   with "(Recommended)" suffix per the tool's convention.
+   AskUserQuestion constraints: 2-4 options per question; label ≤ ~5
+   words; description = one short paragraph (touch-size + tradeoff).
+   The tool auto-adds an "Other" option for the user to type custom
+   responses, so don't add one yourself.
+
+Both writes happen in the same iteration. Then end the iteration
+(no ScheduleWakeup needed — the AskUserQuestion answer fires the next
+iteration automatically when the user picks).
 
 Question selection heuristic (which decision to surface each iteration):
 1. Resolved blockers > new questions: if open_questions.md has a question
