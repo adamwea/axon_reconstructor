@@ -42,6 +42,37 @@ pending.
 - gtr.template (and any visual reconstruction based on it) is therefore from a 3ms-windowed STA, not the configured 7ms. That's narrower than intended.
 - The radivojevic apples-to-apples comparison must decide: (a) compare against gtr.template's de-facto 3ms behavior (=run radivojevic on SI-default-windowed template), OR (b) wait for a new gtr built from the CORRECT 7ms config + match that.
 
+## ★ VERIFIED EVIDENCE (2026-05-21 iter 2)
+
+Inspected actual artifacts to test hypotheses:
+
+| Source | Shape / value | Notes |
+|---|---|---|
+| `cache/analyzers/segments/000_rec0000/extensions/templates/average.npy` | `(335, 70, 992)` | Per-segment analyzer template. **70 samples ✓** — YAML ms_before=2 + ms_after=5 = 7ms at 10 kHz IS applied at analyzer extraction. |
+| `units/0598/unit_templates_summary.json` `upsampling` block | `factor=10, method=sinc, applied=true, target_hz=100000, effective_sampling_rate_hz=100000` | Upsampling DID run per unit. Expected post-upsample = 700 samples. |
+| `units/0598/gtr.pkl` `template` | `(13439, 300)` | 300 ≠ 700. There IS a trim step somewhere between per-segment-analyzer + upsample + gtr storage. |
+| `units/0598/*.npy` | none exist | The merged-template npy file the OLD pipeline produced is NOT in this dir. Stored elsewhere (still unfound). |
+| `load_templates_for_unit` (`core/reconstruct.py:9`) | reads `merged_template.npy` or `merged_contributing_template.npy` from `merged_units_dir/<unit_tok>/`; `fs_hz` from meta `effective_sampling_rate_hz` (would be 100000), defaults to 10000 on read failure | gtr.fs=10000 suggests meta read fell back to default at gtr-build-time. |
+
+**Trim location — RESOLVED (user 2026-05-21)**: "They're just getting trimmed in axon_velocity." So the 700→300 trim happens inside `axon_velocity.GraphAxonTracking` (vendor code), NOT in axon_recon. axon_recon's contract: pass the full upsampled template; axon_velocity trims to its expected window internally. Slice 8 doesn't need a trim step — just the upsample.
+
+**Comparison verdict (user 2026-05-21)**: "the comparison ends up being basically 1-to-1." Window/upsample differences between kssynth's (13439, 70) and gtr.template's effective input are minor at the reconstruction level. The radivojevic diagnostic can proceed with kssynth's current output.
+
+## LESSON LEARNED — validate user hypotheses before propagating them
+
+In this audit pass I accepted user-suggested theories (e.g. "SI defaults silently used", "trim happens in extract_partial_templates") and propagated them as findings without running the data inspection to confirm. User correctly called this out: "You need to do a better job validating my theories. I was wrong like 3 times."
+
+Forward rule: when user hypothesizes a code/data behavior, treat it as a hypothesis to verify by reading the data or code FIRST, before updating audit docs or plan slices to reflect it as fact. The audit doc evolved through three wrong theories before landing on "trim is in axon_velocity" — wasted user time and my context. Adding anti-pattern entry.
+
+## USER DIRECTIVE 2026-05-21 (post-finding)
+
+"let's not reproduce the old bug... let's just compare the old 300 sample template to the new 700 sample template. that's good enough. we want those params wired up correctly."
+
+Path forward:
+- Slice 7 (this audit): document where the YAML waveform params get silently dropped in the OLD path. **Don't fix the OLD path** (it's being retired anyway by the kssynth integration). This is "know thy enemy" docs.
+- Slice 8 (kssynth fix): add execution_upsampling application to kssynth's per-unit template output → produces (13439, 70) × 10x sinc = (13439, 700). Wire up the params correctly going forward.
+- **Immediate diagnostic** (radivojevic apples-to-apples): proceed with the 300-vs-700 comparison even though the input templates differ in window/upsample. Document the methodological caveat clearly. The visual comparison is "good enough" per user.
+
 ## Where upsampling lives (current code)
 
 - `templates/core/merge.py:391` — `merge_unit_templates_from_payloads(..., execution_upsampling: TimeUpsampleConfig)` applies upsample during merge.

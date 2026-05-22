@@ -180,6 +180,23 @@ Map `open_questions.md`'s full block (label/touch-size/tradeoff/recommended) to 
 
 ---
 
+## AP-015 — Accepting user hypotheses without data validation
+
+**The trap**: User suggests a code/data theory ("X is probably caused by Y", "the default is probably Z"). Loop accepts it as fact and updates audit docs / plan slices / open_questions to reflect it, without first reading the actual code or data to confirm.
+
+**Why it's a trap**: Users are debugging out loud — their hypotheses are guesses, not authoritative claims. When the loop propagates an unverified hypothesis as a confirmed finding, the docs accumulate errors that the user later has to correct one-by-one. Wastes user time, fragments understanding, requires multiple revert/rewrite cycles.
+
+**The right move**: Treat user hypotheses as bullets on a verification checklist, not as facts. Before updating any audit doc / plan / open_question to reflect a user-suggested theory:
+1. Read the actual data file or run the actual code path to confirm.
+2. State the verification result back to the user before propagating ("checked X — your hypothesis is confirmed/refuted because Y").
+3. Only after confirmation, update docs to reflect the validated finding.
+
+If verification is expensive (requires a smoke / multi-iteration trace), STATE the hypothesis is unverified in the doc rather than presenting it as fact: "candidate explanation pending verification: ..."
+
+**Source**: 2026-05-21 — slice 7 audit of OLD pipeline analyzer window/upsample. Loop propagated 3 wrong user hypotheses in succession (SI defaults bug, trim in extract_partial_templates, etc.) before landing on "trim is in axon_velocity" (which was the user's hypothesis 3 — correct). User: "You need to do a better job validating my theories. I was wrong like 3 times."
+
+---
+
 ## Promotion criterion
 
 When an anti-pattern has appeared 3+ times AND its "right move" has been internalized (loop hasn't tripped on it for ≥5 sessions), promote the rule into a guardrail and link from here. Don't delete the entry; mark Status: PROMOTED so the lesson persists.
