@@ -160,3 +160,16 @@ Stage 2 bug investigation still the bigger fish — even with consistent renderi
 2. Build `averaged_triples[t] = (images[t-1] + images[t] + images[t+1]) / 3` for Step V.
 3. Skeletonize the averaged stacks, not the raw stack.
 4. Noise estimation: separate inactivity-window noise estimator (paper-faithful), distinct from per-template MAD. Currently MAD over-includes signal as noise contributor.
+
+#### Correction (user 2026-05-21): per-frame density framing
+
+User: "I don't think *each frame* will have a dense skeleton. Just, the skeletons should be aware of each other and the final combined version should be dense."
+
+Re-framing:
+- **Expected correct behavior**: per-frame skeleton = sparse (just the wavefront region where the AP is at that instant); UNION across all frames = dense + axon-shaped (the full arbor traced by the propagating signal over time).
+- **What "aware of each other" means**: paper's Step IV averages signal over 2 consecutive timeframes before skeletonizing, which couples adjacent frames' wavefronts; downstream, the link-from-skeleton step traces those coupled segments into continuous paths.
+- **Our current bug**: per-frame skeleton is too dense AND the frames don't relate to each other → union is dense-EVERYWHERE, not dense-AND-axon-shaped.
+
+To diagnose which sub-bug dominates, the 24-frame grid lets us see: (a) is each frame uniformly noise-dense? (likely b/c noise estimator under-estimates noise + binarization too aggressive — fix the threshold), OR (b) does each frame have wavefront-like sparse structure but the wavefronts are too thick? (fix is the averaging step + maybe threshold).
+
+Slice 7-equivalent for radivojevic_recon_algo_plan: file the two-fix design (noise + averaging) as a single slice once user confirms diagnosis from the grid.
