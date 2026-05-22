@@ -94,6 +94,13 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-014 — Execute all 3 round-2 audit findings (F#5 TODO refresh + F#6 dashboard_audit historicize + F#7 AP-013/014 anti_patterns)
+- **Date**: 2026-05-21
+- **Source**: QZ10 user pick multi-select [F#5, F#6, F#7] via AskUserQuestion
+- **Picked**: act on all 3; touch S each; addresses stale references + missing tribal knowledge captures
+- **Resolution**: TODO.md refreshed; dashboard_audit historicized; anti_patterns AP-013+014 appended
+- **Status**: active
+
 ### D-013 — Run second audit pass before lifting pause (refs/, anti_patterns, TODO.md surfaces)
 - **Date**: 2026-05-21
 - **Source**: QZ9 user pick "option 2" via AskUserQuestion

@@ -2,7 +2,7 @@
 
 User-facing list of the most useful next actions, in rough order. Updated as items resolve. Loop appends new TODOs at the bottom; user prunes.
 
-**Status as of 2026-05-21**: planning/refinement pause is in effect (`brain/current_state.md` 🛑 PAUSED header). Items in this list survive the pause; they describe what's queued for when the pause lifts AND what user-side work would enable the pause to lift.
+**Status as of 2026-05-21 (post-brain-build + audit rounds 1-2)**: planning/refinement pause still in effect (`brain/current_state.md` 🛑 PAUSED header), but most blocking work for pause-lift is done. Phase zero (Z1+Z2+Z3) ✅. GATE 1 approved (D-010). Plan-audit rounds 1+2 surfaced 6 findings, all resolved (F#2 through F#7). The next user action is QZ-N "lift the pause?" via brain/mode.md ACTIVE_MODE edit.
 
 ---
 
@@ -20,15 +20,11 @@ User: "I already trust those pinned things. pretty much anything in the referenc
 - Meta-rule recorded in `brain/trusted_outputs.md`: new outputs must match reference shape OR be a justified differential
 - Heavy candidates (TR-CAND-002, 004, 005) remain "proposed" since the artifacts don't exist in the reference tree yet — they'll become Tier 3 provisional when generated and only promote after user review
 
-### T3 — Derive invariant assertions from the pinned reference tree [LOOP, allowed during pause]
-With TR-000 + TR-001..004 pinned, the loop can now author invariant assertions automatically:
-- Per-stage output-dir structure (file paths + naming conventions)
-- Numpy shape + dtype invariants per file
-- JSON schema invariants per `*_summary.json`
-- TSV column invariants per `cluster_*.tsv` / `branches.json` etc.
-- Count invariants where applicable (e.g. TR-001's 176 templates / 287 good + 312 mua)
+### T3 — Derive invariant assertions from the pinned reference tree [✅ DONE 2026-05-21 via QZ3+QZ4]
+Z3-TR-000 through Z3-TR-004 invariant specs authored in `brain/trusted_outputs.md` "Z3 invariant specs" section + USER APPROVED. Loop authored (QZ3 option 1), user approved all 5 as-written (QZ4 option 1). Specs constitute the trusted gate consumed by critic_separation + future pytest. Pytest conversion deferred to a future autonomous-mode session per D-007/D-008.
 
-Loop writes these to a `brain/invariants/` subdir or appends to `brain/trusted_outputs.md` per-entry (TBD by loop in execution). User reviews the ASSERTIONS (fast — read claims, not data) before they become the trusted gate.
+### T4 — Lift pause [USER]
+Now actionable. Edit `brain/mode.md` `ACTIVE_MODE: collaborative` → `ACTIVE_MODE: extended_autonomous` + update `SINCE` + `SET_BY` fields. Loop's first autonomous work after lift = PRE-DIAGNOSTIC GATE 1 (radivojevic apples-to-apples comparison) per D-010.
 
 ### T4 — Lift pause [USER]
 When T1-T3 are far enough along that the verifier scaffold actually exists, lift the pause via a new USER INJECTION saying so. Loop resumes execution gated on the new scaffold.

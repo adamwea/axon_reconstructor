@@ -4,7 +4,22 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 ## 🧠 Phase-zero progression (loop-surfaced)
 
-### QZ10 — Audit round 2: 3 more findings surfaced. Which to act on?
+### QZ11 — Audit rounds 1+2 both drained. Lift the pause NOW?
+
+Two audit passes shipped 6 findings total. TODO.md refreshed. dashboard_audit historicized. Anti_patterns gained AP-013+AP-014. Backlog is GENUINELY empty. Risking more audit-pass drift if we keep surfacing audits without lifting.
+
+**Pick** — via AskUserQuestion below.
+
+### QZ10 — ✅ USER APPROVED 2026-05-21: ALL 3 round-2 findings (F#5 + F#6 + F#7) via AskUserQuestion multi-select
+
+Executed:
+- **F#5**: `dev/notes/TODO.md` status line refreshed; T3 marked ✅ DONE with QZ3/QZ4 cross-ref; T4 expanded with the specific edit user makes to lift the pause.
+- **F#6**: `brain/refs/dashboard_audit.md` header gained "HISTORICAL" tag + Status block noting plan moved to completed/. Filename misnomer ("env_install_unification slice 1" → corrected to "dashboard_ui_refinement_plan slice 1") preserved as historical note.
+- **F#7**: `brain/anti_patterns.md` gained AP-013 (long-ScheduleWakeup-after-question) + AP-014 (question-only-to-file-not-to-chat), with commit-citation sources.
+
+D-014 added.
+
+### QZ10 — original body
 
 Per QZ9 option 2 (one more audit pass). This round checked refs/, anti_patterns, TODO.md status.
 

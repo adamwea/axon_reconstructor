@@ -1,8 +1,10 @@
-# Dashboard UI audit — env_install_unification slice 1
+# Dashboard UI audit — dashboard_ui_refinement_plan slice 1 (HISTORICAL)
+
+> **Status (post-2026-05-21)**: the parent plan SHIPPED all 9 slices and moved to `plans/completed/dashboard_ui_refinement_plan.md`. This audit doc is kept as a historical snapshot of the dashboard's pre-refinement state — useful when comparing pre/post-refinement behavior or planning v2 work. Original "env_install_unification" title was a misnomer; the audit was always for the dashboard plan's slice 1.
 
 Inventory of `src/axon_recon/dashboard/` as of 2026-05-19 for slice 1
-of `dashboard_ui_refinement_plan.md`. Maps current state to the plan's
-nine refinement slices so slices 2-9 can act surgically.
+of `dashboard_ui_refinement_plan.md` (now at `plans/completed/`).
+Maps original state to the plan's nine refinement slices so slices 2-9 could act surgically.
 
 ## Module map
 

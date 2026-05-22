@@ -152,6 +152,34 @@ Consolidated registry of "things that LOOK tempting in the moment but produce si
 
 ---
 
+## AP-013 — Long ScheduleWakeup after surfacing a question to a user-at-keyboard
+
+**The trap**: Loop surfaces a multiple-choice question in `open_questions.md`, then calls `ScheduleWakeup` with the "blocked on user gate" 600-1200s cadence per `loop_cadence.md`. Sleeps 10-20 minutes.
+
+**Why it's a trap**: The "blocked on user gate" cadence is for AUTONOMOUS mode when the user is genuinely AWAY. In COLLABORATIVE mode the user is at the keyboard expecting interactive Q&A. A long sleep makes the loop look broken / unresponsive — the user sees "nothing happened" when actually the question is waiting in a file the user hasn't opened.
+
+**The right move**: in collaborative mode, after surfacing a question, DO NOT `ScheduleWakeup` at all. End the iteration cleanly. The user's chat response fires the next iteration automatically via normal /loop turn-handling. The 600-1200s tier is reserved for: (a) autonomous mode default, OR (b) user explicitly stepped away ("brb 20 min") with no question pending.
+
+**Source**: 2026-05-21 — collaborative.md round-1 first fire. Loop surfaced QZ3 perfectly + then slept; user said "Collaborative mode just slept instead of asking me questions." Fixed in commit `b132843`.
+
+---
+
+## AP-014 — Question surfaced to file but not to chat / AskUserQuestion
+
+**The trap**: Loop writes a multiple-choice question to `open_questions.md` and considers it "delivered." Doesn't output it to chat. Doesn't call `AskUserQuestion`.
+
+**Why it's a trap**: The user reads CHAT, not open_questions.md, for the immediate interaction loop. A question that only exists in a file the user hasn't opened might as well not exist for the current turn. The user has no visible signal that work was done OR that input is needed.
+
+**The right move**: every iteration that surfaces a question MUST do BOTH:
+1. Write the full multiple-choice block to `open_questions.md` (for persistence across sessions)
+2. Call the `AskUserQuestion` tool with the same question (for the interactive clickable-UI render in Claude Code)
+
+Map `open_questions.md`'s full block (label/touch-size/tradeoff/recommended) to AskUserQuestion's simpler option format (label + description w/ touch-size+tradeoff one-line). Put "Recommended" option first with "(Recommended)" suffix.
+
+**Source**: 2026-05-21 — collaborative.md round-1 first fire (same incident as AP-013). User said "it gave me options but it wasnt the cool multiple choice thing claude cli can do." Fixed in commit `746348e`.
+
+---
+
 ## Promotion criterion
 
 When an anti-pattern has appeared 3+ times AND its "right move" has been internalized (loop hasn't tripped on it for ≥5 sessions), promote the rule into a guardrail and link from here. Don't delete the entry; mark Status: PROMOTED so the lesson persists.
