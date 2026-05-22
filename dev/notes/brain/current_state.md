@@ -2,9 +2,9 @@
 
 Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old facts get deleted, not commented out.
 
-## 🛑 PAUSED — planning / refinement stage (2026-05-21)
+## ✅ PAUSE LIFTED — extended_autonomous resumed (2026-05-21)
 
-Loop is PAUSED on smoke testing + new slice work pending the refinement actions logged in this section's recent commits. Per user 2026-05-21: "I think we need to go through a planning / refinement stage before we return to smoke testing or anything." Loop may continue to audit / refine plans + retire injections + write tests, but **MUST NOT**: kick off real-data smokes, ship new phase implementations, or bump the /loop prompt without explicit user direction. Lift the pause via a new USER INJECTION that says so.
+Planning / refinement pause RESOLVED via QZ11 (option 1 — lift now → extended_autonomous). Phase zero complete: Z1 dependency_graph mapped, Z2 pinned outputs triaged (TR-000..004), Z3 invariant specs authored + approved (Z3-TR-000..004 in `trusted_outputs.md`), Z4 pause-lift executed. `brain/mode.md` ACTIVE_MODE flipped to `extended_autonomous`. PAUSE NOTICE removed from `loop_prompts/extended_autonomous.md`. Next autonomous work per QZ11 + D-010: PRE-DIAGNOSTIC GATE 1 (radivojevic apples-to-apples comparison via plot_recons).
 
 ## ⚡ USER INJECTIONS
 

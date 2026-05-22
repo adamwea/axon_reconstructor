@@ -9,7 +9,7 @@ The mode router. Read FIRST every iteration, before `objectives.md`. Determines 
 ## Active mode
 
 ```
-ACTIVE_MODE: collaborative
+ACTIVE_MODE: extended_autonomous
 SINCE: 2026-05-21
 SET_BY: user
 NEXT_MODE_HINT: collaborative (per user 2026-05-21 plan)
