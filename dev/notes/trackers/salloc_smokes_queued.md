@@ -80,3 +80,37 @@ shifter --image=adammwea/axon-recon:pipeline-v2 \
 - `/pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000208/well000/recon_outputs/synth_sorter_output/per_unit/unit_<N>/{merged_template.npy, merged_channel_locations.npy, ...}` — per-unit merged templates ready for radivojevic consumption.
 
 **Next loop iteration picks up from**: scan the `synth_sorter_output/per_unit/` dir for the 9-branch unit (`unit_0598` per reference data's `branches.json`; cross-check the kssynth unit-ID numbering before substituting), run `radivojevic2023_recon_algo.reconstruct(...)` on its `merged_template.npy`, then file PRE-DIAGNOSTIC GATE 1 as a multi-choice question per the Round 5 STOP-AND-ASK discipline.
+
+---
+
+## GATE 1 step 1+1b — full analyzers + kssynth on M08073/well000 DIV 36 (radivojevic apples-to-apples prereq)
+
+- **Why salloc not login**: tried login-node run (commit 3f34405 verified --limit-segments 2 works in shifter — 4.5min/24GB pss). Full 5-segment run on login node died early (after ~1 min real work, exited with bash bg exit code 0 but inner python process never wrote the final summary; only in_progress marker remained). Likely cgroup / shared-resource cap on login node. Per the smoke discipline, this gets pushed to salloc.
+- **Prereqs**: shifter image `adammwea/axon-recon:pipeline-v2` already rebuilt this iteration (includes commit d824d4a PATH 2 fix). Reference data at `/pscratch/.../analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/`.
+- **Allocation**: `salloc -A m4408 -N 1 -t 60 --qos=interactive -C cpu`
+- **Inside salloc, run** (sequentially, both commands):
+
+```bash
+srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread \
+  shifter --image=adammwea/axon-recon:pipeline-v2 -- \
+  axon-recon stages reconstruct.analyzers \
+    --config dev/debug_NERSC/debug.runtime.yml \
+    --target-dataset 13 --limit-wells 1 --task-backend local_affinity \
+    --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
+    --output-root /pscratch/sd/a/adammwea/dev_outputs/radivojevic_apples_to_apples/
+
+srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread \
+  shifter --image=adammwea/axon-recon:pipeline-v2 -- \
+  axon-recon stages reconstruct.kssynth \
+    --config dev/debug_NERSC/debug.runtime.yml \
+    --target-dataset 13 --limit-wells 1 --task-backend local_affinity \
+    --force-enable kssynth \
+    --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ \
+    --output-root /pscratch/sd/a/adammwea/dev_outputs/radivojevic_apples_to_apples/
+```
+
+- **Expected outputs**:
+  - `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_apples_to_apples/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000208/well000/recon_outputs/context/analyzers_summary.json` — `status: ok`, `source_count > 0`, `source_unit_manifest_count > 0` (expect 5 — one per segment).
+  - `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_apples_to_apples/Media_Density_T5_02182026_AR/260326/M08073/AxonTracking/000208/well000/recon_outputs/units/unit_<N>/merged_template.npy` + `merged_channel_locations.npy` — one per post-merge unit (~176 expected per TR-001 baseline).
+- **ETA**: ~25-40 min total (analyzers 20-30 min + kssynth ~30s).
+- **Next loop iteration picks up from**: locating unit_0598 in the kssynth `units/` dir + running radivojevic on its `merged_template.npy` (GATE 1 step 3).
