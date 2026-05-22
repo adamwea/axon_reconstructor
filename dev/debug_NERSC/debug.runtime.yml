@@ -1344,6 +1344,12 @@ stages:
             relpath_root: cache/analyzers
             segment_analyzers_subdir: segments
             cleanup_on_success: false
+            # Preserve the (expensive) analyzer cache across stage --force-restart
+            # invocations. The cache is the output of the analyzers phase; it
+            # should only be wiped by re-running `reconstruct.analyzers
+            # --force-restart` explicitly, NOT by force-restarting a downstream
+            # consumer like kssynth that just needs to rebuild its OWN outputs.
+            reuse_on_force_restart: true
       extract_partial_templates:
         enabled: true
         resource_class: extract_partial_templates

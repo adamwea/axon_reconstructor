@@ -196,13 +196,33 @@ def _load_segment_analyzers(inputs: TemplatesInputs) -> list[Any]:
 	`include_concat` is force-disabled inside `_load_templates_phase_analyzers`
 	itself per the recon-stage retirement of the concat codepath
 	(see commit history around `legacy_include_concat`).
+
+	**NEVER bootstraps analyzers.** The kssynth phase is strictly a
+	CONSUMER of the analyzers produced by `reconstruct.analyzers`. If the
+	cache is missing, kssynth raises loudly — the operator must run
+	`reconstruct.analyzers` first. Bootstrapping here was the original
+	`build_templates` behavior carried over by accident during the slice
+	1b transplant; per user direction it doesn't belong here.
+
+	Mechanism: wrap the inputs with `_inputs_with_analyzer_build_if_missing(
+	..., concat_build_if_missing=False, segments_build_if_missing=False)`
+	before calling the shared loader. `iter_spikeinterface_analyzers` then
+	loads cached analyzers only; if none are found, it raises FileNotFoundError
+	(propagates up to the phase-level try/except and lands an error summary).
 	"""
+	from .analyzers import _inputs_with_analyzer_build_if_missing
 	from .build_templates import _resolve_build_templates_context
 	from ..templates.runner import _load_templates_phase_analyzers
 
 	context = _resolve_build_templates_context(inputs)
+	# Hard-block analyzer bootstrap inside kssynth — it's a strict consumer.
+	consumer_only_inputs = _inputs_with_analyzer_build_if_missing(
+		inputs,
+		concat_build_if_missing=False,
+		segments_build_if_missing=False,
+	)
 	analyzer_pairs = _load_templates_phase_analyzers(
-		inputs=inputs,
+		inputs=consumer_only_inputs,
 		well_out_dir=context.well_out_dir,
 		alternate_well_out_dirs=list(context.alternate_well_out_dirs),
 		analyzer_cache_dir=context.analyzer_cache_dir,
