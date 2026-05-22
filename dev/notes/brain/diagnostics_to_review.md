@@ -120,3 +120,22 @@ All debug plots use `ax.invert_yaxis()` (MEA convention: top of chip = low y).
 - Likely root causes: (a) binarization_k_stage2 threshold too aggressive (default 1.0 noise_std); (b) noise_std estimate too low (MAD on dense merged template might under-estimate); (c) image_grid interpolation creating dense low-amplitude artifacts that all exceed threshold.
 
 **Outstanding action** for the main composite: rendering via plot_recons phase machinery (per user "use plot_recons machinery — that would handle y-invert and consistent style"). Question surfaced separately.
+
+#### v2 composite via plot_recons machinery (per user "use plot_recons machinery")
+
+**New artifact**: `dev_outputs/radivojevic_apples_to_apples/unit_598_radivojevic/comparison_unit_598_v2_plot_recons_style.png`
+
+- LEFT: axon_velocity_gtrs's existing `circle_recon.png` (unchanged).
+- RIGHT: radivojevic rendered via `render_template_circles_plot_v2` (plot_recons phase's primitive renderer) — same rendering machinery as the LEFT panel. Y-axis auto-handled by the renderer.
+
+**Adapter approach** (option 2 from your earlier pick): bypass plot_recons phase's file-load (no fake gtr.pkl) — call the renderer directly with `branch_morphology` payload built from radivojevic's Stage 3 links. Each link's method (direct / skel-assisted / indirect) becomes one "branch" → 3-branch payload.
+
+**Channel coverage by method** (unique channels with ≥1 link touching them):
+- direct: 6403 channels from 29680 links (≈48% of 13439 channels — way too many for a real axon; downstream of Stage 2 over-skeletonization)
+- skel-assisted: 1170 channels from 775 links
+- indirect: 686 channels from 393 links
+
+**Standalone radivojevic PNG (no compositing)**: `radivojevic_plot_recons_style.png`.
+**Standalone SVG**: `radivojevic_plot_recons_style.svg` (plot_recons renderer outputs both).
+
+Stage 2 bug investigation still the bigger fish — even with consistent rendering, the visual will read "wrong" until the binarization fires correctly.
