@@ -94,6 +94,20 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-009 — Stay in collaborative mode after phase zero closes; resolve backlog before lifting pause
+- **Date**: 2026-05-21
+- **Source**: QZ5 user pick "option 2" via AskUserQuestion
+- **Context**: Phase zero closed with Z3 specs approved (D-008). Natural moment to lift the pause and transition to extended_autonomous. User chose to drain the open_questions backlog first instead.
+- **Options considered**:
+  1. Lift now → extended_autonomous (resume autonomous execution)
+  2. Stay collaborative — resolve backlog first (user picked)
+  3. Lift with specific first task pinned
+  4. Lift in 'audit-only' sub-mode (would require defining a new mode)
+- **Picked**: option 2 — backlog items (PRE-DIAGNOSTIC GATE 1 being the biggest) deserve explicit user picks before autonomous execution touches them. Avoids the loop self-interpreting plan specs that haven't been formally blessed.
+- **Expected failure mode**: invalidated if the collaborative-mode question backlog turns out to never drain (each resolution surfaces more questions ad infinitum). At that point: surface a meta-question asking whether the user wants to skip remaining backlog + lift anyway.
+- **Resolution**: brain/mode.md ACTIVE_MODE remains `collaborative`; loop continues surfacing one question at a time via AskUserQuestion
+- **Status**: active
+
 ### D-008 — Z3 invariant specs approved 2026-05-21 as-written
 - **Date**: 2026-05-21
 - **Source**: QZ4 user pick "option 1" via AskUserQuestion

@@ -4,7 +4,18 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 ## 🧠 Phase-zero progression (loop-surfaced)
 
-### QZ5 — Phase zero complete — lift the pause?
+### QZ6 — PRE-DIAGNOSTIC GATE 1: radivojevic apples-to-apples comparison plan — ready for autonomous execution post-pause?
+
+- **Why now**: Biggest unresolved item in `brain/open_questions.md` backlog. GATE 1's plan body is already spec'd in detail below (analyzers-discovery extension already shipped; rest of plan = run kssynth heavy → identify high-branch unit → run radivojevic on its merged_template → use plot_recons for both outputs → compose comparison.png → file HARD-gate diagnostic). When pause lifts, the autonomous loop's first major work would naturally be this gate.
+- **Context**: GATE 1's 9-step plan was spec'd 2026-05-21; one prerequisite (--input-root analyzers extension, commit `c8b8b11`) has already shipped. The plan's open friction points (unit-ID mapping for kssynth output, plot_recons input shape adapter) are explicitly flagged as "STOP AND ASK if hit." Loop wouldn't blindly execute — it'd surface those if encountered.
+
+**Pick an option** — answered via AskUserQuestion below.
+
+### QZ5 — ✅ USER APPROVED 2026-05-21: option 2 (stay collaborative; resolve backlog first)
+
+User picked option 2 via AskUserQuestion: stay collaborative, resolve open_questions backlog before lifting the pause. Loop's next iteration surfaces the biggest backlog item — PRE-DIAGNOSTIC GATE 1 (radivojevic comparison plan) — as QZ6 for explicit user pick on readiness.
+
+### QZ5 — original body
 
 - **Why now**: Z1 done (dependency graph mapped), Z2 done (user pinned TR-000/001/002/003/004), Z3 done (5 Z3-TR-xxx invariant specs APPROVED 2026-05-21). Z4 is "user lifts the pause via new USER INJECTION." That's now actionable.
 - **Context**: Lifting the pause means transitioning brain/mode.md ACTIVE_MODE from `collaborative` to `extended_autonomous` — the loop resumes real-data smokes, code shipping, plan execution. But there's still a backlog of in-collaborative-mode items the user could resolve first: PRE-DIAGNOSTIC GATE 1 (radivojevic comparison plan), plan-audit Finding #2/3 candidates (loop hasn't surfaced them yet but the proactive plan audit will). Lifting NOW means autonomous execution starts BEFORE those items are resolved.
