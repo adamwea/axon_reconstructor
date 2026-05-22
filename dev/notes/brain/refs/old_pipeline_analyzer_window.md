@@ -66,3 +66,14 @@ Once items 1-4 above are resolved, slice 8 can:
 - (a) Make kssynth read AND apply `execution_upsampling` from YAML (factor=10 sinc by default).
 - (b) Make kssynth apply the same trim/window logic that build_templates does.
 - (c) Optionally: make kssynth consume cached analyzers from `reconstruct.analyzers` rather than rebuilding (cheaper + guarantees same source data).
+
+## DIRECTIVE — copy timing from recon stage (USER 2026-05-21)
+
+"you need to copy the timing in the recon stage."
+
+The principle: kssynth must NOT have its own timing parameters. It should adopt the recon stage's effective timing end-to-end — analyzer window (ms_before/ms_after), trim, and upsample (factor/method). Whatever values the recon stage uses to produce its templates, kssynth must use the same values to produce its templates. Otherwise downstream `axon_velocity_gtrs` (and any other consumer) will see different inputs depending on which path produced the template.
+
+Practically for slice 8:
+- Read the recon stage's effective config (analyzer policy + execution_upsampling + any trim).
+- Apply ALL of it in kssynth's template path.
+- Tests verify that for the same analyzer source, kssynth + the OLD pipeline produce byte-equivalent (or shape-equivalent + numerically-close) merged templates.
