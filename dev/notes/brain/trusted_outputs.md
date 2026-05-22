@@ -16,37 +16,67 @@ The root of the verification trust chain. User-anchored: only the USER pins outp
 | **Tier 2 — ADVISORY** | Existing tests + outputs whose correctness wasn't formally user-verified. Demoted per the trust-anchor-on-outputs decision (2026-05-21). | Loop runs them; failure ≠ blocking, pass ≠ green. Surfaces failures to user as flags. NEVER edits to make passing. |
 | **Tier 3 — PROVISIONAL** | NEW outputs from new code, no reference yet. | Loop tags every downstream artifact as "rests on provisional output X". Refinement built on provisional outputs inherits the uncertainty. User promotes to trusted when ready. |
 
+## Meta-rule (USER 2026-05-21)
+
+> *"Pretty much anything in the reference data is pinned. New outputs should be identical or at least similar in shape to the current reference data."*
+
+**Implications**:
+1. **The entire reference data tree is Tier 1 trusted by default** — `/pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/` and its subtree of per-DIV / per-well pipeline outputs. Specific entries below pin the high-leverage invariants; the rule generalizes to anything else in the tree.
+2. **New outputs must match reference shape unless explicitly justified.** Loop's default behavior when shipping a new output (kssynth merged_template, radivojevic gtr-equivalent, etc.): compare on-disk structure / numpy shapes / JSON schemas / TSV columns against the analogous reference output. Mismatch = STOP AND ASK (multiple-choice per B1/B2), do NOT silently produce a different shape.
+3. **For genuinely new outputs without a reference analog** (e.g. unitmatch match tables, propagation videos): differential-check framework (DC-xxx) applies — derive invariants from related-but-not-identical reference artifacts.
+4. **What's NOT reference data**: `dev_outputs/` (iteration sandbox, disposable), `raw_data/` (input not output), anything the loop generates post-2026-05-21 (provisional until promoted).
+
 ---
 
 ## Tier 1 — TRUSTED outputs (USER-ANCHORED)
 
-### TR-001 — Reconstruct stage on M08073/000208/well000 (DIV 36)
+### TR-000 — The entire reference data tree (BLANKET PIN per user 2026-05-21)
+- **Reference root**: `/pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/`
+- **What's trusted**: the on-disk structure + file shapes + JSON/TSV schemas + numpy dtypes/dimensions of every pipeline output under this tree, for every (date, chip, well, DIV) combo.
+- **What the loop derives from this as invariants** (these are the structural invariants enforced on any NEW output that claims to be the same kind of artifact):
+  - Per-stage output dir layout (e.g. `preprocess_outputs/segments/<seg-id>/`, `spikesort_outputs/sorter_output_snapshot/`, `recon_outputs/cache/analyzers/segments/<seg-id>/`, `recon_outputs/units/unit_<id>/`)
+  - File naming conventions (e.g. `merged_template.npy`, `merged_channel_locations.npy`, `gtr.pkl`, `branches.json`, `spike_clusters.npy`)
+  - Numpy shapes + dtypes per file (per-unit merged_template = `(n_active_channels, n_samples)` sparsified; merged_channel_locations = `(n_active_channels, 2)`; spike_clusters = `(n_spikes,)` int64; etc.)
+  - JSON schemas for `*_summary.json` artifacts
+  - TSV column layouts (`cluster_KSLabel.tsv` columns; `cluster_group.tsv` columns; etc.)
+- **What's NOT trusted by blanket**: anything OUTSIDE this tree (dev_outputs/, raw_data/ inputs, anything generated post-2026-05-21 by the loop).
+- **Failure mode**: any new pipeline output that doesn't match the analogous reference's shape → STOP AND ASK; do NOT silently produce a divergent shape.
+- **Why so broad**: per user 2026-05-21 "pretty much anything in the reference data is pinned. New outputs should be identical or at least similar in shape to the current reference data." The reference data IS the contract; the trust anchor is the whole tree, not just a curated subset.
+
+### TR-001 — Reconstruct stage on M08073/000208/well000 (DIV 36) — specific count invariants
+- **Sub-anchor of TR-000** for the most-frequently-validated well. Established 2026-05-18 via smoke_log "Concat-analyzer rip-out + SLAy aux-tsv sync regression check".
 - **Source cohort**: `260326/M08073/AxonTracking/000208/well000` (DIV 36, 80k DMEM, MaxTwo @10 kHz)
-- **Reference path**: `/pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/.../260326/M08073/AxonTracking/000208/well000/`
-- **Established**: 2026-05-18 via `smoke_log.md` entry "Concat-analyzer rip-out + SLAy aux-tsv sync regression check"
-- **What's trusted (USER-eyeballed)**:
+- **Specific count invariants** (anchored regression checks for recon-stage changes):
   - `spike_clusters.npy`: 377 post-SLAy unit IDs
-  - `cluster_KSLabel.tsv` after aux-tsv sync: 287 good + 312 mua = 599 rows
+  - `cluster_KSLabel.tsv` (post aux-tsv sync): 287 good + 312 mua = 599 rows
   - Recon merged templates: **176**
   - Recon per-unit outputs: 176 (matches good-label count; mua not reconstructed per `unit_label_filter`)
-- **Invariant assertions** (loop should run these against any pipeline change touching recon stage):
-  - `len(spike_clusters_unique) == 377` — post-SLAy unit count
-  - `len(merged_templates) == 176` — reconstructed-template count (THE primary regression baseline)
-  - `cluster_group.tsv good_count == 287` AND `mua_count == 312`
-  - Per-unit `merged_template.npy` exists for each of the 176 good units; shape sparse-channels × n_samples
-- **Failure mode**: any refinement that drops the merged-template count from 176 OR breaks the per-unit existence invariant gets ROLLED BACK + escalated.
+- **Failure mode**: count drop = ROLLED BACK + escalated.
+
+### TR-002 — axon_velocity_gtrs output for unit_0598 (was TR-CAND-001; pinned by user 2026-05-21)
+- **Path**: `<TR-000 root>/.../260326/M08073/AxonTracking/000208/well000/recon_outputs/units/0598/{gtr.pkl, branches.json, ...}` + the existing plot_recons rendering for that unit
+- **Covers**: J2 (gtr-shape) + the comparator side of DC-001 (Radivojevic differential checks)
+- **Trust handle**: "this is what a 9-branch axon arbor reconstruction should look like"
+- **Use**: the reference output that radivojevic_recon must produce a similar-in-shape result against
+
+### TR-003 — save_rec_metadata output (sampling rate + device info) — was TR-CAND-003
+- **Path**: `<TR-000 root>/.../<any DIV>/preprocess_outputs/metadata.json` (or equivalent per-recording metadata artifact)
+- **Covers**: J11 (sample rate authoritative source) per `feedback-axon-recon-device-diversity` auto-memory
+- **Trust handle**: `sampling_rate_hz: 10000` for MaxTwo cohort confirmed
+- **Use**: every analysis phase reading sample rate must consume this file, NEVER hardcode
+
+### TR-004 — preprocess binary integrity (was TR-CAND-006)
+- **Path**: any `<TR-000 root>/.../preprocess_outputs/segments/<seg>/recording.bin`
+- **Covers**: J12 (preprocess-stage binary output integrity)
+- **Trust handle**: sha256 + file-size of the first per-segment binary on M08073/well000/DIV 36 (or any reference well). Loop computes the sha + records it as the regression target.
+- **Use**: any preprocess-stage change must reproduce the same binary content (within filter-parameter expectations)
 
 ### (Proposed for promotion — user reviews + pins)
 
 Z1 ranked 2026-05-21 (see `brain/dependency_graph.md` §5 for the full justification including coverage estimates). Triage each into: ✅ PIN (you eyeball + approve now) / 💵 ACQUIRE LATER (cheap but needs a smoke first) / ❓ DEFER (expensive or needs other work to land first) / ❌ SKIP.
 
-#### TR-CAND-001 — `axon_velocity_gtrs` output for unit_0598 (9-branch reference)
-- **Cohort**: `260326/M08073/000208/well000` (DIV 36)
-- **Path**: existing reference data at `/pscratch/sd/a/adammwea/analyzed_data/.../well000/recon_outputs/units/0598/{gtr.pkl, branches.json, ...}` + the existing `plot_recons` rendering for that unit
-- **Covers**: J2 (gtr-shape) + 11 recon-stage visualization phases downstream
-- **Cost**: cheap — file exists; you eyeball the plot_recons rendering for unit_0598 + approve
-- **Trust handle**: "yes this is what an axon arbor reconstruction should look like"
-- **Why high-leverage**: this is the COMPARATOR side of the Radivojevic DC-001 differential checks. Without this pinned, the Radivojevic comparison has no reference.
+#### TR-CAND-001 — ✅ PINNED as TR-002 (2026-05-21)
+*(promoted; see Tier 1 above)*
 
 #### TR-CAND-002 — kssynth `synth_sorter_output/` per-unit dirs on M08073/well000/DIV 36
 - **Path**: `<dev_outputs>/kssynth_slice3b/.../well000/recon_outputs/synth_sorter_output/per_unit/unit_<id>/{merged_template.npy, merged_channel_locations.npy}`
@@ -54,11 +84,8 @@ Z1 ranked 2026-05-21 (see `brain/dependency_graph.md` §5 for the full justifica
 - **Cost**: HEAVY — requires kssynth slice 3b heavy on a real allocation (already queued in `trackers/salloc_smokes_queued.md`)
 - **Trust handle**: per-unit dir count matches TR-001 (176); sha256(kssynth merged_template) == sha256(build_templates merged_template) for the same unit (loop computes automatically once both exist)
 
-#### TR-CAND-003 — `save_rec_metadata` output for M08073 (sampling rate + device info)
-- **Path**: existing reference data; metadata.json under one preprocess_outputs dir for any DIV
-- **Covers**: J11 (sample rate authoritative source)
-- **Cost**: trivial — file exists; confirm `sampling_rate_hz: 10000` for MaxTwo
-- **Trust handle**: device + sample rate confirmation
+#### TR-CAND-003 — ✅ PINNED as TR-003 (2026-05-21)
+*(promoted; see Tier 1 above)*
 
 #### TR-CAND-004 — `analysis.unitmatch` match table for (M08073, well000, ≥3 DIVs)
 - **Path**: `<output>/analysis/unitmatch/<chip>/well000/match_table.parquet`
@@ -72,13 +99,10 @@ Z1 ranked 2026-05-21 (see `brain/dependency_graph.md` §5 for the full justifica
 - **Cost**: gated on TR-CAND-001 pinned AND TR-CAND-002 acquired (needs the merged_template input)
 - **Trust handle**: NOT standalone — it's the differential-similarity check vs TR-CAND-001 per DC-001
 
-#### TR-CAND-006 — `preprocess_outputs/segments/<seg>/recording.bin` integrity
-- **Path**: existing reference data; pick any `260326/M08073/.../000_rec0000/recording.bin`
-- **Covers**: J12 + preprocess-stage integrity (catches silent preprocess breakage)
-- **Cost**: trivial — sha256 + file-size check on the existing file
-- **Trust handle**: file-level integrity; not semantic.
+#### TR-CAND-006 — ✅ PINNED as TR-004 (2026-05-21)
+*(promoted; see Tier 1 above)*
 
-**Triage recommendation** (loop's): start with **TR-CAND-001 + 003 + 006** (the cheap bucket) — together with TR-001 they cover J1+J2+J3+J4+J6+J11+J12+J13 transitively. That's a substantial chunk of the recon-side pipeline pinned BEFORE any heavy work runs. TR-CAND-002 and TR-CAND-004 are heavy and gated on smokes; TR-CAND-005 is gated on radivojevic phase implementation. Working through 001/003/006 first front-loads the user's time to maximum-coverage points.
+**Status post-2026-05-21 user pin**: TR-CAND-001, 003, 006 all promoted to Tier 1 as TR-002, TR-003, TR-004. Plus TR-000 added (the blanket pin of the entire reference data tree per user's broader statement). TR-CAND-002, 004, 005 remain in this section — they're new outputs that don't exist in the reference tree yet, so they become Tier 3 provisional when generated and only promote to Tier 1 after user review of the actual artifacts.
 
 ---
 

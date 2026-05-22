@@ -13,17 +13,22 @@ These are the items the brain-skeleton build (2026-05-21) identified as the work
 ### T1 — Phase-zero mapping mission [✅ COMPLETED 2026-05-21 by assistant manually]
 Dependency graph populated in `brain/dependency_graph.md` (6 stages, 4 active stage phase_sequences, 13 data junctions J1-J13, plan→junction touch matrix, 6 ranked verification checkpoints). Ranked checkpoint candidates mirrored into `brain/trusted_outputs.md` "Proposed for promotion" as TR-CAND-001..006. Ready for T2.
 
-### T2 — Triage trusted-output candidates [USER, current action]
-Read `brain/trusted_outputs.md` "Proposed for promotion" section. Six candidates ranked by leverage. Bucket each into:
-- ✅ **PIN** (eyeball + approve now)
-- 💵 **ACQUIRE LATER** (cheap but needs a smoke / new code first)
-- ❓ **DEFER** (expensive or needs other work to land first)
-- ❌ **SKIP** (don't bother)
+### T2 — Triage trusted-output candidates [✅ DONE 2026-05-21 by user blanket pin]
+User: "I already trust those pinned things. pretty much anything in the reference data is pinned. New outputs should be identical or at least similar in shape to the current reference data." Result:
+- **TR-000** (blanket pin on the entire reference data tree at `/pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/`) added to Tier 1
+- **TR-002, TR-003, TR-004** (was TR-CAND-001, 003, 006) all promoted to Tier 1
+- Meta-rule recorded in `brain/trusted_outputs.md`: new outputs must match reference shape OR be a justified differential
+- Heavy candidates (TR-CAND-002, 004, 005) remain "proposed" since the artifacts don't exist in the reference tree yet — they'll become Tier 3 provisional when generated and only promote after user review
 
-Loop's recommendation: tackle TR-CAND-001 + 003 + 006 first (cheap bucket). Together with TR-001 (already pinned) they cover J1/J2/J3/J4/J6/J11/J12/J13 transitively — substantial coverage before any heavy work runs.
+### T3 — Derive invariant assertions from the pinned reference tree [LOOP, allowed during pause]
+With TR-000 + TR-001..004 pinned, the loop can now author invariant assertions automatically:
+- Per-stage output-dir structure (file paths + naming conventions)
+- Numpy shape + dtype invariants per file
+- JSON schema invariants per `*_summary.json`
+- TSV column invariants per `cluster_*.tsv` / `branches.json` etc.
+- Count invariants where applicable (e.g. TR-001's 176 templates / 287 good + 312 mua)
 
-### T3 — Approve invariant assertions [USER, after T2]
-For each trusted output, loop proposes a small set of invariant-based assertions (schema / counts / value-ranges / reconcilements). You approve the ASSERTIONS (not the data). These become the trusted gate the autonomous loop runs against.
+Loop writes these to a `brain/invariants/` subdir or appends to `brain/trusted_outputs.md` per-entry (TBD by loop in execution). User reviews the ASSERTIONS (fast — read claims, not data) before they become the trusted gate.
 
 ### T4 — Lift pause [USER]
 When T1-T3 are far enough along that the verifier scaffold actually exists, lift the pause via a new USER INJECTION saying so. Loop resumes execution gated on the new scaffold.
