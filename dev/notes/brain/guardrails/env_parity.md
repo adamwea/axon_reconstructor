@@ -25,7 +25,7 @@ Parity is maintained across a set of artifacts; a slice that touches
 capabilities touches some subset of them in the SAME commit range. Don't
 leave one stale.
 
-**Target shape** (per `plans/active/env_install_unification_plan.md` — under
+**Target shape** (per `plans/completed/env_install_unification_plan.md` — under
 execution; some artifacts don't exist yet):
 
 | Artifact | What it covers | Sibling editables? |
@@ -68,7 +68,7 @@ target-shape contract.
 
 These rules apply against whichever shape (current or target) is live for
 the artifact in question. As the unification plan
-(`plans/active/env_install_unification_plan.md`) ships slice by slice, the
+(`plans/completed/env_install_unification_plan.md`) ships slice by slice, the
 governing artifact for a given concern shifts.
 
 1. **New runtime Python dep** (e.g. `mat73`, or any non-sibling package):
@@ -187,7 +187,7 @@ Some capabilities the conda env needs aren't installable via PyPI — they need 
 
 ## Open exceptions / follow-ups
 
-- **Unification plan in flight**: `plans/active/env_install_unification_plan.md`
+- **Unification plan in flight**: `plans/completed/env_install_unification_plan.md`
   is the destination spec for the artifact set described in §"The artifacts
   that encode capability". Until that plan ships (slices 1-8), the
   guardrail's sub-rules cover BOTH the current shape (env.yml + Dockerfile)

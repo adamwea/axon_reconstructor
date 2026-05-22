@@ -431,6 +431,11 @@ auditing the slice 4 ↔ slice 5 contract:
   already looks).
 
 ### Slice 5 — enable in YAML + retire predecessor phases
+
+**Prereq dependencies (added 2026-05-21 via plan-audit Finding #3 resolution)**:
+- (a) Slice 3b smoke (dry-run OR heavy) passes per the existing gate.
+- (b) **GATE 1's apples-to-apples diagnostic must SHIP and be USER-APPROVED** before slice 5's destructive retirement of `extract_partial_templates` + `build_templates` lands. The GATE 1 HARD-gate compares kssynth's per-unit output against axon_velocity_gtrs's existing reference for unit_0598 via `plot_recons`; passing it is the empirical evidence that kssynth-as-J1-producer is contract-compatible with build_templates-as-J1-producer. Skipping this dependency = retiring the legacy producers based on unit-test green alone, which TR-000's blanket-pin discipline forbids (new outputs must match reference shape; the diagnostic IS the user-anchored shape-match check). See `brain/open_questions.md` PRE-DIAGNOSTIC GATE 1 + `brain/decisions.md` D-010.
+
 - Flip `kssynth.enabled: true` in both debug YAMLs.
 - Update both `phase_sequence` blocks: replace
   `extract_partial_templates, build_templates` with `kssynth`.

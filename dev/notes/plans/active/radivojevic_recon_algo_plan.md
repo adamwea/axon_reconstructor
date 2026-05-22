@@ -384,11 +384,15 @@ clear "what we did differently from the paper" doc.
 Per user direction (2026-05-19): "priority-wise, this can come after
 implementing unitlink and kssynth."
 
-Kick-off trigger: **kssynth slice 9** (axon_recon recon-stage
-integration) AND **unitmatch_phase slice 5** (enable + login-node
+Kick-off trigger: **`kssynth_recon_integration_plan.md` slice 5** (the
+"enable + retire predecessors" gate that completes the kssynth integration
+into the recon stage; this is the slice formerly tracked as "kssynth
+slice 9" before the work migrated to its own dedicated plan in mid-2026-05)
+AND **`unitmatch_phase_plan.md` slice 5** (enable + login-node
 smoke) BOTH shipped. Those are the natural "unitlink + kssynth
 integration" markers — first real end-to-end smoke through axon_recon
 using the new sibling packages. Until both land, this plan sits idle.
+(Cross-plan slice-numbering corrected 2026-05-21 via plan-audit Finding #4.)
 
 Once unblocked, **slice 1 (research-only)** is a good first pick — it's
 bounded research that produces written docs + user-gate questions

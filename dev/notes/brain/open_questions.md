@@ -4,7 +4,22 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 ## 🧠 Phase-zero progression (loop-surfaced)
 
-### QZ8 — Plan audit complete; 3 findings surfaced. Which to act on?
+### QZ9 — All 3 audit findings resolved. Lift the pause now?
+
+QZ8 resolution shipped all 3 findings. plans/active/ shrunk from 14 → 9 entries. kssynth slice 5 now bears the GATE 1 dependency. radivojevic kick-off trigger now points at the right plan/slice number. Backlog is genuinely drained.
+
+**Pick an option** — answered via AskUserQuestion below.
+
+### QZ8 — ✅ USER APPROVED 2026-05-21: ALL 3 findings (F#2 + F#3 + F#4) via AskUserQuestion multi-select
+
+Loop executed:
+- **F#2**: `git mv` 4 completed plans (dashboard_ui_refinement, ks_synthesizer_package, unitmatch_runner_package, env_install_unification) + env_install_unification_audit → `plans/completed/`. Cross-references in 5 files updated (current_state, package_contracts, env_parity, dashboard_usage, tech_debt).
+- **F#3**: `kssynth_recon_integration_plan.md` slice 5 prereq dependencies section added — explicit GATE 1 dependency baked in alongside slice 3b smoke prereq.
+- **F#4**: `radivojevic_recon_algo_plan.md` line 387 kick-off trigger updated — "kssynth slice 9" → "`kssynth_recon_integration_plan.md` slice 5" with parenthetical historical note.
+
+D-012 added.
+
+### QZ8 — original body
 
 Per QZ7 option 4 (run audit before lifting). Walked `plans/active/*.md` Status fields + spot-checked slice 5 / radivojevic gating. Three findings:
 

@@ -17,7 +17,7 @@ The "axon_recon-agnostic" rule matters because:
 - We want to push patches upstream to the source repos (`SLAy`, `UnitMatchPy`) without first untangling axon_recon-specific code from them
 - Tests are simpler when the package's API surface is "give me generic inputs, get generic outputs"
 
-See `dev/notes/plans/active/ks_synthesizer_package_plan.md` §1, `unitmatch_runner_package_plan.md` §1 for the full reasoning, and the user memory note `reference-nersc-shifter-bindmounts` for the bind-mount allowlist constraint that drives the sibling-overlay-vs-not decision on NERSC.
+See `dev/notes/plans/completed/ks_synthesizer_package_plan.md` §1, `unitmatch_runner_package_plan.md` §1 for the full reasoning, and the user memory note `reference-nersc-shifter-bindmounts` for the bind-mount allowlist constraint that drives the sibling-overlay-vs-not decision on NERSC.
 
 ## Concrete sub-rules
 
@@ -40,8 +40,8 @@ See `dev/notes/plans/active/ks_synthesizer_package_plan.md` §1, `unitmatch_runn
 | `axon_recon` | `~/dev/pkgs/axon_recon/` | This repo. Orchestrates the pipeline. | Active |
 | `SLAy` | `~/dev/pkgs/SLAy/` | Spike-sort merge tool. Patched twice this week (assert relax, aux-tsv sync). | Active |
 | `UnitMatch` (containing `UnitMatchPy`) | `~/dev/pkgs/UnitMatch/UnitMatchPy/` | Cross-session unit matching. Mostly read-only consumer for us. | Active |
-| `kssynth` | `~/dev/pkgs/kssynth/` (planned) | Synthetic sorter_output builder from analyzers. See `plans/active/ks_synthesizer_package_plan.md`. | Planned |
-| `unitlink` | `~/dev/pkgs/unitlink/` (planned) | UnitMatch / DeepUnitMatch wrapper. See `plans/active/unitmatch_runner_package_plan.md`. | Planned |
+| `kssynth` | `~/dev/pkgs/kssynth/` (planned) | Synthetic sorter_output builder from analyzers. See `plans/completed/ks_synthesizer_package_plan.md`. | Planned |
+| `unitlink` | `~/dev/pkgs/unitlink/` (planned) | UnitMatch / DeepUnitMatch wrapper. See `plans/completed/unitmatch_runner_package_plan.md`. | Planned |
 | `axon_velocity` | `~/dev/pkgs/axon_velocity/` | GTR generation algorithm. Active sibling. | Active |
 | Others (`MEA_Analysis`, `axon_reconstructor`, `RBS_network_models`, etc.) | `~/dev/pkgs/*/` | Various lab tooling. Not all on this pipeline's critical path. | Mixed |
 
@@ -53,6 +53,6 @@ See `dev/notes/plans/active/ks_synthesizer_package_plan.md` §1, `unitmatch_runn
 
 ## Open exceptions / follow-ups
 
-- `kssynth` and `unitlink` don't exist yet — their plans (`plans/active/ks_synthesizer_package_plan.md`, `plans/active/unitmatch_runner_package_plan.md`) scope the new repos. Slice 1 of each creates the repo with the contracts in this guardrail in mind.
+- `kssynth` and `unitlink` don't exist yet — their plans (`plans/completed/ks_synthesizer_package_plan.md`, `plans/completed/unitmatch_runner_package_plan.md`) scope the new repos. Slice 1 of each creates the repo with the contracts in this guardrail in mind.
 - The bombcell pass2 KS-extractor inner-join bug (`roadmap.md` §"Post-templates bombcell + SLAy pass") is a SLAy contract violation by another tool; `kssynth` is the structural fix.
 - The build_local_image.sh script currently has the sibling list hardcoded for `UnitMatchPy` + `SLAy`. When `kssynth` and `unitlink` ship, the script grows two more sibling entries — small, mechanical, per their respective integration slices.

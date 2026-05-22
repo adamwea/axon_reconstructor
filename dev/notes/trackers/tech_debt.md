@@ -21,7 +21,7 @@ broken behavior) and `roadmap.md` (which is new ambitions).
 ## Open entries
 
 ### ~~Scaffold `tools/bootstrap_editable_deps.sh`~~ — SUPERSEDED 2026-05-19
-- **Status**: superseded by `plans/active/env_install_unification_plan.md` slice 4 (`tools/install_dev_siblings.{sh,py}`)
+- **Status**: superseded by `plans/completed/env_install_unification_plan.md` slice 4 (`tools/install_dev_siblings.{sh,py}`)
 - **Notes**: original entry called for a single bootstrap script to install sibling editables. The unification plan absorbs this into a flag-driven entry point (`tools/setup_env.sh --editable-siblings`) plus a sub-helper (`tools/install_dev_siblings.{sh,py}`), aligning sibling installs with the broader migration of pip deps onto `pyproject.toml` extras. Tracker entry kept for audit; remove on next prune.
 
 ### Phase-level auto-restart granularity in monolithic stage runners

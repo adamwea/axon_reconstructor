@@ -149,7 +149,7 @@ Per the slice-1 audit (`dev/notes/refs/dashboard_audit.md`):
 
 ## See also
 
-- Plan: `dev/notes/plans/active/dashboard_ui_refinement_plan.md`
+- Plan: `dev/notes/plans/completed/dashboard_ui_refinement_plan.md`
 - Slice-1 audit: `dev/notes/refs/dashboard_audit.md`
 - Style module: `src/axon_recon/dashboard/style.py`
 - Discovery API: `src/axon_recon/dashboard/discovery.py`

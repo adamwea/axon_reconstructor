@@ -94,6 +94,15 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-012 — Execute all 3 plan-audit findings (F#2 plan-completion sweep + F#3 kssynth slice 5 spec amend + F#4 radivojevic slice ref fix)
+- **Date**: 2026-05-21
+- **Source**: QZ8 user pick multi-select [F#2, F#3, F#4] via AskUserQuestion
+- **Context**: D-011's audit surfaced 3 findings. User picked all 3 to act on (vs deferring).
+- **Picked**: act on all 3 findings — minimal touch sizes; addresses real coherence drift before pause lifts; sets autonomous loop up to find correct cross-plan references.
+- **Expected failure mode**: invalidated if F#2's plan move breaks a cross-reference the loop didn't catch (the sed audit was scoped to `dev/notes/` + `CLAUDE.md`; commit_log references are intentionally left as historical). If a future iteration hits a broken plan ref, restore + fix.
+- **Resolution**: 4 plans moved active→completed; kssynth slice 5 amended; radivojevic kick-off trigger fixed
+- **Status**: active
+
 ### D-011 — Run proactive plan audit before lifting pause
 - **Date**: 2026-05-21
 - **Source**: QZ7 user pick "option 4" via AskUserQuestion
