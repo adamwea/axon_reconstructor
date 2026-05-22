@@ -139,3 +139,24 @@ All debug plots use `ax.invert_yaxis()` (MEA convention: top of chip = low y).
 **Standalone SVG**: `radivojevic_plot_recons_style.svg` (plot_recons renderer outputs both).
 
 Stage 2 bug investigation still the bigger fish — even with consistent rendering, the visual will read "wrong" until the binarization fires correctly.
+
+#### Paper-vs-code Stage 2 bug found + more frames plotted (per user request)
+
+**Read figures-v1 PDF** — Figure 4B (Skeletonization-assisted interconnection) is explicit: "Signal averaged over the two consecutive timeframes (Δt=100 μs) is skeletonized to infer directionality of the propagating signal." — i.e. skeletonize PAIRS of averaged frames, not single frames.
+
+**Our `core/skeletonization.py:122`** does `skeletons[t] = skeletonize(frame, method=...)` — per-frame, no averaging. **THIS IS THE BUG.** Each frame's noise pattern gets binarized independently → dense skeleton on every frame → "random segmented lines all over the place" per user.
+
+**New artifacts at `dev_outputs/.../unit_598_radivojevic/per_stage_debug/`**:
+- `skeleton_grid_24frames.png` — 24 evenly-spaced frames showing the per-frame skeleton (user can see the dense-blob-everywhere pattern).
+- `binary_footprint_grid_24frames.png` — 24 frames showing the binary_footprint (pre-skeletonization). If this is dense everywhere, threshold is too low.
+
+**Other paper-spec deviations the audit surfaces** (Stage 2):
+- Paper: noise from "background noise was sampled across all electrodes during periods when the neuron was inactive". Our `noise_estimator='mad'` computes noise from THIS template, which on a dense merged template will under-estimate (signal dominates) → too-low noise_std → too many pixels exceed threshold.
+- Paper Step IV (skel-assisted): averaged over 2 timeframes at Δt=100μs (at 20 kHz raw → upsampled rate). At 10 kHz raw + upsample 10 = 100 kHz, Δt=10μs. Need to confirm if 2-timeframe averaging is at raw rate or upsampled rate.
+- Paper Step V (indirect): averaged over 3 timeframes at Δt=150μs.
+
+**Fix design (slice TBD in radivojevic_recon_algo_plan)**:
+1. Pre-averaging step: build `averaged_pairs[t] = (images[t] + images[t+1]) / 2` for Step IV.
+2. Build `averaged_triples[t] = (images[t-1] + images[t] + images[t+1]) / 3` for Step V.
+3. Skeletonize the averaged stacks, not the raw stack.
+4. Noise estimation: separate inactivity-window noise estimator (paper-faithful), distinct from per-template MAD. Currently MAD over-includes signal as noise contributor.
