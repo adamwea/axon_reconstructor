@@ -16,17 +16,17 @@ Update a guardrail when:
 - A contract has been retired (delete the entry, don't leave dead rules).
 
 Don't update a guardrail when:
-- You're recording in-flight work (→ `memory/current_state.md`).
-- You're noting an open question (→ `memory/open_questions.md`).
+- You're recording in-flight work (→ `brain/current_state.md`).
+- You're noting an open question (→ `brain/open_questions.md`).
 - You're scoping a refactor (→ a `plans/active/*.md` plan, or a `trackers/tech_debt.md` entry).
 
 ## What goes where
 
 | Kind of statement | Lives in |
 |---|---|
-| "The code must do X" — locked contract | `guardrails/<topic>.md` |
-| "We're currently doing Y" — present state | `memory/current_state.md` |
-| "We haven't decided Z" — pending question | `memory/open_questions.md` |
+| "The code must do X" — locked contract | `brain/guardrails/<topic>.md` |
+| "We're currently doing Y" — present state | `brain/current_state.md` |
+| "We haven't decided Z" — pending question | `brain/open_questions.md` |
 | "We should refactor W someday" — backlog | `trackers/tech_debt.md` / `roadmap.md` / `issues.md` |
 | "Here's the multi-slice plan to do W" — execution roadmap | `plans/active/<plan>.md` |
 
@@ -43,6 +43,7 @@ Don't update a guardrail when:
 | [`dry_run.md`](dry_run.md) | Every phase exposes `--dry-run` and short-circuits at input resolution. Universal cheap-smoke-test path. |
 | [`env_parity.md`](env_parity.md) | `axon_recon` conda env and the shifter image must have equivalent capabilities, EXCEPT Kilosort+CUDA stack and NERSC/HPC/SLURM plumbing. New conda dep mirrors into Dockerfile in the same slice, or surfaces a "rebuild needed" USER INJECTION. |
 | [`loop_cadence.md`](loop_cadence.md) | `ScheduleWakeup.reason` format ("Next iteration in {N}s — {sentence}") + cadence ladder (90s actively iterating / 120s between slices / 300s audit / 600-1200s blocked). Promoted from a 2026-05-21 USER INJECTION. |
+| [`critic_separation.md`](critic_separation.md) | Every code-shipping slice MUST run a separate Explore subagent as critic before commit. Narrow scope (diff + trusted-output fixture + invariants only). Actor doesn't grade its own work. Promoted from 2026-05-21 brain-build session. |
 
 ## Format (light)
 

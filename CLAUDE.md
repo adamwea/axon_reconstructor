@@ -4,7 +4,8 @@
 
 ## Entry protocol (every session)
 
-1. **Read `dev/notes/brain/objectives.md` FIRST.** This is the persistent goal slot — what we're actually trying to do. Re-read every iteration; do NOT let it scroll past in context. If the next slice candidate doesn't advance one of these objectives, the slice is OUT-OF-SCOPE and goes to `open_questions.md` as a multiple-choice question, not executed.
+0. **Read `dev/notes/brain/mode.md` BEFORE objectives.** `ACTIVE_MODE` determines what kinds of actions the loop is permitted to take this iteration. If a planned action falls outside the active mode's permitted set, HALT + surface a multiple-choice question + wait. Mode-check happens BEFORE any other read because mode changes everything downstream.
+1. **Read `dev/notes/brain/objectives.md`.** Persistent goal slot — what we're actually trying to do. Re-read every iteration; do NOT let it scroll past in context. If the next slice candidate doesn't advance one of these objectives, the slice is OUT-OF-SCOPE and goes to `open_questions.md` as a multiple-choice question, not executed.
 2. **Glance at `dev/notes/brain/trusted_outputs.md`** top section — current trust state. Any slice that touches a phase covered by a Tier 1 trusted output (TR-xxx) MUST verify against it.
 3. **Glance at `dev/notes/brain/dependency_graph.md`** for nodes the current slice's surface area touches — this drives the change-propagation list (what needs re-verification when contracts shift). If the graph is still skeleton (pre-Z1), default to conservative re-verification of trusted-output baselines.
 4. **Glance at `dev/notes/brain/metrics.md`** for any metric whose refinement-target overlaps the slice surface. Plan to measure post-slice + auto-rollback if degraded.
@@ -16,17 +17,22 @@
 
 ## Slice protocol (every commit-sized unit of work)
 
-1. **Re-read the relevant guardrail** for the slice's surface area (parallelism / scope flags / force_restart / stage_phase / package / output_locations / dry_run).
+0. **Confirm slice is in active mode's permitted set** per `dev/notes/brain/mode.md`. If not: HALT + surface multiple-choice question; do not proceed.
+1. **Re-read the relevant guardrail** for the slice's surface area (parallelism / scope flags / force_restart / stage_phase / package / output_locations / dry_run / critic_separation).
 2. **Plan the diff** before editing: list files touched, anticipated test impact, smoke-test requirement (see §"When a smoke test is required" below), whether the slice will produce visual diagnostics that need user review.
 3. **Edit in scope.** Don't refactor adjacent code, don't add features the slice didn't authorize, don't add error handling for impossible cases. The `Doing tasks` section of the system prompt is the authority on this.
 4. **Run targeted tests** for the modules touched. Pre-existing failures don't count against the slice; new failures block the commit.
 5. **Run a smoke test** when required (see §below). Use `--dry-run` for fast wiring confirmation when applicable (see `brain/guardrails/dry_run.md`).
 6. **Generate visual diagnostics when the slice's claim depends on them** (see §"Visual diagnostics" below). Save under `/pscratch/sd/a/adammwea/dev_outputs/<plan_slice>/diagnostics/`. Add an entry to `dev/notes/brain/diagnostics_to_review.md` BEFORE commit.
 7. **Update YAML hygiene as you go.** Any slice that touches phase code, CLI flags, config schema, or phase wiring MUST update both `dev/debug_NERSC/debug.runtime.yml` AND `dev/debug_NERSC/debug.data.yml` so they remain an accurate mechanical source of truth for what the pipeline runs. Remove dead phase blocks, dead `resource_class` entries, dead CLI flag defaults; add new keys for new phases/flags; clear `# TODO Claude:` annotations once their target is resolved. (Promoted from USER INJECTIONS 2026-05-21.)
-8. **Commit** with a `claude:` subject prefix; descriptive body explaining what changed and why. Include a `Co-Authored-By: Claude Opus 4.7 …` line. If the slice added a diagnostic entry, reference it in the commit body.
-9. **Append a line to `dev/notes/commit_log.md`** noting the slice + the plan/tracker it advanced.
-10. **Update memory** if the slice changed anything in `current_state.md` or resolved an `open_questions.md` item.
-11. **Update guardrails** if you discovered a new invariant or clarified an existing one — same `claude:` commit prefix.
+8. **Run critic separation** for code-shipping slices per `brain/guardrails/critic_separation.md`. Spawn an Explore subagent with narrow scope (diff + relevant TR-xxx fixture + invariants for the affected junction). Block commit on `fail`; surface `concerns` to user before downstream slices.
+9. **Append a `brain/slice_contracts.md` entry** with the slice's `Produces` / `Assumes` / `Propagates` / `Trusted-output impact` / `Metric impact`. The slice is INCOMPLETE without this — the compressed-return-with-contract is the discipline that prevents silent downstream breakage. (Promoted from brain-build session 2026-05-21.)
+10. **Commit** with a `claude:` subject prefix; descriptive body explaining what changed and why. Include a `Co-Authored-By: Claude Opus 4.7 …` line. If the slice added a diagnostic entry, reference it in the commit body.
+11. **Append a line to `dev/notes/commit_log.md`** noting the slice + the plan/tracker it advanced.
+12. **Update brain working layer** if the slice changed anything in `brain/current_state.md` or resolved an item in `brain/open_questions.md`.
+13. **Update brain backbone** as a side-effect: `brain/dependency_graph.md` if the slice changed a node's contract; `brain/metrics.md` baselines if a smoke established one; `brain/trusted_outputs.md` only if the user explicitly directed a promotion.
+14. **Update guardrails** if you discovered a new invariant or clarified an existing one — same `claude:` commit prefix.
+15. **Reset perseveration counters** per `brain/escalation.md` if this slice landed forward-progress. Update plan-progress + loop-wide counters accordingly.
 
 ## Visual diagnostics
 
@@ -148,6 +154,7 @@ Don't update it when:
 | Resource | Path | Update frequency |
 |---|---|---|
 | **TODO** (user-facing next-actions list) | `dev/notes/TODO.md` | When tasks land or surface; user prunes resolved |
+| **Brain — mode** (active loop mode + permitted action set) | `dev/notes/brain/mode.md` | User-anchored; loop NEVER edits autonomously |
 | **Brain — objectives** (persistent goal slot) | `dev/notes/brain/objectives.md` | Rarely; user-anchored |
 | **Brain — current_state** (shipped/in-flight/queued + USER INJECTIONS) | `dev/notes/brain/current_state.md` | Continuously; old facts get deleted not commented out |
 | **Brain — open_questions** (pending decisions + plan-audit findings) | `dev/notes/brain/open_questions.md` | When the loop surfaces a multiple-choice question; user resolves inline |
@@ -156,7 +163,8 @@ Don't update it when:
 | **Brain — dependency graph** (DAG + propagation) | `dev/notes/brain/dependency_graph.md` | Loop updates as side-effect of slices changing contracts |
 | **Brain — metrics** (rollback triggers) | `dev/notes/brain/metrics.md` | Loop updates baselines after smokes; new metrics need user approval |
 | **Brain — slice contracts** (compressed returns) | `dev/notes/brain/slice_contracts.md` | Append-only; one entry per shipped slice |
-| **Brain — notes** (scratch / debugging trails) | `dev/notes/brain/notes.md` | Free-form; prune aggressively |
+| **Brain — escalation** (perseveration limits + flexible-updating rules) | `dev/notes/brain/escalation.md` | Counters auto-updated in brain/notes.md by loop; rules require user approval |
+| **Brain — notes** (scratch / debugging trails + perseveration counters) | `dev/notes/brain/notes.md` | Free-form; prune aggressively |
 | **Brain — guardrails** (locked code contracts) | `dev/notes/brain/guardrails/*.md` | Rarely; only when a contract changes |
 | **Brain — refs** (reference docs / paper summaries / audits) | `dev/notes/brain/refs/*.md` | When background reading or external-spec mining produces a doc the loop needs |
 | **Active plans** | `dev/notes/plans/active/*.md` | Touched per-slice during execution |
