@@ -82,11 +82,11 @@ Project-specific terms with locked definitions. Read this when a term in a plan 
 
 ## Modes
 
-- **extended_autonomous** — full execution mode. Ships code, runs smokes, etc. Per `brain/mode.md`.
+- **extended_autonomous** — full-execution mode. Ships code, runs smokes, etc. Behavior defined entirely in `loop_prompts/extended_autonomous.md`. Mode = which prompt is pasted; no central router file.
 
-- **collaborative** — question-curator mode. Loop reads + writes brain/plans/notes only. NO src/ changes, NO smokes. Surfaces ONE multiple-choice question per iteration; executes non-destructive user-picked answers. Per `brain/mode.md` + `loop_prompts/collaborative.md`.
+- **collaborative** — question-curator mode. Loop reads + writes brain/plans/notes only. NO src/ changes, NO smokes. Surfaces ONE multiple-choice question per iteration via `AskUserQuestion`; executes non-destructive user-picked answers. Behavior defined entirely in `loop_prompts/collaborative.md`.
 
-- **paused** — refinement-only mode. Loop can do meta work but no code / smoke / phase-impl / loop-prompt-bump.
+- **(retired)** — earlier design had a `paused` mode + a `brain/mode.md` router file. Deleted 2026-05-21 as over-engineered (D-016). Pausing = stop firing the loop; switching modes = paste the other prompt.
 
 ## Devices + recordings
 

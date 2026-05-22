@@ -87,11 +87,10 @@ The push-back is structural, not implicit — every disagreement surfaces to the
 
 ---
 
-## Mode-mode interaction
+## Mode interaction
 
-- In **`extended_autonomous`** mode: critic separation is mandatory per the rules above; loop runs it autonomously for every code-shipping slice.
-- In **`collaborative`** mode: code shipping is forbidden by mode (per `brain/mode.md`), so critic separation typically doesn't trigger. EXCEPTION: if collaborative mode allows a user-picked answer that ships code (rare), critic separation still applies.
-- In **`paused`** mode: code shipping is forbidden, so critic separation doesn't trigger.
+- In **autonomous mode** (`loop_prompts/extended_autonomous.md`): critic separation is mandatory per the rules above; loop runs it autonomously for every code-shipping slice.
+- In **collaborative mode** (`loop_prompts/collaborative.md`): code shipping is forbidden by the prompt's permitted action set, so critic separation typically doesn't trigger. EXCEPTION: if a user-picked answer that ships code (rare in collaborative mode), critic separation still applies.
 
 ---
 

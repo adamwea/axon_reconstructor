@@ -17,11 +17,9 @@ Together these are the brain's "stable goal-attractor at the top biasing a hiera
 
 ## Files
 
-### Mode router (read BEFORE backbone — determines what loop is allowed to do this iteration)
+### Mode = `/loop` prompt (no central router file)
 
-| File | Module (brain-theory) | What it holds |
-|---|---|---|
-| `mode.md` | **Inhibition / interference control** | Active loop mode (`extended_autonomous` / `collaborative` / `paused`) + permitted action set per mode. The "selection mechanism" that decides what gets into the limited workspace. |
+The MODE you're in is implied by which `/loop` prompt the user pasted: `loop_prompts/extended_autonomous.md` (ship-code-and-smoke mode) OR `loop_prompts/collaborative.md` (ask-before-doing mode). Each prompt declares its permitted action set inline. The brain-theory "inhibition / interference control" module is implemented as a property of which prompt is running, not a central file the loop must check. (Earlier design had `brain/mode.md` as a router file; deleted 2026-05-21 as over-engineered — see decisions.md D-016.)
 
 ### Stable backbone (read every iteration, change slowly)
 
@@ -57,7 +55,7 @@ Together these are the brain's "stable goal-attractor at the top biasing a hiera
 
 Every loop iteration, in this order:
 
-0. **Mode FIRST**: `brain/mode.md` — confirms what kinds of actions are permitted this iteration. If a planned action is outside the active mode's permitted set, HALT + surface multiple-choice.
+0. **Mode = current prompt**: the active `/loop` prompt's body (`loop_prompts/extended_autonomous.md` OR `loop_prompts/collaborative.md`) declares the permitted action set inline. No central mode file to read.
 1. **Backbone**: `brain/objectives.md` (goal slot) → `brain/trusted_outputs.md` top (trust state) → `brain/dependency_graph.md` for any node the current slice touches (propagation) → `brain/metrics.md` for any metric the slice surface affects (rollback triggers) → `brain/escalation.md` counters in `brain/notes.md` (am I about to hit a perseveration limit?). **Glance at `brain/glossary.md` if a term feels ambiguous; check `brain/anti_patterns.md` before any action that "feels tempting in the moment"; consult `brain/decisions.md` if the current question revisits a past decision.**
 2. **Working layer**: `brain/current_state.md` USER INJECTIONS (authoritative) → `brain/open_questions.md` (gates, plan-audit findings) → `brain/diagnostics_to_review.md` (anything blocking).
 3. **Reference layer as needed**: `brain/guardrails/<topic>.md` re-read whenever a slice's surface area maps to one of them (including `critic_separation.md` for code-shipping slices). `brain/refs/<doc>.md` consulted when implementing a new algorithm / phase that's been previously researched.
@@ -67,7 +65,6 @@ The point: mode + backbone (goal + trust + DAG + metrics + escalation) survives 
 
 ## Writing discipline (loop)
 
-- `mode.md` — USER-ANCHORED. Loop NEVER edits autonomously. Loop CAN propose mode changes via `open_questions.md` multiple-choice.
 - `objectives.md` — loop NEVER edits without explicit user approval. Only the user sets objectives + definition-of-done. Loop can propose changes via `open_questions.md` multiple-choice.
 - `trusted_outputs.md` — loop NEVER promotes an output to "trusted" tier without explicit user approval (the user-anchoring of the trust chain is the whole point). Loop CAN add candidates to a "proposed for promotion" section.
 - `dependency_graph.md` — loop UPDATES whenever a slice changes a contract (adds an edge, modifies a node's interface). The graph is auto-maintained, not user-blessed; user reviews on audit-pass.

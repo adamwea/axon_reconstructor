@@ -81,7 +81,7 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `77d38fc` (41-file rename)
 - **Status**: active
 
-### D-005 — Two-mode loop architecture: extended_autonomous + collaborative + paused
+### D-005 — Two-mode loop architecture: extended_autonomous + collaborative + paused (SUPERSEDED by D-016 — the central `brain/mode.md` router was over-engineered; modes are now implicit in which prompt is pasted)
 - **Date**: 2026-05-21
 - **Source**: user msg "I want to have two looper modes going forward. Extended Autonomous and Collaborative"
 - **Context**: Recurring context drift in autonomous mode led to wanting a "ask-before-doing" mode for periods when many open questions need user attention before code shipping is safe.
@@ -92,6 +92,19 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Picked**: option 1 — discrete modes are easier to reason about; user can transition explicitly
 - **Expected failure mode**: invalidated if collaborative mode turns out to need sub-modes (e.g., "collaborative-design" vs "collaborative-execute"). At that point: add modes; the file structure supports it.
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
+- **Status**: active
+
+### D-016 — Drop `brain/mode.md` router; mode = which `/loop` prompt is pasted
+- **Date**: 2026-05-21
+- **Source**: user msg "the mode concept is clunky. Let's just have an extended autonomous loop prompt as we have it and a collaborative loop prompt."
+- **Context**: D-005 introduced a 3-mode design (`extended_autonomous` / `collaborative` / `paused`) anchored to a `brain/mode.md` router file. In practice the router was clunky: required user edits to flip + required loop to mode-check at iteration start + had stale-content risk when prompt + mode.md disagreed. User wants the simpler model where the prompt IS the mode.
+- **Options considered**:
+  1. Drop `brain/mode.md`; each `/loop` prompt declares its permitted action set inline (Recommended; user picked implicitly)
+  2. Keep `brain/mode.md` as a status indicator but make it advisory not gating
+  3. Add UI / CLI tooling to manage the mode router (overkill)
+- **Picked**: option 1 — supersedes D-005's central router design with the prompt-encodes-mode approach
+- **Expected failure mode**: invalidated if a third mode emerges that doesn't fit cleanly as a third prompt file (unlikely; two modes have proven sufficient).
+- **Resolution**: `brain/mode.md` deleted; CLAUDE.md entry protocol step 0 / slice protocol step 0 reworded to reference the prompt's permitted set; brain/README.md "Mode router" section replaced with "Mode = `/loop` prompt"; loop_prompts/collaborative.md + extended_autonomous.md both updated to describe the no-router model; glossary + critic_separation references cleaned up. D-005 marked SUPERSEDED by D-016.
 - **Status**: active
 
 ### D-015 — Lift the pause; transition collaborative → extended_autonomous (post-2-audit-rounds)

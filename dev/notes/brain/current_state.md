@@ -4,7 +4,7 @@ Snapshot of what's shipped, in-flight, and queued. Updated as state changes; old
 
 ## ✅ PAUSE LIFTED — extended_autonomous resumed (2026-05-21)
 
-Planning / refinement pause RESOLVED via QZ11 (option 1 — lift now → extended_autonomous). Phase zero complete: Z1 dependency_graph mapped, Z2 pinned outputs triaged (TR-000..004), Z3 invariant specs authored + approved (Z3-TR-000..004 in `trusted_outputs.md`), Z4 pause-lift executed. `brain/mode.md` ACTIVE_MODE flipped to `extended_autonomous`. PAUSE NOTICE removed from `loop_prompts/extended_autonomous.md`. Next autonomous work per QZ11 + D-010: PRE-DIAGNOSTIC GATE 1 (radivojevic apples-to-apples comparison via plot_recons).
+Planning / refinement pause RESOLVED via QZ11 (option 1 — lift now → extended_autonomous). Phase zero complete: Z1 dependency_graph mapped, Z2 pinned outputs triaged (TR-000..004), Z3 invariant specs authored + approved (Z3-TR-000..004 in `trusted_outputs.md`), Z4 pause-lift executed. PAUSE NOTICE removed from `loop_prompts/extended_autonomous.md`. Mode = which `/loop` prompt is running (no central router file; `brain/mode.md` deleted 2026-05-21 per D-016 as over-engineered). Next autonomous work per QZ11 + D-010: PRE-DIAGNOSTIC GATE 1 (radivojevic apples-to-apples comparison via plot_recons).
 
 ## ⚡ USER INJECTIONS
 

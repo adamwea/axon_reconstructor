@@ -4,8 +4,7 @@
 
 ## Entry protocol (every session)
 
-0. **Read `dev/notes/brain/mode.md` BEFORE objectives.** `ACTIVE_MODE` determines what kinds of actions the loop is permitted to take this iteration. If a planned action falls outside the active mode's permitted set, HALT + surface a multiple-choice question + wait. Mode-check happens BEFORE any other read because mode changes everything downstream.
-1. **Read `dev/notes/brain/objectives.md`.** Persistent goal slot — what we're actually trying to do. Re-read every iteration; do NOT let it scroll past in context. If the next slice candidate doesn't advance one of these objectives, the slice is OUT-OF-SCOPE and goes to `open_questions.md` as a multiple-choice question, not executed.
+1. **Read `dev/notes/brain/objectives.md` FIRST.** Persistent goal slot — what we're actually trying to do. The MODE you're in is implied by which `/loop` prompt the user pasted (`loop_prompts/extended_autonomous.md` vs `loop_prompts/collaborative.md`); each prompt's body declares its permitted action set inline. No central mode-router file. Re-read every iteration; do NOT let it scroll past in context. If the next slice candidate doesn't advance one of these objectives, the slice is OUT-OF-SCOPE and goes to `open_questions.md` as a multiple-choice question, not executed.
 2. **Glance at `dev/notes/brain/trusted_outputs.md`** top section — current trust state. Any slice that touches a phase covered by a Tier 1 trusted output (TR-xxx) MUST verify against it.
 3. **Glance at `dev/notes/brain/dependency_graph.md`** for nodes the current slice's surface area touches — this drives the change-propagation list (what needs re-verification when contracts shift). If the graph is still skeleton (pre-Z1), default to conservative re-verification of trusted-output baselines.
 4. **Glance at `dev/notes/brain/metrics.md`** for any metric whose refinement-target overlaps the slice surface. Plan to measure post-slice + auto-rollback if degraded.
@@ -17,7 +16,7 @@
 
 ## Slice protocol (every commit-sized unit of work)
 
-0. **Confirm slice is in active mode's permitted set** per `dev/notes/brain/mode.md`. If not: HALT + surface multiple-choice question; do not proceed.
+0. **Confirm slice is in the active `/loop` prompt's permitted action set.** (Permitted set is defined inline in `loop_prompts/extended_autonomous.md` OR `loop_prompts/collaborative.md` — whichever the user pasted.) If not: HALT + surface multiple-choice via AskUserQuestion.
 1. **Re-read the relevant guardrail** for the slice's surface area (parallelism / scope flags / force_restart / stage_phase / package / output_locations / dry_run / critic_separation).
 2. **Plan the diff** before editing: list files touched, anticipated test impact, smoke-test requirement (see §"When a smoke test is required" below), whether the slice will produce visual diagnostics that need user review.
 3. **Edit in scope.** Don't refactor adjacent code, don't add features the slice didn't authorize, don't add error handling for impossible cases. The `Doing tasks` section of the system prompt is the authority on this.
@@ -154,7 +153,6 @@ Don't update it when:
 | Resource | Path | Update frequency |
 |---|---|---|
 | **TODO** (user-facing next-actions list) | `dev/notes/TODO.md` | When tasks land or surface; user prunes resolved |
-| **Brain — mode** (active loop mode + permitted action set) | `dev/notes/brain/mode.md` | User-anchored; loop NEVER edits autonomously |
 | **Brain — objectives** (persistent goal slot) | `dev/notes/brain/objectives.md` | Rarely; user-anchored |
 | **Brain — current_state** (shipped/in-flight/queued + USER INJECTIONS) | `dev/notes/brain/current_state.md` | Continuously; old facts get deleted not commented out |
 | **Brain — open_questions** (pending decisions + plan-audit findings) | `dev/notes/brain/open_questions.md` | When the loop surfaces a multiple-choice question; user resolves inline |

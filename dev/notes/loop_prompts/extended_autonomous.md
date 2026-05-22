@@ -24,7 +24,7 @@ on `current_state.md` discovery.
 
 ## Current — Round 7 (2026-05-21; pause-notice removed 2026-05-21 via QZ11)
 
-> **History**: round 7 originally landed during the planning/refinement pause with a 🛑 PAUSE NOTICE block. QZ11 (2026-05-21) lifted the pause; PAUSE NOTICE removed inline. Round 7 body is otherwise the original. Loop reads `brain/mode.md` ACTIVE_MODE first per the entry protocol; that file is now the source of truth for whether autonomous execution is permitted (no longer needs a prompt-baked pause notice).
+> **History**: round 7 originally landed during the planning/refinement pause with a 🛑 PAUSE NOTICE block. QZ11 (2026-05-21) lifted the pause; PAUSE NOTICE removed inline. Round 7 body is otherwise the original. The autonomous-mode behavior is encoded entirely in the prompt below — switching to collaborative = user pastes `loop_prompts/collaborative.md` instead. (Earlier design had a `brain/mode.md` router file; deleted 2026-05-21 as over-engineered.)
 
 ```
 EXTENDED AUTONOMOUS MODE (round 7) — relaxed stop conditions.

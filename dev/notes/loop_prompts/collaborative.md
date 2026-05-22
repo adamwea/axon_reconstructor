@@ -1,13 +1,13 @@
 # Collaborative loop prompt
 
-The "ask before doing" `/loop` invocation prompt. Use this when there are open design questions worth resolving before committing to autonomous execution. Defined as a brain mode in `brain/mode.md`.
+The "ask before doing" `/loop` invocation prompt. Use this when there are open design questions worth resolving before committing to autonomous execution. The mode IS this prompt — pasting it puts the loop in collaborative mode; pasting `extended_autonomous.md` instead puts it in autonomous mode. No central mode router file.
 
 **How to use:**
 1. Open Claude Code in this repo.
 2. Type `/loop` and paste the fenced block below as the loop instructions.
-3. The loop reads `CLAUDE.md` → `brain/mode.md` (sets `ACTIVE_MODE: collaborative` if not already) → `brain/objectives.md` → identifies the highest-leverage open decision → surfaces it as multiple-choice in `brain/open_questions.md` → ScheduleWakeup'd to wait for user response. When the user answers, the next iteration executes the pick (if non-destructive) + identifies the next decision.
+3. The loop reads `CLAUDE.md` → `brain/objectives.md` → identifies the highest-leverage open decision → surfaces it as multiple-choice via `AskUserQuestion` (+ writes to `brain/open_questions.md` for persistence). When the user answers, the next iteration executes the pick (if non-destructive) + identifies the next decision.
 
-**Mode-mode**: this prompt corresponds to `ACTIVE_MODE: collaborative` in `brain/mode.md`. The loop checks the mode at iteration start and refuses actions outside the collaborative permitted-action-set.
+**Mode = prompt**: collaborative behavior is encoded entirely in THIS prompt's body (permitted action set + iteration goal + cadence). No central mode router. Switching to autonomous = user fires fresh /loop with `extended_autonomous.md` instead.
 
 **When to switch from collaborative → autonomous**: when the open-question backlog is small + the brain components feel stable + the user is confident the loop has the verifier scaffold to ship code safely.
 
@@ -21,12 +21,12 @@ The "ask before doing" `/loop` invocation prompt. Use this when there are open d
 COLLABORATIVE MODE (round 1) — question-curator + answer-executor.
 
 Read /global/homes/a/adammwea/dev/pkgs/axon_recon/CLAUDE.md and follow its
-entry protocol. First file you read: brain/mode.md. If ACTIVE_MODE is not
-`collaborative`, surface a multiple-choice question asking the user
-whether to transition the mode, and HALT until they answer. Do NOT
-proceed with collaborative-mode work until ACTIVE_MODE confirms.
+entry protocol. The mode IS this prompt: you're in collaborative mode
+because the user pasted THIS prompt (not the extended_autonomous one).
+No central mode file to check.
 
-Permitted action set (per brain/mode.md `collaborative` definition):
+Permitted action set (collaborative — defined inline; switching to
+autonomous means user pastes loop_prompts/extended_autonomous.md instead):
 - ✅ Read any file in the repo (code, plans, commits, brain)
 - ✅ Write to brain/open_questions.md (multiple-choice questions per B1/B2)
 - ✅ Write to brain/current_state.md (state updates, prune stale entries)
@@ -41,7 +41,7 @@ Permitted action set (per brain/mode.md `collaborative` definition):
 - ❌ Any git push (sibling repos included — defer to autonomous mode)
 - ❌ New test additions (tests are code changes)
 - ❌ Bumping the /loop prompt round
-- ❌ Editing brain/mode.md or brain/objectives.md without user direction
+- ❌ Editing brain/objectives.md without user direction
 
 Iteration goal: surface ONE high-leverage decision point as a
 multiple-choice question in brain/open_questions.md (label / touch-size /
