@@ -37,7 +37,48 @@ The root of the verification trust chain. User-anchored: only the USER pins outp
 - **Failure mode**: any refinement that drops the merged-template count from 176 OR breaks the per-unit existence invariant gets ROLLED BACK + escalated.
 
 ### (Proposed for promotion — user reviews + pins)
-*(empty — phase zero Z1 will populate this section based on the dependency-graph analysis. Loop appends candidates here ranked by coverage.)*
+
+Z1 ranked 2026-05-21 (see `brain/dependency_graph.md` §5 for the full justification including coverage estimates). Triage each into: ✅ PIN (you eyeball + approve now) / 💵 ACQUIRE LATER (cheap but needs a smoke first) / ❓ DEFER (expensive or needs other work to land first) / ❌ SKIP.
+
+#### TR-CAND-001 — `axon_velocity_gtrs` output for unit_0598 (9-branch reference)
+- **Cohort**: `260326/M08073/000208/well000` (DIV 36)
+- **Path**: existing reference data at `/pscratch/sd/a/adammwea/analyzed_data/.../well000/recon_outputs/units/0598/{gtr.pkl, branches.json, ...}` + the existing `plot_recons` rendering for that unit
+- **Covers**: J2 (gtr-shape) + 11 recon-stage visualization phases downstream
+- **Cost**: cheap — file exists; you eyeball the plot_recons rendering for unit_0598 + approve
+- **Trust handle**: "yes this is what an axon arbor reconstruction should look like"
+- **Why high-leverage**: this is the COMPARATOR side of the Radivojevic DC-001 differential checks. Without this pinned, the Radivojevic comparison has no reference.
+
+#### TR-CAND-002 — kssynth `synth_sorter_output/` per-unit dirs on M08073/well000/DIV 36
+- **Path**: `<dev_outputs>/kssynth_slice3b/.../well000/recon_outputs/synth_sorter_output/per_unit/unit_<id>/{merged_template.npy, merged_channel_locations.npy}`
+- **Covers**: J5 + kssynth slice 5 retirement gate
+- **Cost**: HEAVY — requires kssynth slice 3b heavy on a real allocation (already queued in `trackers/salloc_smokes_queued.md`)
+- **Trust handle**: per-unit dir count matches TR-001 (176); sha256(kssynth merged_template) == sha256(build_templates merged_template) for the same unit (loop computes automatically once both exist)
+
+#### TR-CAND-003 — `save_rec_metadata` output for M08073 (sampling rate + device info)
+- **Path**: existing reference data; metadata.json under one preprocess_outputs dir for any DIV
+- **Covers**: J11 (sample rate authoritative source)
+- **Cost**: trivial — file exists; confirm `sampling_rate_hz: 10000` for MaxTwo
+- **Trust handle**: device + sample rate confirmation
+
+#### TR-CAND-004 — `analysis.unitmatch` match table for (M08073, well000, ≥3 DIVs)
+- **Path**: `<output>/analysis/unitmatch/<chip>/well000/match_table.parquet`
+- **Covers**: O2 DOD + cross-session color anchor for chip_layout_phase_split + future propagation_video
+- **Cost**: HEAVY — requires kssynth slice 5 + unitmatch_phase slice 5 both shipped
+- **Trust handle**: row counts in sensible bands; UID chains consistent; spot-check a few matches by hand
+
+#### TR-CAND-005 — `radivojevic2023_recon_algo.reconstruct()` output for unit_0598
+- **Path**: TBD when radivojevic_recon phase ships
+- **Covers**: O3 DOD (paired with TR-CAND-001 as DC-001 differential check input)
+- **Cost**: gated on TR-CAND-001 pinned AND TR-CAND-002 acquired (needs the merged_template input)
+- **Trust handle**: NOT standalone — it's the differential-similarity check vs TR-CAND-001 per DC-001
+
+#### TR-CAND-006 — `preprocess_outputs/segments/<seg>/recording.bin` integrity
+- **Path**: existing reference data; pick any `260326/M08073/.../000_rec0000/recording.bin`
+- **Covers**: J12 + preprocess-stage integrity (catches silent preprocess breakage)
+- **Cost**: trivial — sha256 + file-size check on the existing file
+- **Trust handle**: file-level integrity; not semantic.
+
+**Triage recommendation** (loop's): start with **TR-CAND-001 + 003 + 006** (the cheap bucket) — together with TR-001 they cover J1+J2+J3+J4+J6+J11+J12+J13 transitively. That's a substantial chunk of the recon-side pipeline pinned BEFORE any heavy work runs. TR-CAND-002 and TR-CAND-004 are heavy and gated on smokes; TR-CAND-005 is gated on radivojevic phase implementation. Working through 001/003/006 first front-loads the user's time to maximum-coverage points.
 
 ---
 

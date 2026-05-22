@@ -10,11 +10,17 @@ User-facing list of the most useful next actions, in rough order. Updated as ite
 
 These are the items the brain-skeleton build (2026-05-21) identified as the work needed before autonomous refinement can resume safely.
 
-### T1 — Phase-zero mapping mission [LOOP, allowed during pause]
-Loop maps the pipeline dependency graph + ranks high-leverage verification checkpoints. Output lands in `brain/dependency_graph.md`. No real-data smokes, no new phase code — just reading existing code + plans + producing the graph. See `brain/objectives.md` "Phase zero" + `brain/dependency_graph.md` for the spec.
+### T1 — Phase-zero mapping mission [✅ COMPLETED 2026-05-21 by assistant manually]
+Dependency graph populated in `brain/dependency_graph.md` (6 stages, 4 active stage phase_sequences, 13 data junctions J1-J13, plan→junction touch matrix, 6 ranked verification checkpoints). Ranked checkpoint candidates mirrored into `brain/trusted_outputs.md` "Proposed for promotion" as TR-CAND-001..006. Ready for T2.
 
-### T2 — Triage trusted-output candidates [USER, after T1]
-Loop hands you a ranked list of "if you certify these N outputs, you transitively cover M% of the pipeline." You bucket into: already-trusted (pin) / cheap-acquire (you eyeball + approve) / expensive (judgment-call new outputs). See `brain/trusted_outputs.md` for the schema; T1's output populates the candidate list.
+### T2 — Triage trusted-output candidates [USER, current action]
+Read `brain/trusted_outputs.md` "Proposed for promotion" section. Six candidates ranked by leverage. Bucket each into:
+- ✅ **PIN** (eyeball + approve now)
+- 💵 **ACQUIRE LATER** (cheap but needs a smoke / new code first)
+- ❓ **DEFER** (expensive or needs other work to land first)
+- ❌ **SKIP** (don't bother)
+
+Loop's recommendation: tackle TR-CAND-001 + 003 + 006 first (cheap bucket). Together with TR-001 (already pinned) they cover J1/J2/J3/J4/J6/J11/J12/J13 transitively — substantial coverage before any heavy work runs.
 
 ### T3 — Approve invariant assertions [USER, after T2]
 For each trusted output, loop proposes a small set of invariant-based assertions (schema / counts / value-ranges / reconcilements). You approve the ASSERTIONS (not the data). These become the trusted gate the autonomous loop runs against.
