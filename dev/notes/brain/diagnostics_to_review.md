@@ -173,3 +173,33 @@ Re-framing:
 To diagnose which sub-bug dominates, the 24-frame grid lets us see: (a) is each frame uniformly noise-dense? (likely b/c noise estimator under-estimates noise + binarization too aggressive — fix the threshold), OR (b) does each frame have wavefront-like sparse structure but the wavefronts are too thick? (fix is the averaging step + maybe threshold).
 
 Slice 7-equivalent for radivojevic_recon_algo_plan: file the two-fix design (noise + averaging) as a single slice once user confirms diagnosis from the grid.
+
+#### v4 — noise-scaling experiment per user feedback (2026-05-21)
+
+**Root cause confirmed**: template noise = raw noise / √(n_spikes averaged). When radivojevic measures noise from the template, it's ~√n smaller than the paper's intended raw-recording noise — making thresholds way too loose (45209 peaks vs paper's ~150-200).
+
+**v4 quick test** at `dev_outputs/.../unit_598_radivojevic_v4_scaled_all/`:
+- noise_estimator='window' (pre-spike samples 0-15 from template)
+- n_std_step1=90 (= 9 × 10 proxy for √n), n_std_step2=20, n_std_step3=10
+- binarization_k_stage2=10 (was 1.0)
+- Other knobs at paper defaults (radius 50/100μm, etc).
+
+**Results**:
+| Metric | v1 (MAD) | v2 (window only) | v3 (window + n_std×10) | v4 (window + n_std×10 + bin_k×10) |
+|---|---|---|---|---|
+| Stage 1 peaks | 45209 | 23637 | **700** | 700 |
+| Stage 2 skel/frame | 5142 | 2753 | 2753 | **30** |
+| Stage 3 links | 30848 | 15606 | 508 | 508 |
+
+Down to 700 peaks + 30 skel pixels per frame + 508 links. **This is paper-order-of-magnitude.**
+
+**Artifacts**: `radivojevic_v4.png`, `comparison_v4.png` in the v4 dir.
+
+**Verified**: spatial radius logic (paper Steps II + III) IS correctly applied — `stage_1.py:186` step2 uses spatial_radius_um=50μm; `stage_1.py:196` step3 uses 100μm. Threshold scaling, not radius, was the bug shape.
+
+**Proper fix design** (to file as slice):
+1. Use SpikeInterface analyzer's `noise_levels` extension (compute_noise_levels on raw recording, paper-faithful) — currently not computed; would need an analyzer policy update.
+2. OR scale window-estimator noise by √(n_spikes_per_unit) automatically (use spike_times to count).
+3. OR (simplest stopgap) expose a `noise_scale` multiplier in radivojevic API — caller can pass √n manually.
+
+Knobs that worked here are HACKED (n_std=90 isn't a real paper value). Need (1) or (2) for production.
