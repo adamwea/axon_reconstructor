@@ -420,3 +420,153 @@ without touching code. Slices 2-9 sequence behind slice 1 + user gates.
 - **Plotting parity scope** (slice 7): does "all the same plots and
   metrics that axon_velocity gtrs enable" include the
   propagation-video work, or is that strictly future?
+
+---
+
+## Algorithm-correctness fix slices (added 2026-05-21 after first real-data smoke audit)
+
+**Context**: Slice 6 first real-data smoke (commit `081ea98` HARD-gate diagnostic on unit_0598) revealed algorithm mismatches with the paper. Audit done in `brain/refs/old_pipeline_analyzer_window.md` + detailed in-chat read of the 2023 paper (eLife-86512) Methods + Figures 3, 4. Filing slices 10-15 to bring the radivojevic sibling package into paper-spec compliance.
+
+### Paper two-stage structure (the high-level architecture our code MUST match)
+
+The paper has two CLEANLY SEPARATED stages with DIFFERENT euclidean radii:
+
+**Paper Stage 1 — Adaptive thresholding peak detection (Figure 3)** — radii 50/100μm, NO rider/chain logic. Just finds peaks via thresholding.
+- Step 1A: 9 STD planar (global, per-frame, all electrodes)
+- Step 1B: 2 STD within **50μm** + ±1 frame of step1A peaks
+- Step 1C: 1 STD within **100μm** + ±1 frame of step1A+1B peaks
+
+**Paper Stage 2 — Trajectory reconstruction (Figure 4)** — radii 100/200/400μm, RIDER logic across consecutive frames.
+- Direct (Fig 4A): peaks in two consecutive frames within **100μm** → direct line link
+- Skeleton-assisted (Fig 4B): peaks in two consecutive frames within **200μm** → link via skeletonization of the **(frame_t + frame_t+1)/2 AVERAGED** electrical image (Δt=100μs at paper's 20kHz raw)
+- Indirect (Fig 4C): peaks in EVERY-OTHER frame within **400μm** → link via skeletonization of (frame_t-1 + frame_t + frame_t+1)/3 AVERAGED image (Δt=150μs)
+
+Our package's current implementation:
+- `core/stage_1.py` = paper Stage 1 (peak detection) — ✓ structurally correct, radii 50/100μm
+- `core/stage_2.py` (skeletonization) — ✗ BUG: skeletonizes EVERY frame independently, not pair/triple-averaged per-link on-demand
+- `core/stage_3.py` = paper Stage 2 (trajectory reconstruction) — ✗ BUG: `max_distance_um_indirect=200.0` default (paper says 400μm)
+
+### Slice 10 — Fix `max_distance_um_indirect` to 400μm + add per-paper validation tests
+
+**Scope**: 1-line default change in `core/stage_3.py:70` from `200.0` to `400.0`. Add a regression test that asserts paper-default values match Fig 4 spec (100/200/400μm).
+
+**Tests added**:
+- `test_stage_3_defaults_match_paper`: assert `max_distance_um_direct == 100.0`, `max_distance_um_skeleton == 200.0`, `max_distance_um_indirect == 400.0`.
+
+**Touch**: S (1-line + test). Independent of all other slices.
+
+### Slice 11 — Raw-recording-inactive-period noise estimator (paper-spec)
+
+**Why**: noise from template (current MAD or window estimator) is **√n_spikes smaller** than raw recording noise. Paper estimates noise from "background noise was sampled across all electrodes during periods when the observed neuron was inactive, and the noise was estimated for each neuron separately" (2023 page 6).
+
+**Per-channel scale**: paper estimates per-electrode noise (not a single global value). Our current estimators return scalar `noise_std`. Change to `noise_std_per_channel: np.ndarray(n_channels,)`.
+
+**Implementation plan**:
+1. Add `noise_estimator='from_inactive_periods'` to radivojevic API. Accept new params:
+   - `recording_inactive_samples: np.ndarray(n_channels, n_inactive_samples)` OR
+   - `recording_extension`: SpikeInterface recording + spike_times for THIS unit; loader extracts inactive-period samples.
+2. Per-channel `noise_std[c] = STD(recording_inactive_samples[c, :])`.
+3. Update `adaptive_thresholding.py` to accept per-channel noise (broadcast over time when computing threshold).
+4. Update Stage 2's binarization to use per-channel noise.
+
+**Tests added**:
+- `test_noise_estimator_from_inactive_periods_scalar_baseline`: synthetic recording with known noise → estimator recovers ground truth.
+- `test_noise_per_channel_shape`: per-channel noise array has correct shape.
+- `test_adaptive_thresholding_with_per_channel_noise`: detection respects per-channel thresholds (channel with low noise → easier detection).
+
+**Integration**: axon_recon's `reconstruct.radivojevic_recon` phase (when shipped per slice 5) wires up the noise estimator from SpikeInterface analyzer's `compute_noise_levels` extension.
+
+**Touch**: M (sibling pkg API change + axon_recon wire-up).
+
+### Slice 12 — Separate analysis frame interval from upsample factor
+
+**Why**: paper upsamples to 200 kHz for waveform smoothness (10× from 20kHz raw) but analyzes at **50μs frame intervals** (= 20 kHz effective for peak detection / thresholding). Our code's frames are AT the upsampled rate, so analysis frames are 10× more frequent than paper.
+
+**Implementation plan**:
+1. Add `analysis_frame_us: float = 50.0` to radivojevic API (default per paper).
+2. After upsampling for waveform smoothness, decimate (or average groups of upsampled samples) to the analysis_frame_us interval for the threshold + skeleton steps.
+3. Frame counts in Stage 1 + Stage 2 + Stage 3 then refer to ANALYSIS frames, not raw upsampled frames.
+
+**Tests added**:
+- `test_analysis_frame_interval_decimation`: input 10× upsampled trace + analysis_frame_us=50 → analyzed at every-5th-frame.
+- `test_paper_frame_count_for_20ms_template`: paper "400 frames at 50μs" matches our derived count for a 20ms-wide input.
+- `test_analysis_frame_independent_of_upsample`: upsample_factor=20 and =10 produce same step1 peak count given the same analysis_frame_us.
+
+**Touch**: M (sibling pkg algorithm change). Cleanest if done after slice 11 (noise) — frame interval affects thresholding semantics.
+
+### Slice 13 — Stage 2 architecture fix: on-demand pair-averaged skeletonization
+
+**Why**: paper Stage 2 (Fig 4B-C) skeletonizes the AVERAGED-PAIR (or AVERAGED-TRIPLE) electrical image PER LINK CANDIDATE, not every frame independently. Our `core/skeletonization.py:122` does `skeletons[t] = skeletonize(frame, method=...)` — per-frame, no averaging → dense per-frame skeletons (12% of every grid pixel) regardless of where peaks actually exist.
+
+**Implementation plan**:
+1. Move skeletonization OUT of pre-computed Stage 2 stack.
+2. New helper `skeletonize_for_link(electrical_image_t, electrical_image_t1, ...)` that averages then skeletonizes the pair.
+3. Stage 3's `link_peaks_skeleton_assisted` calls this helper for EACH candidate pair (peak_a at frame t, peak_b at frame t+1 within 200μm).
+4. Stage 3's `link_peaks_indirect` calls a triple-averaging skeletonize helper.
+5. Stage 2's role becomes optional — `electrical_image_t` pre-computation only (just the interpolated 2D voltage maps), no binarization/skeletonization globally.
+
+**Tests added**:
+- `test_pair_averaged_skeleton_matches_per_link_call`: avg(frame_t, frame_t+1) skeleton = on-demand result.
+- `test_indirect_triple_averaged_skeleton`: avg(frame_t-1, frame_t, frame_t+1) skeleton = on-demand result for indirect linking.
+- `test_skeleton_density_per_link_is_local`: per-link skeleton has ~tens of pixels (one wavefront width), NOT thousands.
+- `test_stage_3_with_pair_skeleton_match_paper_fig4`: regression test on a hand-built synthetic 3-channel propagating signal.
+
+**Touch**: M-L (architectural refactor of stage_2.py + stage_3.py + tests).
+
+### Slice 14 — Recursive step 2/3 expansion (rider chain logic)
+
+**Why**: paper's "moving object tracking" / user's "rider" model suggests chains extend frame-by-frame as long as continuation peaks exist. Our current code applies steps 1B + 1C once each — temporal extent of rider is bounded by step1's initial frame range + ±1 frame (per `temporal_radius_frames=1`).
+
+**Implementation plan**:
+1. Wrap step 1B + 1C in a convergence loop:
+   ```
+   peaks_step_1B = []
+   seeds = peaks_step_1A
+   while True:
+       new = find_peaks_in_neighborhood(seeds, 50μm, 2 STD, ±1 frame)
+       if not new: break
+       peaks_step_1B.extend(new)
+       seeds = new  # next iteration's seeds = THIS iteration's new peaks (chain logic)
+   ```
+2. Same for step 1C (with 100μm + 1 STD).
+3. Add `max_iterations` safety cap (e.g. 50) to prevent runaway in pathological inputs.
+4. Track per-iteration peak counts in a diagnostic field for debugging.
+
+**Tests added**:
+- `test_step_1B_iterates_until_no_new_peaks`: synthetic propagation across 10 frames → step 1B chains through all 10 (without iteration, bounded to ±1 frame).
+- `test_recursion_terminates_no_new_peaks`: chain stops when noise floor reached.
+- `test_max_iterations_safety_cap`: pathological input doesn't infinite-loop.
+
+**Touch**: M (algorithm change to stage_1.py + tests). Independent of slice 11/12/13 but BENEFITS from them (proper noise + paper frame interval → cleaner iteration).
+
+### Slice 15 — Integration smoke + diagnostic regression on unit_0598
+
+**Why**: validate slices 10-14 together produce paper-spec output on real data.
+
+**Smoke**:
+1. Re-run radivojevic on kssynth's unit_598 merged_template with paper defaults (n_std 9/2/1, k_stage2=1, no scaling hacks).
+2. Generate per-stage diagnostics (channels-only, skeleton-union, comparison vs axon_velocity).
+3. File HARD-gate diagnostic update.
+
+**Acceptance criteria**:
+- Selected channels (step1+1B+1C) trace the axon arbor shape (NOT central blob).
+- Per-link pair-averaged skeleton is local (~tens of pixels per link), NOT global (thousands per frame).
+- Stage 2 trajectory (Direct + Skel-assisted + Indirect links) visually matches axon_velocity's branch structure on the same unit.
+
+**Tests added**:
+- Regression on synthetic 3-branch propagating signal: known channels along each branch → algorithm recovers each branch.
+
+**Touch**: S (smoke + diagnostic file; tests added per slice 10-14).
+
+### Sequencing for slices 10-15
+
+| Order | Slice | Why |
+|---|---|---|
+| 1 | Slice 10 | Quick fix; independent. |
+| 2 | Slice 11 | Noise estimator is foundational — affects EVERY threshold. |
+| 3 | Slice 12 | Frame interval — affects step counts + skeleton timing. |
+| 4 | Slice 13 | Stage 2 architecture — depends on slices 11+12 for correct per-link skeletons. |
+| 5 | Slice 14 | Recursive rider — benefits from proper noise + frames. |
+| 6 | Slice 15 | Integration smoke — validates slices 10-14 together. |
+
+Per-slice tests run in CI (radivojevic2023_recon_algo's `tests/`). Real-data smoke (slice 15) goes to `dev/notes/trackers/smoke_log.md`.
