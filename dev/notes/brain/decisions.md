@@ -94,6 +94,20 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-011 — Run proactive plan audit before lifting pause
+- **Date**: 2026-05-21
+- **Source**: QZ7 user pick "option 4" via AskUserQuestion
+- **Context**: After QZ6 approved GATE 1, backlog appeared drained. Loop offered to lift the pause but user wanted a fresh proactive plan audit first (per A1-A5 discipline) to ensure backlog was truly drained vs just appears drained.
+- **Options considered**:
+  1. Lift now → extended_autonomous
+  2. Lift but pin a different first task
+  3. Stay collaborative — surface new items
+  4. Run a proactive plan audit first (user picked)
+- **Picked**: option 4 — checks that no coherence issues are about to bite after the pause lifts
+- **Expected failure mode**: invalidated if audit surfaces NO findings (in which case option 1 was the right call). Audit-iteration time is the cost.
+- **Resolution**: audit walked plans/active/*.md; 3 findings surfaced as QZ8 batched multi-select (Finding #2 plan-completion sweep; Finding #3 kssynth slice 5 GATE 1 dep; Finding #4 radivojevic stale slice ref)
+- **Status**: active
+
 ### D-010 — PRE-DIAGNOSTIC GATE 1 (radivojevic apples-to-apples) approved as-written for post-pause autonomous execution
 - **Date**: 2026-05-21
 - **Source**: QZ6 user pick "option 1" via AskUserQuestion

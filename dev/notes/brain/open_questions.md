@@ -4,7 +4,32 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 ## 🧠 Phase-zero progression (loop-surfaced)
 
-### QZ7 — Backlog appears drained. Lift the pause now, or anything else to resolve first?
+### QZ8 — Plan audit complete; 3 findings surfaced. Which to act on?
+
+Per QZ7 option 4 (run audit before lifting). Walked `plans/active/*.md` Status fields + spot-checked slice 5 / radivojevic gating. Three findings:
+
+**Finding #2 — 4 plans appear complete but still in active/. Move to plans/completed/?**
+- `dashboard_ui_refinement_plan.md` — "ALL 9 SLICES SHIPPED"
+- `ks_synthesizer_package_plan.md` — "Slices 1-7 SHIPPED. The kssynth package..." v1 done
+- `unitmatch_runner_package_plan.md` — "Slices 1-7 SHIPPED. The unitlink package..." v1 done
+- `env_install_unification_plan.md` — "v1 COMPLETE — slices 1-8 SHIPPED + shifter rebuild SHIPPED"
+- Action if approved: `git mv` each to `plans/completed/`; update any references in active plans that point to them.
+
+**Finding #3 — kssynth_recon_integration slice 5 spec misses the GATE 1 dependency**
+- Slice 5 spec says "gated on slice 3b" (the dry-run / smoke) but doesn't mention the GATE 1 diagnostic comparison. The actual dependency is: slice 5 (destructive retirement of `extract_partial_templates` + `build_templates`) should not ship until GATE 1's HARD-gate apples-to-apples comparison shows kssynth's per-unit outputs match the legacy build_templates output for the regression baseline (176 templates).
+- Action if approved: amend slice 5's "Goal" + "Prereqs" sections in the plan to explicitly capture the GATE 1 dependency.
+
+**Finding #4 — radivojevic_recon_algo_plan references stale kssynth slice numbering**
+- Line 387 of `radivojevic_recon_algo_plan.md` says "Kick-off trigger: kssynth slice 9 (axon_recon recon-stage integration)." But the integration work has migrated to `kssynth_recon_integration_plan.md` with its own slice numbering (slice 5 is the equivalent retirement gate). Cross-plan reference is stale.
+- Action if approved: amend the radivojevic plan's kick-off trigger reference to point at the right plan + slice number.
+
+**Pick which findings to act on** — answered via AskUserQuestion below (multi-select).
+
+### QZ7 — ✅ USER APPROVED 2026-05-21: option 4 (run proactive plan audit first)
+
+User picked option 4 via AskUserQuestion. Loop walked `plans/active/*.md` Status fields + spot-checked kssynth slice 5 dep + radivojevic kick-off trigger. Surfaced 3 findings as QZ8 batched multi-select. D-011 added.
+
+### QZ7 — original body
 
 - **Why now**: Phase zero complete (Z1+Z2+Z3 ✅). Plan-audit Finding #1 RESOLVED (D-003 sequencing). PRE-DIAGNOSTIC GATE 1 APPROVED (D-010 from QZ6). Dashboard slice 7 stale entry tracked for prune. Open-question backlog is materially drained — no remaining items I can identify that the loop should ask before lifting. But you might have items in mind I can't see.
 - **Context**: Once you confirm there's nothing else to resolve, lift the pause by editing `brain/mode.md` `ACTIVE_MODE: collaborative` → `ACTIVE_MODE: extended_autonomous`. Loop's first autonomous work would be GATE 1 (the radivojevic comparison) per the sequencing in D-003 → D-010.
