@@ -71,3 +71,31 @@ Keep the list short. When an entry is `approved`, leave it for ~one week so the 
   - MAD-noise-estimator-on-sparse-template bug (noise_std=0 → thresholds=0 → flood of false positives). Workaround: use `noise_estimator='window'`. Real fix candidates documented in smoke_log.md.
   - GATE 3 spec's `merged_template.npy` data-layout question (3 questions for user).
 - **Status**: SOFT-gate filed; **HARD-gate (Stage 3 + plot_recons side-by-side) still pending** the user's resolution of the data-layout question OR the kssynth slice 3b heavy smoke producing the merged-template artifacts the comparison needs.
+
+### 2026-05-21 — Radivojevic apples-to-apples on unit_0598 (HARD-gate) — kssynth-merged template
+
+- **Gate**: HARD — please review before downstream radivojevic_recon_algo_plan slices advance.
+- **What's here**: First side-by-side comparison of axon_velocity_gtrs (reference, OLD pipeline) vs radivojevic2023_recon_algo (new clean-room sibling) on the SAME unit (M08073/000208/well000 DIV 36, unit_0598 — 9-branch reference unit per branches.json).
+- **🖼 USER-VISIBLE ARTIFACT (open this first)**: **`/pscratch/sd/a/adammwea/dev_outputs/radivojevic_apples_to_apples/unit_598_radivojevic/comparison_unit_598.png`** (4194×1800 px)
+  - LEFT panel: axon_velocity_gtrs's existing `circle_recon.png` from reference (unit_0598 — built by the OLD pipeline; gtr.template shape (13439, 300) — see brain/refs/old_pipeline_analyzer_window.md for why 300).
+  - RIGHT panel: radivojevic_recon's own rendering (peaks + skeleton + links) on the SAME unit's kssynth-produced merged_template (shape (13439, 70), upsampled internally 10x by radivojevic).
+- **Sub-artifacts** (right panel only — for re-rendering / downstream):
+  - `radivojevic_unit_598.png` — standalone radivojevic render.
+  - `result.pkl` — pickled ReconstructionResult (Stage 1 + Stage 2 + Stage 3 dataclass tree).
+- **Quantitative summary**:
+  - Stage 1 peaks: 5443 (step1, 9 STD) + 8142 (step2, 2 STD) + 31624 (step3, 1 STD) = **45209 total** (compared to cluster 67's 172 — this unit is genuinely high-branch + the peaks are dense).
+  - Stage 2 skeleton + Stage 3 links: see `result.pkl` for full counts.
+  - Wall: 162.9s (radivojevic on the conda env; no GPU; n_jobs=1 default).
+- **Methodological caveats (USER reviewed + accepted per "1-to-1 in the end")**:
+  - Inputs differ slightly: axon_velocity ran on a 300-sample upsampled-then-trimmed template; radivojevic ran on the 70-sample raw kssynth template + did its own internal 10x sinc upsample.
+  - The "trim" (700→300) per user happens INSIDE axon_velocity (vendor code), not in axon_recon. See brain/refs/old_pipeline_analyzer_window.md for full audit.
+  - Both algorithms processed essentially the same axonal signal — comparison is "good enough" per user 2026-05-21.
+- **Renderers ALSO differ** (NOT the apples-to-apples ideal of "same plot_recons"):
+  - LEFT: axon_recon's `plot_recons` phase (circle_recon style — gtr-pkl-hardcoded; can't render radivojevic without a major plot_recons refactor).
+  - RIGHT: radivojevic's own `render_reconstruction_png` (peaks/skel/links style).
+  - So differences in visual style are NOT algorithmic differences. Look at: branch coverage (does radivojevic see roughly the same regions axon_velocity does?), peak density, overall axonal extent.
+- **What to verify (USER)**:
+  - Does radivojevic's reconstruction cover the same spatial region as axon_velocity's? (Same axon → same xy footprint.)
+  - Are the radivojevic peaks where you'd expect signal? (Compare peak density per region against the LEFT panel's branch structure.)
+  - Does either algorithm look visually wrong on this unit? (E.g. radivojevic finding peaks far from axon_velocity's branches = suspicious; axon_velocity missing a clear branch radivojevic catches = also suspicious.)
+- **Status**: HARD-gate filed; downstream radivojevic_recon_algo_plan slices (slice 5 hyperparam sweep, slice 9 second comparison cell) wait for user review.

@@ -145,3 +145,22 @@ Don't prune. This is a historical record. If an entry becomes superseded, link f
 - **Diagnostics**: `/pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b_path2_verify_shifter/...` analyzer caches + per-source unit manifests.
 - **Baseline established**: NO — this was a verification smoke (--limit-segments 2). Full-segments baseline pending GATE 1 step 1 full run.
 - **Status**: closed (PATH 2 fix verified end-to-end in shifter); follow-up: PRE-DIAGNOSTIC GATE 1 brought back to user for full-segments-run approval.
+
+---
+
+## Smoke #6 — Radivojevic apples-to-apples diagnostic on unit_0598 (kssynth-merged template)
+
+- **Date**: 2026-05-21
+- **Command**: `python -c "..."` (radivojevic.reconstruct on kssynth's unit_598 merged_template) — login-node, conda env (axon_recon), 1 worker.
+- **Cohort**: M08073/000208/well000 DIV 36 unit_0598 (9-branch reference)
+- **Commit**: d824d4a (PATH 2 LOAD-path) + 5ec8764/3f34405 (salloc setup) + this iteration's diagnostic-rendering work
+- **Outcome**: ✅ SUCCESS
+- **Quantitative result**:
+  - Input: kssynth merged_template (13439, 70) at 10 kHz raw + merged_channel_locations (13439, 2)
+  - Stage 1: 5443 + 8142 + 31624 = 45209 total peaks
+  - Stage 2: skeleton built (see result.pkl)
+  - Stage 3: links built (see result.pkl)
+  - Wall: 162.9s
+- **Worker count**: n_jobs=1 (radivojevic algorithm is single-threaded). NOT a worker-count concern for this smoke.
+- **Diagnostics**: HARD-gate filed in `dev/notes/brain/diagnostics_to_review.md` — `comparison_unit_598.png` side-by-side composite at `dev_outputs/radivojevic_apples_to_apples/unit_598_radivojevic/`.
+- **Status**: closed (algorithm + comparison shipped end-to-end); user reviewing HARD-gate diagnostic. Follow-ups: kssynth slice 7+8 (analyzer-policy parity + upsample integration); resources_profiles slice 6 (64-vs-128 procs); plot_recons adapter for true apples-to-apples renderer parity (deferred).
