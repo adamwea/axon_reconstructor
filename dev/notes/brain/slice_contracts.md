@@ -17,7 +17,14 @@ The "subtask returns the contract, not the trace" discipline. Each shipped slice
 - **Propagates**: <list of files / nodes downstream that should be re-verified because this slice landed>
 - **Trusted-output impact**: <any TR-xxx entries in brain/trusted_outputs.md this slice's behavior affects>
 - **Metric impact**: <any M-xxx entries in brain/metrics.md this slice's behavior affects>
+- **Prediction** (filled BEFORE execution): what the loop expects to observe after the slice ships — concrete numbers / shapes / pass-or-fail conditions that the critic + smoke can check against
+- **Actual** (filled POST-commit by loop or critic): what was actually observed
+- **Delta**: matches | diverges-as-expected | diverges-unexpectedly | not-yet-verified
 ```
+
+**Why Prediction matters** (2026-05-21 brain-build): the critic subagent (per `brain/guardrails/critic_separation.md`) checks invariants against the diff. With invariants alone, the critic can only verify "does this match the spec." With a Prediction, the critic can also verify "does this match what the loop EXPECTED" — which catches the failure mode where the slice technically passes invariants but the outcome surprises the loop. A surprise outcome usually signals a deeper model error (e.g. the loop's mental model of how the code behaves is wrong) — exactly the thing the actor-critic separation is supposed to catch.
+
+**Discipline**: Prediction MUST be filled before the slice's actor work starts. If the loop can't articulate a prediction, the slice is under-spec'd — propose splitting OR add the spec work as its own prior slice.
 
 ---
 

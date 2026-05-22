@@ -162,8 +162,11 @@ Don't update it when:
 | **Brain — trusted outputs** (verifier anchor) | `dev/notes/brain/trusted_outputs.md` | When user pins / promotes; loop appends candidates |
 | **Brain — dependency graph** (DAG + propagation) | `dev/notes/brain/dependency_graph.md` | Loop updates as side-effect of slices changing contracts |
 | **Brain — metrics** (rollback triggers) | `dev/notes/brain/metrics.md` | Loop updates baselines after smokes; new metrics need user approval |
-| **Brain — slice contracts** (compressed returns) | `dev/notes/brain/slice_contracts.md` | Append-only; one entry per shipped slice |
+| **Brain — slice contracts** (compressed returns + predictions) | `dev/notes/brain/slice_contracts.md` | Append-only; one entry per shipped slice (Prediction filled BEFORE; Actual/Delta after) |
 | **Brain — escalation** (perseveration limits + flexible-updating rules) | `dev/notes/brain/escalation.md` | Counters auto-updated in brain/notes.md by loop; rules require user approval |
+| **Brain — decisions** (rationale log with expected-failure-mode) | `dev/notes/brain/decisions.md` | Append-only; new entry per non-trivial design pick |
+| **Brain — glossary** (terminology lock) | `dev/notes/brain/glossary.md` | Slowly; user-approved additions only |
+| **Brain — anti_patterns** (consolidated lessons learned) | `dev/notes/brain/anti_patterns.md` | Append-only; consolidates auto-memory feedback files + promoted injections |
 | **Brain — notes** (scratch / debugging trails + perseveration counters) | `dev/notes/brain/notes.md` | Free-form; prune aggressively |
 | **Brain — guardrails** (locked code contracts) | `dev/notes/brain/guardrails/*.md` | Rarely; only when a contract changes |
 | **Brain — refs** (reference docs / paper summaries / audits) | `dev/notes/brain/refs/*.md` | When background reading or external-spec mining produces a doc the loop needs |

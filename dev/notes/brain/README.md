@@ -31,8 +31,11 @@ Together these are the brain's "stable goal-attractor at the top biasing a hiera
 | `dependency_graph.md` | **Persistent DAG + propagation tracking** | What phases/modules/plans depend on what. When a slice changes a contract, this is what tells the loop what to re-verify. Populated by phase-zero mapping mission. |
 | `trusted_outputs.md` | **Verifier anchor (tiered trust)** | Three-tier registry: trusted (user-pinned) > advisory (existing tests, demoted) > provisional (new outputs without reference). Anchors the whole verification chain. |
 | `metrics.md` | **Value/motivation + termination** | What "better" means per refinement target + baseline measurements + rollback trigger. Without this, refinement has no natural endpoint. |
-| `slice_contracts.md` | **Compressed returns w/ contracts** | Per shipped slice: produces / assumes / propagates. The "subtask returns the interface, not the trace" discipline. |
+| `slice_contracts.md` | **Compressed returns w/ contracts** | Per shipped slice: produces / assumes / propagates / **prediction** / actual / delta. The "subtask returns the interface, not the trace" + prediction-error machinery. |
 | `escalation.md` | **Flexible updating / perseveration limit** | After N=3 same-fix retries / M=5 stalled-slice iterations / K=20 stalled-plan / T=50 loop-wide thrash → MUST pop up the tree. Counters in `notes.md`. |
+| `decisions.md` | **Episodic memory w/ rationale** | Append-only registry of decisions made + WHY + expected failure mode. Lets future iterations evaluate whether a past decision still applies. |
+| `glossary.md` | **Semantic memory / terminology lock** | Locked definitions of project-specific terms. Prevents fresh-loop instances from drifting on the same words. |
+| `anti_patterns.md` | **Lessons learned** | Consolidated registry of traps + the right move instead. Replaces "rediscover by failing" with "read the entry first." |
 
 ### Working layer (read every iteration, change continuously)
 
@@ -55,7 +58,7 @@ Together these are the brain's "stable goal-attractor at the top biasing a hiera
 Every loop iteration, in this order:
 
 0. **Mode FIRST**: `brain/mode.md` — confirms what kinds of actions are permitted this iteration. If a planned action is outside the active mode's permitted set, HALT + surface multiple-choice.
-1. **Backbone**: `brain/objectives.md` (goal slot) → `brain/trusted_outputs.md` top (trust state) → `brain/dependency_graph.md` for any node the current slice touches (propagation) → `brain/metrics.md` for any metric the slice surface affects (rollback triggers) → `brain/escalation.md` counters in `brain/notes.md` (am I about to hit a perseveration limit?).
+1. **Backbone**: `brain/objectives.md` (goal slot) → `brain/trusted_outputs.md` top (trust state) → `brain/dependency_graph.md` for any node the current slice touches (propagation) → `brain/metrics.md` for any metric the slice surface affects (rollback triggers) → `brain/escalation.md` counters in `brain/notes.md` (am I about to hit a perseveration limit?). **Glance at `brain/glossary.md` if a term feels ambiguous; check `brain/anti_patterns.md` before any action that "feels tempting in the moment"; consult `brain/decisions.md` if the current question revisits a past decision.**
 2. **Working layer**: `brain/current_state.md` USER INJECTIONS (authoritative) → `brain/open_questions.md` (gates, plan-audit findings) → `brain/diagnostics_to_review.md` (anything blocking).
 3. **Reference layer as needed**: `brain/guardrails/<topic>.md` re-read whenever a slice's surface area maps to one of them (including `critic_separation.md` for code-shipping slices). `brain/refs/<doc>.md` consulted when implementing a new algorithm / phase that's been previously researched.
 4. **Plan + commit log**: `plans/active/<current-plan>.md` cover-to-cover before starting a slice. `commit_log.md` for what shipped recently.
