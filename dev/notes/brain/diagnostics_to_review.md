@@ -99,3 +99,24 @@ Keep the list short. When an entry is `approved`, leave it for ~one week so the 
   - Are the radivojevic peaks where you'd expect signal? (Compare peak density per region against the LEFT panel's branch structure.)
   - Does either algorithm look visually wrong on this unit? (E.g. radivojevic finding peaks far from axon_velocity's branches = suspicious; axon_velocity missing a clear branch radivojevic catches = also suspicious.)
 - **Status**: HARD-gate filed; downstream radivojevic_recon_algo_plan slices (slice 5 hyperparam sweep, slice 9 second comparison cell) wait for user review.
+
+#### Per-stage debug artifacts (re-filed 2026-05-21 per user feedback)
+
+**User feedback on first composite** (2026-05-21): "1. invert the y axis on the new recon plot. 2. you're still not using the same plot_recon phase machinery — that is clear. 3. your skeletonization looks like way too much. Try plotting each step's channel selections and the skeleton by itself so i can give you better feedback."
+
+New artifacts at `dev_outputs/radivojevic_apples_to_apples/unit_598_radivojevic/per_stage_debug/`:
+- `peaks_step1_9STD.png` — 5443 Stage-1 peaks (channel selections at xy positions).
+- `peaks_step2_2STD.png` — 8142 Stage-2 peaks.
+- `peaks_step3_1STD.png` — 31624 Stage-3 peaks.
+- `skeleton_union.png` — 4-panel: channels alone + binary_footprint UNION (across 690 frames) + skeleton UNION + skeleton+channels overlay.
+- `skeleton_single_frames.png` — 3 single-frame skeletons (samples at frames T/4, T/2, 3T/4 of 690) for "what does a typical frame look like" feedback.
+
+All debug plots use `ax.invert_yaxis()` (MEA convention: top of chip = low y).
+
+**Stage 2 BUG candidates surfaced by per-frame counts**:
+- skeleton_stack.skeletons shape (690, 211, 207), per-frame avg **5142 pixels** out of 43677 total grid pixels (= **11.8% of EVERY frame** is skeletonized).
+- skeleton_stack.binary_footprints per-frame avg **8804 pixels** (= 20% of every frame is "above threshold").
+- For a real axon at any given frame you'd expect tens to low-hundreds of skeleton pixels max. 5142 = the binarization/skeletonization is firing on noise or interpolation artifacts.
+- Likely root causes: (a) binarization_k_stage2 threshold too aggressive (default 1.0 noise_std); (b) noise_std estimate too low (MAD on dense merged template might under-estimate); (c) image_grid interpolation creating dense low-amplitude artifacts that all exceed threshold.
+
+**Outstanding action** for the main composite: rendering via plot_recons phase machinery (per user "use plot_recons machinery — that would handle y-invert and consistent style"). Question surfaced separately.
