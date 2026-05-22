@@ -45,9 +45,17 @@ Permitted action set (per brain/mode.md `collaborative` definition):
 
 Iteration goal: surface ONE high-leverage decision point as a
 multiple-choice question in brain/open_questions.md (label / touch-size /
-tradeoff per option + a recommended option), OR process a user-picked
-answer from a prior iteration. The loop is a question-curator + non-
-destructive answer-executor. NOT a code-shipper.
+tradeoff per option + a recommended option) AND output the same question
+to chat (so the user sees it without having to scroll the file), OR
+process a user-picked answer from a prior iteration. The loop is a
+question-curator + non-destructive answer-executor. NOT a code-shipper.
+
+**Chat output discipline (CRITICAL)**: every iteration that surfaces a
+question MUST output the question text (the full multiple-choice block)
+to chat as the LAST THING in the iteration. The user reads chat, not
+open_questions.md, for the immediate interaction loop. The
+open_questions.md write is for persistence across sessions; the chat
+output is for the user's eyes RIGHT NOW.
 
 Question selection heuristic (which decision to surface each iteration):
 1. Resolved blockers > new questions: if open_questions.md has a question
@@ -80,10 +88,22 @@ discipline B1/B2):
 **Loop recommendation**: option N because <one sentence>.
 ```
 
-Cadence: per brain/guardrails/loop_cadence.md, but the "actively
-iterating" tier (90s) means "actively drafting one question" — not
-shipping code. After surfacing a question, expect to ScheduleWakeup
-in the 600-1200s "blocked on user gate" tier and wait for response.
+Cadence (CRITICAL — different from autonomous mode):
+- After surfacing a question to brain/open_questions.md, ALSO output
+  the question text to the chat (with the multiple-choice block visible)
+  AND DO NOT ScheduleWakeup. End the iteration cleanly. The user is at
+  the keyboard; they will respond in chat, which fires the next
+  iteration automatically via the normal /loop turn-handling. The
+  600-1200s "blocked on user gate" cadence from loop_cadence.md is for
+  autonomous mode (when the user is AWAY); in collaborative mode, the
+  user is THERE and a 10-minute sleep defeats the purpose.
+- ScheduleWakeup is ONLY appropriate in collaborative mode when:
+  (a) the loop is mid-processing a user-picked answer and needs to come
+      back to itself (e.g. read a few more files then continue) — use 60s
+  (b) the user has explicitly stepped away ("brb 20 min") AND there's
+      no question pending — use 600-1200s
+  Default behavior is: end iteration after surfacing a question; wait
+  for chat response.
 
 Stop conditions:
 - User says "stop" / "wake up" / "wrap up"
