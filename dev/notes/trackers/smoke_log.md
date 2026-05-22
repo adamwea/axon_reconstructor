@@ -118,3 +118,30 @@ Don't prune. This is a historical record. If an entry becomes superseded, link f
 - **Status**: closed (algorithm core proven runnable on real HD-MEA shape data); follow-ups:
   - **MAD vs window noise estimator** design decision pending (next sub-step or USER GATE 4).
   - **Side-by-side plot_recons comparison** still blocked on user's clarification of the `merged_template.npy` data-layout question (open_questions.md).
+
+---
+
+## Smoke #5 — kssynth slice 3b PATH 2 verify (analyzers phase --input-root LOAD path)
+
+- **Date**: 2026-05-21
+- **Command**: `shifter --image=adammwea/axon-recon:pipeline-v2 -- axon-recon stages reconstruct.analyzers --config dev/debug_NERSC/debug.runtime.yml --target-dataset 13 --limit-wells 1 --task-backend local_affinity --limit-segments 2 --input-root /pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/ --output-root /pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b_path2_verify_shifter/`
+- **Cohort**: M08073/000208/well000 (DIV 36, 80k DMEM)
+- **Commit**: d824d4a (analyzer LOAD-path --input-root extension) + 5580ca2a25fb shifter image rebuild this iteration
+- **Outcome**: ✅ SUCCESS
+- **Quantitative result**:
+  - `discovered_source_count: 2` (discovery side, was already working via commit f33821b)
+  - `source_count: 2` (LOAD side — **was 0 before the fix**, now 2 ✅)
+  - `recordings_loaded: 2`, `segments.built: 2`, `cache.persisted: 2`
+  - `generated_manifest_count: 2`, `source_unit_manifest_count: 2`
+  - `recordings_source_dir`: reference path (alternate) — confirms fallback recursion reached alt root
+  - `cache_root`: dev_outputs (primary) — confirms cache writes go to dev_outputs, not reference
+  - Duration: 271s (~4.5 min) for analyzers build on 2 segments
+  - Resource usage: pss_gb=23.99 (estimated 14; flagged as 1.71x over-estimate)
+- **Worker count**: cpus_per_task=64 (login-node `--task-backend local_affinity`), max_threads=64, observed_process_max_threads=66. Matches expected for login node with default budget; not a worker-count concern.
+- **Bug→fix chain**:
+  - **Bug 1**: LOAD-side fallback recursion preserved primary `analyzer_cache_dir` → cache lookup pointed at empty primary cache → recursive load returned source_count=0.
+  - **Fix**: commit d824d4a — re-derive `analyzer_cache_dir` relative to `fallback_well_out_dir` in both fallback recursion sites (`load_spikeinterface_analyzers` line 2890 + `iter_spikeinterface_analyzers` line 3198).
+  - **Bug 2 (env-only, not code)**: conda env lacks Maxwell HDF5 plugin → spikeinterface recording-load failed when first smoke ran outside shifter. Workaround: run in shifter (which has the plugin baked in).
+- **Diagnostics**: `/pscratch/sd/a/adammwea/dev_outputs/kssynth_slice3b_path2_verify_shifter/...` analyzer caches + per-source unit manifests.
+- **Baseline established**: NO — this was a verification smoke (--limit-segments 2). Full-segments baseline pending GATE 1 step 1 full run.
+- **Status**: closed (PATH 2 fix verified end-to-end in shifter); follow-up: PRE-DIAGNOSTIC GATE 1 brought back to user for full-segments-run approval.
