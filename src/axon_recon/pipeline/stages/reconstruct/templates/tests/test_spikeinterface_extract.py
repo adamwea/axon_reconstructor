@@ -1396,3 +1396,65 @@ def test_load_spikeinterface_analyzers_raises_when_segments_required_but_missing
 			include_segments=True,
 			require_segments=True,
 		)
+
+
+def test_load_spikeinterface_analyzers_fallback_recomputes_cache_dir_relative_to_alternate(
+	tmp_path, monkeypatch
+) -> None:
+	# Primary well dir is empty (no concat / segments / cache content).
+	primary_well = tmp_path / "dev" / "well000"
+	primary_cache = primary_well / "recon_outputs" / "cache" / "analyzers"
+	(primary_well / "recon_outputs" / "cache").mkdir(parents=True, exist_ok=True)
+	# Alternate well dir has segments + a parallel cache subtree (used by the
+	# fallback recursion to scope cache lookup).
+	alt_well = tmp_path / "ref" / "well000"
+	alt_segments = alt_well / "custom_segments"
+	alt_seg_a = alt_segments / "segA"
+	alt_seg_a.mkdir(parents=True, exist_ok=True)
+	alt_cache = alt_well / "recon_outputs" / "cache" / "analyzers"
+	alt_cache.mkdir(parents=True, exist_ok=True)
+
+	# Capture every cache_root passed into _discover_cached_analyzer_dirs to
+	# verify the fallback recursion re-derives cache_dir under alt_well.
+	cache_root_calls: list[str | None] = []
+
+	from axon_recon.pipeline.stages.reconstruct.templates.integrations import spikeinterface_extract as _module
+	original_discover = _module._discover_cached_analyzer_dirs
+
+	def _spy_discover_cached_analyzer_dirs(*, analyzer_cache_dir, **kwargs):
+		cache_root_calls.append(None if analyzer_cache_dir is None else str(analyzer_cache_dir))
+		return original_discover(analyzer_cache_dir=analyzer_cache_dir, **kwargs)
+
+	monkeypatch.setattr(_module, "_discover_cached_analyzer_dirs", _spy_discover_cached_analyzer_dirs)
+
+	def _fake_load_sorting_analyzer(path):
+		return {"path": str(path)}
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	analyzers = load_spikeinterface_analyzers(
+		well_out_dir=primary_well,
+		preproc_seg_sources_reldir="/custom_segments",
+		analyzer_cache_dir=primary_cache,
+		alternate_well_out_dirs=[alt_well],
+		include_concat=False,
+		include_segments=True,
+	)
+
+	# Primary call uses primary cache; fallback recursion re-derives cache_dir
+	# relative to the alternate well_out_dir. Both pairs of _discover calls show
+	# up in cache_root_calls — primary first, alternate (via fallback) after.
+	assert str(primary_cache.resolve()) in cache_root_calls
+	assert str(alt_cache.resolve()) in cache_root_calls
+	first_alt_idx = cache_root_calls.index(str(alt_cache.resolve()))
+	first_primary_idx = cache_root_calls.index(str(primary_cache.resolve()))
+	assert first_alt_idx > first_primary_idx
+	# Fallback recursion finds the alternate's segment, so loader sees seg path.
+	loaded = [str(payload["path"]) for _, payload in analyzers]
+	assert str(alt_seg_a) in loaded

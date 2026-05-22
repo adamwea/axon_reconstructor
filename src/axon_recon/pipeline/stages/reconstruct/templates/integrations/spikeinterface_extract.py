@@ -2886,6 +2886,19 @@ def load_spikeinterface_analyzers(
 				str(well_out_dir),
 				str(fallback_well_out_dir),
 			)
+			# Re-derive analyzer_cache_dir relative to the fallback well_out_dir
+			# so cache lookup follows the fallback rather than pointing at the
+			# primary's empty cache. Keep the original cache dir when it sits
+			# outside the primary well_out_dir tree (caller-supplied absolute path).
+			fallback_cache_dir = analyzer_cache_dir
+			if analyzer_cache_dir is not None:
+				try:
+					cache_relative = Path(analyzer_cache_dir).expanduser().resolve().relative_to(
+						Path(well_out_dir).expanduser().resolve()
+					)
+					fallback_cache_dir = fallback_well_out_dir / cache_relative
+				except ValueError:
+					pass
 			try:
 				return load_spikeinterface_analyzers(
 					well_out_dir=fallback_well_out_dir,
@@ -2894,7 +2907,7 @@ def load_spikeinterface_analyzers(
 					preprocessed_concat_reldir=preprocessed_concat_reldir,
 					preprocessed_segments_reldir=preprocessed_segments_reldir,
 					preproc_seg_sources_reldir=preproc_seg_sources_reldir,
-					analyzer_cache_dir=analyzer_cache_dir,
+					analyzer_cache_dir=fallback_cache_dir,
 					analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
 					analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
 					alternate_well_out_dirs=None,
@@ -3184,6 +3197,17 @@ def iter_spikeinterface_analyzers(
 				str(well_out_dir),
 				str(fallback),
 			)
+			# Re-derive analyzer_cache_dir relative to the fallback well_out_dir
+			# (mirrors the load_spikeinterface_analyzers fallback recursion).
+			fallback_cache_dir = analyzer_cache_dir
+			if analyzer_cache_dir is not None:
+				try:
+					cache_relative = Path(analyzer_cache_dir).resolve().relative_to(
+						Path(well_out_dir).expanduser().resolve()
+					)
+					fallback_cache_dir = fallback / cache_relative
+				except ValueError:
+					pass
 			yielded_from_fallback = False
 			for src_name, analyzer in iter_spikeinterface_analyzers(
 				well_out_dir=fallback,
@@ -3192,7 +3216,7 @@ def iter_spikeinterface_analyzers(
 				preprocessed_concat_reldir=preprocessed_concat_reldir,
 				preprocessed_segments_reldir=preprocessed_segments_reldir,
 				preproc_seg_sources_reldir=preproc_seg_sources_reldir,
-				analyzer_cache_dir=analyzer_cache_dir,
+				analyzer_cache_dir=fallback_cache_dir,
 				analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
 				analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
 				alternate_well_out_dirs=None,

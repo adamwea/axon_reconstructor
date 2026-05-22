@@ -45,6 +45,17 @@ The earlier slices' contracts are recoverable from:
 
 *(append-only; do NOT insert in the middle)*
 
+### 2026-05-21 — kssynth slice 3b: analyzer LOAD-path `--input-root` plumbing extension (PATH 2)
+
+- **Surface**: `pipeline/stages/reconstruct/templates/integrations/spikeinterface_extract.py` — `load_spikeinterface_analyzers` + `iter_spikeinterface_analyzers` fallback recursions.
+- **Intent**: when fallback recursion fires at `fallback_well_out_dir` (the alternate `--input-root` path), re-derive `analyzer_cache_dir` relative to that alternate so cache lookup follows the recursion instead of pointing at the primary's empty cache.
+- **Produces**: behavior change — analyzers load successfully from reference data when `--output-root` is a fresh dev path AND `--input-root` provides the reference. No new public API.
+- **Assumes**: `analyzer_cache_dir` when provided lives under `well_out_dir`; if not (caller-supplied absolute path outside primary tree), falls through unchanged via `ValueError` catch.
+- **Propagates**: kssynth recon-stage integration (`kssynth_recon_integration_plan.md` slice 3b) — the heavy-smoke prereq is now unblocked. Downstream PRE-DIAGNOSTIC GATE 1 (radivojevic apples-to-apples comparison) is gated on this smoke succeeding.
+- **Trusted-output impact**: TR-001 (176 templates) unchanged — this fix is upstream of unit-manifest generation. Z3-TR-001 schema invariants unchanged. TR-000 reference-data read-only invariant respected (load only; no writes to alternate path).
+- **Metric impact**: enables a new metric baseline once smoke runs — `source_count > 0` + `units_ok > 0` on M08073/000208/well000 DIV 36 with `--input-root` set.
+- **Critic verdict**: concerns (1 caught: `.expanduser()` asymmetry between the two fallback sites) — fixed before commit; re-test green.
+
 ---
 
 ## How the loop uses this file
