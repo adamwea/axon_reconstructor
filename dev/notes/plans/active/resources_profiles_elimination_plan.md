@@ -191,7 +191,25 @@ shifter --image=adammwea/axon-recon:pipeline-v2 \
 - `compute_waveforms (workers: N processes fork)` where N == the rank's physical-core count.
 - Per-segment runtime drops proportionally vs the 16-worker run.
 
-If srun is exposing only 64 physical cores instead of 128, that's a SEPARATE issue (an srun flag investigation, not an axon_recon code question). Surface as a follow-up rather than re-introducing profile clamping.
+If srun is exposing only 64 physical cores instead of 128, that's a SEPARATE issue (an srun flag investigation, not an axon_recon code question). Surface as a follow-up rather than re-introducing profile clamping. **OBSERVED 2026-05-21**: kssynth salloc smoke (job 53278227, `srun -n 1 -c 128 ...`) logs showed `n_jobs=16` for the segment analyzer compute step — i.e. the rank received only 64 cores OR profile-clamping is still narrowing. Re-confirms the user's complaint that triggered this plan. See slice 6 for the dedicated investigation.
+
+### Slice 6 — Investigate the 64-vs-128 procs discrepancy
+
+**Why**: even after slice 5's smoke, the segment analyzer compute step ran with `n_jobs=16` despite `srun -n 1 -c 128 --cpu-bind=cores --hint=nomultithread`. Two hypotheses:
+1. **Profile clamp still active**: `resources.profiles.perlmutter_cpu.spikeinterface_analyzer_segment.n_jobs=16` (or similar) is silently overriding the env-derived budget. Slice 2 was supposed to fix this; verify it actually did.
+2. **srun env mis-supplies cpus_per_task**: `SLURM_CPUS_PER_TASK` reports 64 even when `-c 128` was passed, due to a Perlmutter-specific srun behavior (e.g. `--hint=nomultithread` halving the count). Need to check `cpus_per_task_source=` log line + raw env var inside the rank.
+
+**Scope**:
+1. Inspect the kssynth salloc log (job 53278227) for `phase_parallelism event=`, `n_jobs_source=`, `slot.cpu_count=`, `SLURM_CPUS_PER_TASK`, `cpus_per_task_source=` lines. Document which value the resolver actually read.
+2. If hypothesis 1: trace where the clamp comes from (grep `n_jobs: 16` in YAMLs + check active_profile resolution); confirm slice 2's removal was incomplete.
+3. If hypothesis 2: try `srun -n 1 --cpus-per-task=128 ...` (no `-c`/`--hint`) and compare; or test with explicit `OMP_NUM_THREADS=128` + `SLURM_CPUS_PER_TASK=128` overrides in the salloc shell.
+4. File findings under `brain/refs/` (e.g. `perlmutter_srun_cpu_budget.md`) so future smokes know the right invocation.
+
+**Output**: either a small slice-2-completion commit (case 1) OR a documented salloc-invocation pattern for users (case 2). NOT blocking the radivojevic diagnostic (which used 16 workers and completed fine); blocking the longer-term goal of "smokes use the cores we asked for."
+
+**Touch**: S (log inspection + grep + maybe a small slice-2-completion commit).
+
+**User mandate 2026-05-21**: "make sure we get to that problem eventually." Don't let this slide.
 
 **Smoke log entry**: append to `dev/notes/trackers/smoke_log.md` with full bug→fix chain.
 
