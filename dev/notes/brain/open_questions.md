@@ -7,9 +7,9 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 ### QZ11 — ✅ USER APPROVED 2026-05-21: option 1 (lift now → extended_autonomous)
 
 User picked option 1 via AskUserQuestion. Lift sequence:
-1. Loop removes the PAUSE NOTICE block from `loop_prompts/extended_autonomous.md` (cleanup of stale content; not a round bump).
+1. Loop removes the PAUSE NOTICE block from `loop_prompts/autonomous_collaborative.md` (cleanup of stale content; not a round bump).
 2. User edits `brain/mode.md` ACTIVE_MODE collaborative → extended_autonomous + SINCE / SET_BY fields.
-3. User fires fresh /loop session with `loop_prompts/extended_autonomous.md`.
+3. User fires fresh /loop session with `loop_prompts/autonomous_collaborative.md`.
 4. Loop's first autonomous work = PRE-DIAGNOSTIC GATE 1 per D-010.
 
 D-015 added.

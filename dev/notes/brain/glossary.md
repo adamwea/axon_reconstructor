@@ -82,11 +82,11 @@ Project-specific terms with locked definitions. Read this when a term in a plan 
 
 ## Modes
 
-- **extended_autonomous** — full-execution mode. Ships code, runs smokes, etc. Behavior defined entirely in `loop_prompts/extended_autonomous.md`. Mode = which prompt is pasted; no central router file.
+- **extended_autonomous** — fully-autonomous mode. Ships code + smokes. On friction with explicit user instructions, PIVOTS to another unblocked slice (files the block to `open_questions.md` for the user to see later, doesn't pause). Suitable for genuinely-unsupervised long runs (overnight, multi-hour). Behavior defined entirely in `loop_prompts/extended_autonomous.md`.
 
-- **collaborative** — question-curator mode. Loop reads + writes brain/plans/notes only. NO src/ changes, NO smokes. Surfaces ONE multiple-choice question per iteration via `AskUserQuestion`; executes non-destructive user-picked answers. Behavior defined entirely in `loop_prompts/collaborative.md`.
+- **autonomous_collaborative** — works-on-own-but-asks-on-friction mode. Ships code + smokes autonomously. On friction with explicit user instructions, surfaces multi-choice via `AskUserQuestion` and waits. Suitable when user is nearby and available to answer. Behavior defined entirely in `loop_prompts/autonomous_collaborative.md`. (This is what was originally called `extended_autonomous` pre-2026-05-21 rename per D-017.)
 
-- **(retired)** — earlier design had a `paused` mode + a `brain/mode.md` router file. Deleted 2026-05-21 as over-engineered (D-016). Pausing = stop firing the loop; switching modes = paste the other prompt.
+- **Mode = which prompt is pasted**; no central router file. Switching modes = paste the other prompt. (Earlier design had a `brain/mode.md` router + a 3-mode setup with a "collaborative" pure-question-curator mode and a "paused" mode; both retired 2026-05-21 — see D-016 + D-017.)
 
 ## Devices + recordings
 

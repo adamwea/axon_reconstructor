@@ -19,7 +19,7 @@ Together these are the brain's "stable goal-attractor at the top biasing a hiera
 
 ### Mode = `/loop` prompt (no central router file)
 
-The MODE you're in is implied by which `/loop` prompt the user pasted: `loop_prompts/extended_autonomous.md` (ship-code-and-smoke mode) OR `loop_prompts/collaborative.md` (ask-before-doing mode). Each prompt declares its permitted action set inline. The brain-theory "inhibition / interference control" module is implemented as a property of which prompt is running, not a central file the loop must check. (Earlier design had `brain/mode.md` as a router file; deleted 2026-05-21 as over-engineered — see decisions.md D-016.)
+The MODE you're in is implied by which `/loop` prompt the user pasted: `loop_prompts/autonomous_collaborative.md` (autonomous + asks-via-AskUserQuestion on friction) OR `loop_prompts/extended_autonomous.md` (fully autonomous + pivots on friction). Each prompt declares its permitted action set inline. The brain-theory "inhibition / interference control" module is implemented as a property of which prompt is running, not a central file the loop must check. (Earlier design had `brain/mode.md` as a router file + a third "collaborative" question-curator prompt; deleted 2026-05-21 as over-engineered — see D-016 + D-017.)
 
 ### Stable backbone (read every iteration, change slowly)
 
@@ -55,7 +55,7 @@ The MODE you're in is implied by which `/loop` prompt the user pasted: `loop_pro
 
 Every loop iteration, in this order:
 
-0. **Mode = current prompt**: the active `/loop` prompt's body (`loop_prompts/extended_autonomous.md` OR `loop_prompts/collaborative.md`) declares the permitted action set inline. No central mode file to read.
+0. **Mode = current prompt**: the active `/loop` prompt's body (`loop_prompts/autonomous_collaborative.md` OR `loop_prompts/extended_autonomous.md`) declares the permitted action set inline. No central mode file to read.
 1. **Backbone**: `brain/objectives.md` (goal slot) → `brain/trusted_outputs.md` top (trust state) → `brain/dependency_graph.md` for any node the current slice touches (propagation) → `brain/metrics.md` for any metric the slice surface affects (rollback triggers) → `brain/escalation.md` counters in `brain/notes.md` (am I about to hit a perseveration limit?). **Glance at `brain/glossary.md` if a term feels ambiguous; check `brain/anti_patterns.md` before any action that "feels tempting in the moment"; consult `brain/decisions.md` if the current question revisits a past decision.**
 2. **Working layer**: `brain/current_state.md` USER INJECTIONS (authoritative) → `brain/open_questions.md` (gates, plan-audit findings) → `brain/diagnostics_to_review.md` (anything blocking).
 3. **Reference layer as needed**: `brain/guardrails/<topic>.md` re-read whenever a slice's surface area maps to one of them (including `critic_separation.md` for code-shipping slices). `brain/refs/<doc>.md` consulted when implementing a new algorithm / phase that's been previously researched.

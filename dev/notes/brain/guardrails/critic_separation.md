@@ -89,8 +89,7 @@ The push-back is structural, not implicit — every disagreement surfaces to the
 
 ## Mode interaction
 
-- In **autonomous mode** (`loop_prompts/extended_autonomous.md`): critic separation is mandatory per the rules above; loop runs it autonomously for every code-shipping slice.
-- In **collaborative mode** (`loop_prompts/collaborative.md`): code shipping is forbidden by the prompt's permitted action set, so critic separation typically doesn't trigger. EXCEPTION: if a user-picked answer that ships code (rare in collaborative mode), critic separation still applies.
+Two `/loop` prompts ship code: `loop_prompts/autonomous_collaborative.md` (asks on friction) and `loop_prompts/extended_autonomous.md` (pivots on friction). Critic separation is mandatory in BOTH for any code-shipping slice. The difference between the two modes is friction-handling, not critic discipline — the critic-separation rule fires identically.
 
 ---
 

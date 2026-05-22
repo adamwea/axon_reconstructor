@@ -91,7 +91,20 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
   3. Single mode with finer-grained per-action permissions
 - **Picked**: option 1 — discrete modes are easier to reason about; user can transition explicitly
 - **Expected failure mode**: invalidated if collaborative mode turns out to need sub-modes (e.g., "collaborative-design" vs "collaborative-execute"). At that point: add modes; the file structure supports it.
-- **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
+- **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/autonomous_collaborative.md + critic_separation + escalation)
+- **Status**: active
+
+### D-017 — Rename `extended_autonomous.md` → `autonomous_collaborative.md`; create NEW `extended_autonomous.md` for fully-autonomous pivot-on-friction behavior
+- **Date**: 2026-05-21
+- **Source**: user msg "the way the looper is currently running, it's calling itself autonomous, but this is the level of collaboration that I want. ... extended_autonomous to do is to run fully autonomously, if it runs into blocks work on other stuff. Whereas, collaborative, if it runs into blocks, it asks me questions."
+- **Context**: D-005/D-016's two-prompt system had `extended_autonomous.md` (asks via AskUserQuestion on friction) + `collaborative.md` (every-iteration-question-curator, no code shipping). User observation: the existing extended_autonomous behavior (asks-on-friction) IS the right collab level for nearby-user runs. The collaborative.md prompt was overly restrictive (read-only, every-iteration-asks); the desired collab level was already in extended_autonomous. What's missing: a TRULY autonomous mode that pivots on friction instead of asking.
+- **Options considered**:
+  1. Rename + new (user picked): `extended_autonomous.md` → `autonomous_collaborative.md`; `collaborative.md` deleted; create NEW `extended_autonomous.md` with pivot-on-friction.
+  2. Keep current names; just add a "verbose" flag to extended_autonomous to toggle AskUserQuestion behavior. Less clean.
+  3. Three-prompt setup (no_ask / ask_on_friction / ask_every_iteration). Over-engineered; the every-iteration-ask form turned out unwanted.
+- **Picked**: option 1 — the rename captures what was already true (the old "extended autonomous" was actually collaborative-with-asks); the new extended_autonomous fills the real gap (true unsupervised autonomy).
+- **Expected failure mode**: invalidated if pivot-on-friction extended_autonomous produces accumulating low-priority work while a higher-priority slice silently sits blocked. Mitigation: max-simultaneously-blocked rule (TBD if observed).
+- **Resolution**: this commit. `loop_prompts/extended_autonomous.md` (old asks-on-friction) renamed to `loop_prompts/autonomous_collaborative.md`. `loop_prompts/collaborative.md` deleted. NEW `loop_prompts/extended_autonomous.md` written (round 1, fully autonomous, pivot-on-friction).
 - **Status**: active
 
 ### D-016 — Drop `brain/mode.md` router; mode = which `/loop` prompt is pasted
@@ -104,7 +117,7 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
   3. Add UI / CLI tooling to manage the mode router (overkill)
 - **Picked**: option 1 — supersedes D-005's central router design with the prompt-encodes-mode approach
 - **Expected failure mode**: invalidated if a third mode emerges that doesn't fit cleanly as a third prompt file (unlikely; two modes have proven sufficient).
-- **Resolution**: `brain/mode.md` deleted; CLAUDE.md entry protocol step 0 / slice protocol step 0 reworded to reference the prompt's permitted set; brain/README.md "Mode router" section replaced with "Mode = `/loop` prompt"; loop_prompts/collaborative.md + extended_autonomous.md both updated to describe the no-router model; glossary + critic_separation references cleaned up. D-005 marked SUPERSEDED by D-016.
+- **Resolution**: `brain/mode.md` deleted; CLAUDE.md entry protocol step 0 / slice protocol step 0 reworded to reference the prompt's permitted set; brain/README.md "Mode router" section replaced with "Mode = `/loop` prompt"; loop_prompts/autonomous_collaborative.md + extended_autonomous.md both updated to describe the no-router model; glossary + critic_separation references cleaned up. D-005 marked SUPERSEDED by D-016.
 - **Status**: active
 
 ### D-015 — Lift the pause; transition collaborative → extended_autonomous (post-2-audit-rounds)
@@ -113,7 +126,7 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Context**: After phase zero (Z1+Z2+Z3) + GATE 1 approval + 2 plan-audit rounds (6 findings shipped), backlog was genuinely drained. User picked lift-now vs. risking audit-pass drift.
 - **Picked**: option 1 — lift to extended_autonomous; loop's first autonomous work = GATE 1 per D-010
 - **Expected failure mode**: invalidated if a friction point in GATE 1 reveals the gate spec is wrong AND requires a return to collaborative. At that point: stop-and-ask surfaces it; if user transitions back to collaborative, the cycle restarts.
-- **Resolution**: (a) loop_prompts/extended_autonomous.md PAUSE NOTICE removed inline (not a round bump — stale-block cleanup); (b) user edits brain/mode.md ACTIVE_MODE to extended_autonomous + fires fresh /loop session
+- **Resolution**: (a) loop_prompts/autonomous_collaborative.md PAUSE NOTICE removed inline (not a round bump — stale-block cleanup); (b) user edits brain/mode.md ACTIVE_MODE to extended_autonomous + fires fresh /loop session
 - **Status**: active
 
 ### D-014 — Execute all 3 round-2 audit findings (F#5 TODO refresh + F#6 dashboard_audit historicize + F#7 AP-013/014 anti_patterns)

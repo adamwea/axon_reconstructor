@@ -1,33 +1,26 @@
-# Extended autonomous loop prompt
+# Autonomous-collaborative loop prompt
 
-The standing `/loop` invocation prompt for this repo. Paste the fenced block
-below into the `/loop` command (Claude Code) to fire an autonomous iteration
-on the queued plan tier.
+The "works on own + asks user when blocked on explicit-instruction friction" `/loop` invocation prompt. Paste the fenced block below into the `/loop` command (Claude Code) to fire an autonomous iteration on the queued plan tier; the loop runs autonomously BUT surfaces multiple-choice questions via `AskUserQuestion` whenever it hits friction with explicit user instructions (per the B1/B2 + PRE-DIAGNOSTIC-GATE discipline). User is expected to be nearby and available to answer.
+
+Sibling prompt: `loop_prompts/extended_autonomous.md` — the more autonomous variant; on blocks, PIVOTS to other unblocked work instead of asking. Use that one for long unsupervised runs (overnight / multi-hour) where the user is genuinely away.
 
 **How to use:**
 1. Open Claude Code in this repo.
 2. Type `/loop` and paste the fenced block below as the loop instructions.
-3. The loop reads `CLAUDE.md` → `dev/notes/brain/current_state.md` → relevant
-   guardrails, then advances the next slice on its own. Stops only on
-   "stop"/"wake up"/"wrap up" or genuine queue exhaustion.
+3. The loop reads `CLAUDE.md` → `brain/objectives.md` → backbone files → `current_state.md` → relevant guardrails → plan, then advances the next slice. Surfaces questions via `AskUserQuestion` when it hits friction. Stops only on "stop"/"wake up"/"wrap up" or genuine queue exhaustion.
 
-**Revision history**: tracked by `git log dev/notes/loop_prompts/extended_autonomous.md`.
-Earlier paste-cache copies of rounds 1-3 live in `~/.claude/paste-cache/` (don't
-edit those; they're auto-managed by Claude Code).
+**Revision history**: tracked by `git log dev/notes/loop_prompts/autonomous_collaborative.md` (was `extended_autonomous.md` pre-2026-05-21 rename per D-017).
 
-**When to bump the round**: when authorizations change, when major
-directives ship (and can be removed as first-iteration priorities), or when
-new USER INJECTIONS warrant in-prompt visibility instead of relying solely
-on `current_state.md` discovery.
+**When to bump the round**: when authorizations change, when major directives ship (and can be removed as first-iteration priorities), or when new USER INJECTIONS warrant in-prompt visibility instead of relying solely on `current_state.md` discovery.
 
 ---
 
-## Current — Round 7 (2026-05-21; pause-notice removed 2026-05-21 via QZ11)
+## Current — Round 7 (originally "extended autonomous"; renamed to "autonomous-collaborative" 2026-05-21 per D-017)
 
-> **History**: round 7 originally landed during the planning/refinement pause with a 🛑 PAUSE NOTICE block. QZ11 (2026-05-21) lifted the pause; PAUSE NOTICE removed inline. Round 7 body is otherwise the original. The autonomous-mode behavior is encoded entirely in the prompt below — switching to collaborative = user pastes `loop_prompts/collaborative.md` instead. (Earlier design had a `brain/mode.md` router file; deleted 2026-05-21 as over-engineered.)
+> **History**: round 7 originally landed during the planning/refinement pause with a 🛑 PAUSE NOTICE block. QZ11 (2026-05-21) lifted the pause; PAUSE NOTICE removed inline. Then 2026-05-21 the prompt got renamed from "extended autonomous" to "autonomous-collaborative" because what was actually happening (asks-via-AskUserQuestion on friction) matched the latter framing better. The behavioral body below is unchanged from round 7 final; only the framing + name changed.
 
 ```
-EXTENDED AUTONOMOUS MODE (round 7) — relaxed stop conditions.
+AUTONOMOUS-COLLABORATIVE MODE (round 7) — works on own; asks on friction.
 
 Read /global/homes/a/adammwea/dev/pkgs/axon_recon/CLAUDE.md and follow its
 entry protocol. Read dev/notes/brain/current_state.md ⚡ USER INJECTIONS
