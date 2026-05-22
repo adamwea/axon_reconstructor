@@ -2142,6 +2142,7 @@ def load_spikeinterface_analyzers(
 	analyzer_cache_concat_subdir: str = "concat",
 	analyzer_cache_segments_subdir: str = "",
 	alternate_well_out_dirs: list[Path] | tuple[Path, ...] | None = None,
+	persist_cache_dir: Path | None = None,
 	stream_id: str | None = None,
 	include_concat: bool,
 	include_segments: bool,
@@ -2287,6 +2288,18 @@ def load_spikeinterface_analyzers(
 	segments_dir = _resolve_from_well(segments_sources_reldir) or (wf_out / "segment_waveforms")
 	load_stats["segments"]["recordings_source_dir"] = str(segments_dir)
 	cache_root = None if analyzer_cache_dir is None else Path(analyzer_cache_dir).expanduser().resolve()
+	# `persist_root` is the cache dir used for WRITES (binary_folder saves via
+	# `_persist_to_cache`). Defaults to `cache_root` for back-compat. When the
+	# fallback recursion fires, the recursion passes `persist_cache_dir=<primary
+	# cache_root>` so writes return to the primary's tree even though reads
+	# come from the fallback. Without this, builds from a fallback well_out_dir
+	# would write the persistent cache to the fallback's tree (e.g. polluting
+	# read-only reference data passed via --input-root).
+	persist_root = (
+		Path(persist_cache_dir).expanduser().resolve()
+		if persist_cache_dir is not None
+		else cache_root
+	)
 	recording_cache: dict[Path, Any | None] = {}
 	cached_analyzer_dirs = _discover_cached_analyzer_dirs(
 		analyzer_cache_dir=cache_root,
@@ -2313,26 +2326,34 @@ def load_spikeinterface_analyzers(
 			str(cache_root),
 		)
 
-	def _cache_folder_for_name(analyzer_name: str) -> Path | None:
-		if cache_root is None:
+	def _cache_folder_for_name(analyzer_name: str, *, root: Path | None = None) -> Path | None:
+		# `root=None` → use cache_root (read-path); callers from the persist
+		# path pass `root=persist_root` so the exists-check after save_as
+		# verifies the write landed at the primary tree.
+		anchor = root if root is not None else cache_root
+		if anchor is None:
 			return None
 		concat_subdir = str(analyzer_cache_concat_subdir or "").strip().strip("/")
 		segments_subdir = str(analyzer_cache_segments_subdir or "").strip().strip("/")
 		if str(analyzer_name) == "concat":
-			return cache_root / (concat_subdir or "concat")
+			return anchor / (concat_subdir or "concat")
 		segments_subdir = str(analyzer_cache_segments_subdir or "").strip().strip("/")
-		segments_root = cache_root / segments_subdir if segments_subdir else cache_root
+		segments_root = anchor / segments_subdir if segments_subdir else anchor
 		return segments_root / str(analyzer_name)
 
 	def _persist_to_cache(*, analyzer: Any, analyzer_name: str) -> Any:
+		# Always persist to persist_root (= primary cache_root unless overridden
+		# by the fallback-recursion site). Without this, builds initiated from
+		# a fallback well_out_dir would write the persistent cache into the
+		# fallback's tree (e.g. read-only --input-root reference data).
 		persisted = _persist_analyzer_to_cache(
 			analyzer=analyzer,
-			analyzer_cache_dir=cache_root,
+			analyzer_cache_dir=persist_root,
 			analyzer_name=analyzer_name,
 			concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
 			segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
 		)
-		folder = _cache_folder_for_name(analyzer_name)
+		folder = _cache_folder_for_name(analyzer_name, root=persist_root)
 		if folder is not None and folder.exists():
 			load_stats["cache"]["persisted"] = int(load_stats["cache"]["persisted"]) + 1
 		return persisted
@@ -2899,6 +2920,17 @@ def load_spikeinterface_analyzers(
 					fallback_cache_dir = fallback_well_out_dir / cache_relative
 				except ValueError:
 					pass
+			# PERSIST-PATH SYMMETRY (mirror of the READ-path fix above):
+			# while the recursion READS from `fallback_cache_dir` (the
+			# fallback's cache tree, e.g. the --input-root reference data),
+			# WRITES must still land in the PRIMARY cache tree
+			# (`analyzer_cache_dir`, e.g. --output-root). Pass the original
+			# primary cache dir as `persist_cache_dir` so `_persist_to_cache`
+			# in the recursion writes to the primary, not the fallback. When
+			# both this fallback recursion fires AND the caller already passed
+			# a persist_cache_dir override, prefer the caller's override
+			# (preserves "topmost caller controls persist target" invariant).
+			persist_for_fallback = persist_cache_dir if persist_cache_dir is not None else analyzer_cache_dir
 			try:
 				return load_spikeinterface_analyzers(
 					well_out_dir=fallback_well_out_dir,
@@ -2911,6 +2943,7 @@ def load_spikeinterface_analyzers(
 					analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
 					analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
 					alternate_well_out_dirs=None,
+					persist_cache_dir=persist_for_fallback,
 					stream_id=stream_id,
 					include_concat=include_concat,
 					include_segments=include_segments,
@@ -3036,6 +3069,7 @@ def iter_spikeinterface_analyzers(
 	analyzer_cache_concat_subdir: str = "concat",
 	analyzer_cache_segments_subdir: str = "",
 	alternate_well_out_dirs: list[Path] | tuple[Path, ...] | None = None,
+	persist_cache_dir: Path | None = None,
 	stream_id: str | None = None,
 	include_concat: bool,
 	include_segments: bool,
@@ -3127,6 +3161,7 @@ def iter_spikeinterface_analyzers(
 				analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
 				analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
 				alternate_well_out_dirs=alternate_well_out_dirs,
+				persist_cache_dir=persist_cache_dir,
 				stream_id=stream_id,
 				include_concat=include_concat,
 				include_segments=include_segments,
@@ -3208,6 +3243,13 @@ def iter_spikeinterface_analyzers(
 					fallback_cache_dir = fallback / cache_relative
 				except ValueError:
 					pass
+			# PERSIST-PATH SYMMETRY (mirror of the load_spikeinterface_analyzers
+			# fallback fix): when the recursion READS from the fallback's
+			# cache tree, WRITES must still go to the PRIMARY (--output-root)
+			# tree. Without this, builds from the fallback well would persist
+			# the SI binary_folder cache under the fallback's path
+			# (e.g. polluting read-only reference data passed via --input-root).
+			persist_for_fallback = persist_cache_dir if persist_cache_dir is not None else analyzer_cache_dir
 			yielded_from_fallback = False
 			for src_name, analyzer in iter_spikeinterface_analyzers(
 				well_out_dir=fallback,
@@ -3220,6 +3262,7 @@ def iter_spikeinterface_analyzers(
 				analyzer_cache_concat_subdir=analyzer_cache_concat_subdir,
 				analyzer_cache_segments_subdir=analyzer_cache_segments_subdir,
 				alternate_well_out_dirs=None,
+				persist_cache_dir=persist_for_fallback,
 				stream_id=stream_id,
 				include_concat=include_concat,
 				include_segments=include_segments,

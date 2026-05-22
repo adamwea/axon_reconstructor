@@ -1299,9 +1299,12 @@ stages:
           preprocessed_sources_reldir: /preprocess_outputs/preprocessed_segments
           # Input 2: canonical sorting (kilosort folder; SI metadata not required)
           sorting_relpath: /spikesort_outputs/sorter_output
+          # Paper-spec STA window (Radivojevic 2023): 20 ms total = 400 frames
+          # at 50 μs. Split 2 ms pre + 18 ms post per user direction (forward-
+          # propagation framing; trigger t₀ = AIS spike).
           waveforms:
             ms_before: 2
-            ms_after: 5
+            ms_after: 18
           template_extraction:
             # null or -1 means uncapped (use all available spikes per unit per source)
             max_spikes_per_unit: -1
@@ -1319,9 +1322,10 @@ stages:
           # extensions locally. n_jobs: null inherits cpus_per_task from
           # the active task profile (per-rank under MPI).
           n_jobs: null
+          # Paper-spec STA window — keep defaults aligned with segments block.
           waveforms:
             ms_before: 2
-            ms_after: 5
+            ms_after: 18
           template_extraction:
             max_spikes_per_unit: -1
             random_spikes_percentage: 25

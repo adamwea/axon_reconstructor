@@ -1458,3 +1458,99 @@ def test_load_spikeinterface_analyzers_fallback_recomputes_cache_dir_relative_to
 	# Fallback recursion finds the alternate's segment, so loader sees seg path.
 	loaded = [str(payload["path"]) for _, payload in analyzers]
 	assert str(alt_seg_a) in loaded
+
+
+def test_load_spikeinterface_analyzers_fallback_persist_targets_primary_cache(
+	tmp_path, monkeypatch
+) -> None:
+	"""PERSIST-PATH symmetric fix: when the fallback recursion BUILDS analyzers
+	(rather than just loading existing ones from the alt cache), the persist
+	target must remain the PRIMARY cache (output-root) — NOT the fallback's
+	tree. Without this, builds initiated from a --input-root fallback would
+	pollute the read-only reference data with newly-saved binary_folder caches.
+
+	We assert the parameter plumbing: the recursive `load_spikeinterface_analyzers`
+	call from the fallback site receives `persist_cache_dir=<primary>` so that
+	`_persist_to_cache` inside the recursion writes to the primary, not the
+	fallback's `analyzer_cache_dir`.
+	"""
+	primary_well = tmp_path / "dev" / "well000"
+	primary_cache = primary_well / "recon_outputs" / "cache" / "analyzers"
+	(primary_well / "recon_outputs" / "cache").mkdir(parents=True, exist_ok=True)
+	alt_well = tmp_path / "ref" / "well000"
+	alt_segments = alt_well / "custom_segments"
+	(alt_segments / "segA").mkdir(parents=True, exist_ok=True)
+	alt_cache = alt_well / "recon_outputs" / "cache" / "analyzers"
+	alt_cache.mkdir(parents=True, exist_ok=True)
+
+	from axon_recon.pipeline.stages.reconstruct.templates.integrations import (
+		spikeinterface_extract as _module,
+	)
+
+	# Spy on the recursive `load_spikeinterface_analyzers` call FROM the
+	# fallback site. We only care about whether the recursive call receives
+	# `persist_cache_dir=<primary>` — full execution of the recursion needs
+	# a real spikeinterface build path we don't want to mock here.
+	original_load = _module.load_spikeinterface_analyzers
+	recursive_calls: list[dict] = []
+	# Sentinel: empty result tuple shaped like load_spikeinterface_analyzers'
+	# return when no analyzers found + return_stats=False.
+	from pathlib import Path as _Path
+
+	def _spy_load(**kwargs):
+		try:
+			woo = _Path(kwargs.get("well_out_dir")).expanduser().resolve()
+		except Exception:
+			woo = None
+		# Outer call (primary well) — let it run normally so the fallback
+		# branch executes. Inner call (alt well) — record kwargs + return
+		# an empty list to short-circuit.
+		if woo == alt_well.resolve():
+			recursive_calls.append({
+				"well_out_dir": str(woo),
+				"analyzer_cache_dir": (
+					None if kwargs.get("analyzer_cache_dir") is None
+					else str(_Path(kwargs["analyzer_cache_dir"]).resolve())
+				),
+				"persist_cache_dir": (
+					None if kwargs.get("persist_cache_dir") is None
+					else str(_Path(kwargs["persist_cache_dir"]).resolve())
+				),
+			})
+			return []
+		return original_load(**kwargs)
+
+	monkeypatch.setattr(_module, "load_spikeinterface_analyzers", _spy_load)
+
+	def _fake_load_sorting_analyzer(path):
+		return {"path": str(path)}
+
+	fake_full = types.ModuleType("spikeinterface.full")
+	fake_full.load_sorting_analyzer = _fake_load_sorting_analyzer  # type: ignore[attr-defined]
+	fake_root = types.ModuleType("spikeinterface")
+	fake_root.full = fake_full  # type: ignore[attr-defined]
+	monkeypatch.setitem(sys.modules, "spikeinterface", fake_root)
+	monkeypatch.setitem(sys.modules, "spikeinterface.full", fake_full)
+
+	# Invoke via the original (the spy intercepts the RECURSIVE call only).
+	original_load(
+		well_out_dir=primary_well,
+		preproc_seg_sources_reldir="/custom_segments",
+		analyzer_cache_dir=primary_cache,
+		alternate_well_out_dirs=[alt_well],
+		include_concat=False,
+		include_segments=True,
+	)
+
+	assert len(recursive_calls) >= 1, "fallback recursion did not fire"
+	# Reads use the alt-derived cache_dir (existing PATH 2 behavior).
+	assert recursive_calls[0]["analyzer_cache_dir"] == str(_Path(alt_cache).resolve())
+	# CORE ASSERTION: writes (persist_cache_dir) remain anchored at the PRIMARY.
+	# Without this fix the recursion's _persist_to_cache would write to
+	# alt_cache (the fallback's analyzer_cache_dir), polluting --input-root.
+	assert recursive_calls[0]["persist_cache_dir"] == str(_Path(primary_cache).resolve()), (
+		f"fallback recursion must thread the PRIMARY cache as persist_cache_dir to "
+		f"prevent build-time persists from polluting the alternate (read-only) tree; "
+		f"got {recursive_calls[0]['persist_cache_dir']!r} instead of "
+		f"{str(_Path(primary_cache).resolve())!r}"
+	)
