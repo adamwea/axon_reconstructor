@@ -79,6 +79,8 @@ Authored 2026-05-21 per QZ3 option 1 (spec-first as markdown). User reviews each
 
 Format: each block lists `Schema` (what shape the artifact has) + `Counts` (cardinality invariants) + `Value-range` (numerical guards) + `Reconciliation` (cross-file consistency predicates) per the option-1 framing.
 
+✅ APPROVED 2026-05-21
+
 ### Z3-TR-000 — Reference tree structural invariants (broad, applies tree-wide)
 
 **Schema invariants** (must hold for any well's outputs under TR-000):
@@ -119,6 +121,8 @@ Format: each block lists `Schema` (what shape the artifact has) + `Counts` (card
 
 ---
 
+✅ APPROVED 2026-05-21
+
 ### Z3-TR-001 — M08073/000208/well000/DIV 36 specific count invariants
 
 **Hard counts (exact-match regression targets)**:
@@ -142,6 +146,8 @@ Format: each block lists `Schema` (what shape the artifact has) + `Counts` (card
 **Status**: pending user review.
 
 ---
+
+✅ APPROVED 2026-05-21
 
 ### Z3-TR-002 — unit_0598 axon_velocity_gtrs anchor
 
@@ -170,6 +176,8 @@ Format: each block lists `Schema` (what shape the artifact has) + `Counts` (card
 
 ---
 
+✅ APPROVED 2026-05-21
+
 ### Z3-TR-003 — sample-rate + device metadata anchor
 
 **Schema invariants**:
@@ -193,6 +201,8 @@ Format: each block lists `Schema` (what shape the artifact has) + `Counts` (card
 **Status**: pending user review.
 
 ---
+
+✅ APPROVED 2026-05-21
 
 ### Z3-TR-004 — preprocess binary integrity anchor
 

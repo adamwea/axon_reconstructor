@@ -4,7 +4,18 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 ## 🧠 Phase-zero progression (loop-surfaced)
 
-### QZ4 — Approve the Z3 invariant specs (Z3-TR-000..004 in `brain/trusted_outputs.md`)
+### QZ5 — Phase zero complete — lift the pause?
+
+- **Why now**: Z1 done (dependency graph mapped), Z2 done (user pinned TR-000/001/002/003/004), Z3 done (5 Z3-TR-xxx invariant specs APPROVED 2026-05-21). Z4 is "user lifts the pause via new USER INJECTION." That's now actionable.
+- **Context**: Lifting the pause means transitioning brain/mode.md ACTIVE_MODE from `collaborative` to `extended_autonomous` — the loop resumes real-data smokes, code shipping, plan execution. But there's still a backlog of in-collaborative-mode items the user could resolve first: PRE-DIAGNOSTIC GATE 1 (radivojevic comparison plan), plan-audit Finding #2/3 candidates (loop hasn't surfaced them yet but the proactive plan audit will). Lifting NOW means autonomous execution starts BEFORE those items are resolved.
+
+**Pick an option** — answered via AskUserQuestion below.
+
+### QZ4 — ✅ USER APPROVED 2026-05-21: option 1 (approve all 5 Z3 specs as-written)
+
+User picked option 1 via AskUserQuestion. Loop marked Z3-TR-000 / 001 / 002 / 003 / 004 each `✅ APPROVED 2026-05-21` in `brain/trusted_outputs.md`. Specs now constitute the trusted gate consumed by critic_separation + future pytest. Z3 of phase zero is complete; Z4 (lift the pause) becomes actionable. Followup question QZ5 surfaces this.
+
+### QZ4 — original body
 
 - **Why now**: QZ3 resolution authored 5 invariant spec blocks (Z3-TR-000 thru Z3-TR-004). Per option 1's framing, user reviews + approves the SPECS (not the data — fast review). Approved specs become the trusted gate consumed by critic_separation + future pytest. Until approval, they're proposed only.
 - **Context**: Each Z3-TR-xxx block lists Schema / Counts / Value-range / Reconciliation invariants per pinned TR-xxx. Read `brain/trusted_outputs.md` "Z3 invariant specs" section. Total spec is ~150 lines; review is "do these assertions match what I'd want to enforce?" not "is this data correct?"

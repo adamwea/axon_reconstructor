@@ -94,6 +94,20 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-008 — Z3 invariant specs approved 2026-05-21 as-written
+- **Date**: 2026-05-21
+- **Source**: QZ4 user pick "option 1" via AskUserQuestion
+- **Context**: After QZ3 authored 5 Z3-TR-xxx invariant spec blocks, user reviewed + approved all 5 without pushback (no per-block adjustments, no format change request, no defer-to-pytest).
+- **Options considered**:
+  1. Approve all 5 as-written (user picked)
+  2. Approve some, push back on others
+  3. Defer batch, request different spec format
+  4. Defer until pytest-first
+- **Picked**: option 1 — fast path to closing Z3; user trusts spec quality to be sufficient
+- **Expected failure mode**: invalidated if a future autonomous-mode pytest implementation discovers a Z3-TR-xxx spec is ambiguous OR materially wrong on real data. At that point: amend the spec via a new decision; pytest gets the fixed version.
+- **Resolution**: commit (this commit) marks each Z3-TR-xxx block APPROVED. Z3 phase-zero step closed.
+- **Status**: active
+
 ### D-007 — Z3 invariants authored as markdown specs in `brain/trusted_outputs.md` (NOT as pytest yet)
 - **Date**: 2026-05-21
 - **Source**: QZ3 user pick "option 1"
