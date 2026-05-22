@@ -4,7 +4,18 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 ## 🧠 Phase-zero progression (loop-surfaced)
 
-### QZ6 — PRE-DIAGNOSTIC GATE 1: radivojevic apples-to-apples comparison plan — ready for autonomous execution post-pause?
+### QZ7 — Backlog appears drained. Lift the pause now, or anything else to resolve first?
+
+- **Why now**: Phase zero complete (Z1+Z2+Z3 ✅). Plan-audit Finding #1 RESOLVED (D-003 sequencing). PRE-DIAGNOSTIC GATE 1 APPROVED (D-010 from QZ6). Dashboard slice 7 stale entry tracked for prune. Open-question backlog is materially drained — no remaining items I can identify that the loop should ask before lifting. But you might have items in mind I can't see.
+- **Context**: Once you confirm there's nothing else to resolve, lift the pause by editing `brain/mode.md` `ACTIVE_MODE: collaborative` → `ACTIVE_MODE: extended_autonomous`. Loop's first autonomous work would be GATE 1 (the radivojevic comparison) per the sequencing in D-003 → D-010.
+
+**Pick an option** — answered via AskUserQuestion below.
+
+### QZ6 — ✅ USER APPROVED 2026-05-21: option 1 (GATE 1 as-written; execute post-pause)
+
+User picked option 1 via AskUserQuestion. PRE-DIAGNOSTIC GATE 1 (radivojevic apples-to-apples) is APPROVED for autonomous execution once the pause lifts. The 9-step plan stands; friction points (unit-ID mapping, plot_recons adapter) STOP-AND-ASK if hit. D-010 added. Marking GATE 1 itself APPROVED inline below.
+
+### QZ6 — original body
 
 - **Why now**: Biggest unresolved item in `brain/open_questions.md` backlog. GATE 1's plan body is already spec'd in detail below (analyzers-discovery extension already shipped; rest of plan = run kssynth heavy → identify high-branch unit → run radivojevic on its merged_template → use plot_recons for both outputs → compose comparison.png → file HARD-gate diagnostic). When pause lifts, the autonomous loop's first major work would naturally be this gate.
 - **Context**: GATE 1's 9-step plan was spec'd 2026-05-21; one prerequisite (--input-root analyzers extension, commit `c8b8b11`) has already shipped. The plan's open friction points (unit-ID mapping for kssynth output, plot_recons input shape adapter) are explicitly flagged as "STOP AND ASK if hit." Loop wouldn't blindly execute — it'd surface those if encountered.
@@ -142,7 +153,11 @@ Original 4-option block preserved below for archeology.
   (commit `ab56f64`). Both modes are reachable from the UI and the
   image export. **Marked for deletion** at next audit-pass.
 
-## 🛑 PRE-DIAGNOSTIC GATE 1 — confirm plan before next radivojevic diagnostic attempt (USER MANDATE 2026-05-21)
+## ✅ PRE-DIAGNOSTIC GATE 1 — APPROVED 2026-05-21 via QZ6 option 1 (execute as-written post-pause)
+
+Approved for autonomous execution once `brain/mode.md` ACTIVE_MODE transitions to `extended_autonomous`. 9-step plan stands. STOP-AND-ASK if friction hit at: unit-ID mapping (step 2), plot_recons input-shape adapter (step 4), empty/unexpected kssynth output (step 1). Original gate body preserved below.
+
+## 🛑 PRE-DIAGNOSTIC GATE 1 — original body
 
 **Per USER INJECTION 2026-05-21 (B2) — the next 3 diagnostic-generation iterations are GATED.** Loop does NOT begin diagnostic generation until the user explicitly confirms the plan below.
 

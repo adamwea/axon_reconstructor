@@ -94,6 +94,20 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-010 — PRE-DIAGNOSTIC GATE 1 (radivojevic apples-to-apples) approved as-written for post-pause autonomous execution
+- **Date**: 2026-05-21
+- **Source**: QZ6 user pick "option 1" via AskUserQuestion
+- **Context**: GATE 1 was the biggest unresolved item in `brain/open_questions.md`. Its 9-step plan body was spec'd 2026-05-21; one prereq (--input-root analyzers extension, commit `c8b8b11`) already shipped. With phase zero complete + Z3 specs approved, GATE 1 became actionable.
+- **Options considered**:
+  1. Approve as-written; execute post-pause (user picked)
+  2. Refine plan first (specify which step)
+  3. Slim down to numerical-only comparison
+  4. Table indefinitely
+- **Picked**: option 1 — plan is well-spec'd; STOP-AND-ASK guards on the 3 anticipated friction points (unit-ID mapping, plot_recons adapter, empty kssynth output) prevent silent improvisation
+- **Expected failure mode**: invalidated if a friction point hits + the loop's STOP-AND-ASK response surfaces a question that requires re-spec'ing significantly more of the plan than the friction point implies. At that point: re-open GATE 1 as a multi-part question.
+- **Resolution**: PRE-DIAGNOSTIC GATE 1 section in `brain/open_questions.md` marked APPROVED inline; awaits autonomous execution post-pause-lift
+- **Status**: active
+
 ### D-009 — Stay in collaborative mode after phase zero closes; resolve backlog before lifting pause
 - **Date**: 2026-05-21
 - **Source**: QZ5 user pick "option 2" via AskUserQuestion
