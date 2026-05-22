@@ -2,6 +2,50 @@
 
 TBD decisions awaiting user input or empirical data. Each entry has a clear resolution criterion. When resolved, move the conclusion to `current_state.md`, `guardrails/`, or a plan; delete the entry from here.
 
+## 🧠 Phase-zero progression (loop-surfaced)
+
+### QZ4 — Approve the Z3 invariant specs (Z3-TR-000..004 in `brain/trusted_outputs.md`)
+
+- **Why now**: QZ3 resolution authored 5 invariant spec blocks (Z3-TR-000 thru Z3-TR-004). Per option 1's framing, user reviews + approves the SPECS (not the data — fast review). Approved specs become the trusted gate consumed by critic_separation + future pytest. Until approval, they're proposed only.
+- **Context**: Each Z3-TR-xxx block lists Schema / Counts / Value-range / Reconciliation invariants per pinned TR-xxx. Read `brain/trusted_outputs.md` "Z3 invariant specs" section. Total spec is ~150 lines; review is "do these assertions match what I'd want to enforce?" not "is this data correct?"
+
+**Pick an option:**
+
+1. **Approve all 5 as-written (Recommended if specs look reasonable)** — touch S — Loop appends `✅ APPROVED 2026-05-21` lines above each Z3-TR-xxx block; specs become the trusted gate. Loop's next autonomous-mode session converts them to pytest. Tradeoff: fastest path to lifting the pause (Z3 effectively closed); some invariant specs may turn out to be slightly off and need refinement during pytest implementation.
+
+2. **Approve some, push back on others** — touch S — User specifies which blocks to approve + which need refinement (per block: "Z3-TR-002 looks fine; Z3-TR-001 hard-counts are wrong because ..."). Loop revises rejected blocks + resurfaces them in a new question. Tradeoff: more accurate spec; one or two extra iterations.
+
+3. **Defer the whole batch — request a different spec format** — touch M — If the markdown spec format itself is wrong (e.g. user wanted YAML schemas or example-based assertions), loop reformats. Tradeoff: starts over; loses the current spec content as base; but ends up with the right format.
+
+4. **Defer approval until after pytest implementation** — touch L — Loop transitions to autonomous mode + drafts pytest as a proposal; user reviews actual test code instead of markdown specs. Tradeoff: avoids the spec → code translation gap; but requires a mode change and ships test code before user approves the assertions (the very thing option 1 was meant to avoid).
+
+**Loop recommendation**: option 1 if a skim of the Z3 specs reveals nothing obviously wrong; option 2 if specific blocks need adjusting. Specifically, the recon-stage reconciliation invariant in Z3-TR-001 (176 vs 287 explanation) might warrant a second look since it's the trickiest one.
+
+**Resolution criterion**: user marks `✅ USER APPROVED <date>: option N` above this question. Loop executes the chosen option in the next iteration. (When the user picks option 2, the loop's next iteration will ask which blocks specifically need refinement — that's an additional Q.)
+
+### QZ3 — ✅ USER APPROVED 2026-05-21: option 1 (spec-first as markdown)
+
+User picked option 1. Loop authored invariant specs as markdown blocks appended to `brain/trusted_outputs.md` per TR-xxx entry — see "Z3 invariant specs" sub-sections under TR-000, TR-001, TR-002, TR-003, TR-004. Pytest implementation deferred to a follow-up autonomous-mode session. Next gate: user reviews + approves the SPECS (not the data — fast review per option 1's framing). Followup question QZ4 surfaces this.
+
+### QZ3 — original body
+
+- **Why now**: Phase zero is the gate to lifting the smoke-testing pause (per `brain/objectives.md` §"Phase zero" → Z4 = "user lifts the pause via new USER INJECTION"). Z1 + partial Z2 are done (`dependency_graph.md` mapped 2026-05-21; user pinned TR-000/002/003/004 same day). Z3 is the remaining unfinished piece — but Z3 as specified says "loop authors invariant-based tests", and collaborative mode forbids new test additions (`brain/mode.md` collaborative permitted set: "❌ New test additions (tests are code changes)"). The Z3 mechanism needs to be reconciled with mode permissions before the loop can actually progress it.
+- **Context**: Per `objectives.md` Z3: "For each pinned trusted output, loop authors invariant-based tests: schema, counts, value ranges, reconcilements. USER approves the ASSERTIONS (not the data — fast review). Promoted assertions become the trusted gate." Pinned outputs are TR-000 (blanket reference tree shape), TR-001 (176-template baseline), TR-002 (unit_0598 gtr), TR-003 (sample rate metadata), TR-004 (preprocess binary integrity) — see `brain/trusted_outputs.md`. Once invariants are approved, they become the verifier-anchor that Z4 needs to lift the pause and resume O1-O5 work.
+
+**Pick an option:**
+
+1. **Spec-first as markdown (Recommended)** — touch S — Loop authors invariant assertions as structured markdown in expanded sections of `brain/trusted_outputs.md` (one invariant block per pinned TR-xxx: schema check, counts, value-range bounds, reconciliation predicates). User reviews + approves the SPEC inline. Pytest implementation deferred to a follow-up autonomous-mode session that converts the approved spec into actual test code. Tradeoff: fully within collaborative permissions; user reviews fast; spec doubles as documentation. Downside: extra step (spec → code) before executable tests exist.
+
+2. **Audit existing tests first** — touch M — Before writing new invariants, classify which of the 457 existing `pipeline/tests/` cases already anchor TR-001..004 (vs Tier-2 advisory only). Output: a coverage map in `brain/trusted_outputs.md` (or a new `brain/test_coverage.md`) cross-referencing each pinned TR-xxx to existing test files. Gaps become explicit Z3 sub-tasks for follow-up. Tradeoff: avoids redundant invariants; surfaces real gaps; permitted as audit-pass work. Downside: doesn't itself produce Z3 deliverables; just defers them.
+
+3. **Mode transition: collaborative → extended_autonomous to author actual pytest assertions** — touch L — User edits `brain/mode.md` to switch ACTIVE_MODE. Loop then authors invariants AS pytest tests directly (skipping the spec→code two-step). Tradeoff: tests exist immediately; aligned with the literal Z3 wording in objectives.md. Downside: this is a mode change, not really an answer within collaborative mode; the spec-quality of invariants matters more than their executable form right now; mode change should probably wait until the open-question backlog is genuinely empty per `brain/mode.md` `extended_autonomous` "When to use" criteria.
+
+4. **Hybrid (spec-first + audit in parallel)** — touch M — Do (1) + (2) together: author invariants as markdown spec AND audit existing tests for what they already cover; spec gets written informed by the audit (don't re-spec what's covered). Tradeoff: most thorough; minimal redundancy. Downside: larger touch than either alone; could just as easily be option (1) with audit folded into its first iteration as "before authoring TR-xxx invariants, scan existing tests for coverage."
+
+**Loop recommendation**: option 1 — spec-first is the cleanest fit for collaborative mode and the user's own framing ("USER approves the ASSERTIONS (not the data — fast review)") describes a spec-shaped artifact. Option 2 is a fine prerequisite-style step but doesn't itself close Z3. Option 3 is a mode change and should be a user-initiated transition, not a multiple-choice resolution. Option 4 collapses naturally into option 1 if the loop just checks existing-test-coverage opportunistically while authoring each TR-xxx invariant block.
+
+**Resolution criterion**: user marks `✅ USER APPROVED <date>: option N` above this question. Loop executes the chosen option in the next iteration. Until then, question stays open and loop ScheduleWakeup'd on the "blocked on user gate" cadence (600-1200s).
+
 ## 🔎 Plan-audit findings (loop-surfaced)
 
 Per USER INJECTION 2026-05-21 (A1-A5), the loop proactively audits active plans + trackers for logical inconsistencies, stale assumptions, dead slices, redundant work, scope drift, inefficient orderings, and resource mismatches. Each finding here is a multiple-choice question. Cap: 5 open findings at any time.

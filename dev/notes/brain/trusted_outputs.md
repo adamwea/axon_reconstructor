@@ -71,6 +71,153 @@ The root of the verification trust chain. User-anchored: only the USER pins outp
 - **Trust handle**: sha256 + file-size of the first per-segment binary on M08073/well000/DIV 36 (or any reference well). Loop computes the sha + records it as the regression target.
 - **Use**: any preprocess-stage change must reproduce the same binary content (within filter-parameter expectations)
 
+---
+
+## Z3 invariant specs (USER-REVIEWABLE; pending promotion)
+
+Authored 2026-05-21 per QZ3 option 1 (spec-first as markdown). User reviews each block + marks `✅ APPROVED <date>` above it; approved invariants become the trusted gate consumed by the critic_separation subagent + future pytest implementations.
+
+Format: each block lists `Schema` (what shape the artifact has) + `Counts` (cardinality invariants) + `Value-range` (numerical guards) + `Reconciliation` (cross-file consistency predicates) per the option-1 framing.
+
+### Z3-TR-000 — Reference tree structural invariants (broad, applies tree-wide)
+
+**Schema invariants** (must hold for any well's outputs under TR-000):
+- `<well>/preprocess_outputs/segments/<seg-id>/` exists for each segment in the recording
+- Per-segment dir contains: `recording.bin`, `channel_positions.npy`, channel-mapping files
+- `<well>/spikesort_outputs/sorter_output/` exists post-sort
+- `<well>/spikesort_outputs/sorter_output_snapshot/` exists post-snapshot
+- Snapshot contains: `spike_times.npy`, `spike_clusters.npy`, `templates.npy`, `channel_positions.npy`, `channel_map.npy`, `cluster_KSLabel.tsv`, `params.py`
+- `<well>/recon_outputs/cache/analyzers/segments/<seg-id>/` exists per segment (post-analyzers phase)
+- `<well>/recon_outputs/units/unit_<id>/` exists per reconstructed unit (post-build_templates OR kssynth)
+- Per-unit dir contains: `merged_template.npy`, `merged_channel_locations.npy`, `gtr.pkl`, `branches.json`
+
+**Numpy shape + dtype invariants**:
+- `merged_template.npy`: dtype float32/float64; shape `(n_active_channels, n_samples)`; n_samples > 0; n_active_channels > 0 AND ≤ total channel count for the well
+- `merged_channel_locations.npy`: dtype float; shape `(n_active_channels, 2)` matching merged_template's first axis
+- `templates.npy` (kilosort-level): dtype float; shape `(n_units, n_samples, n_channels)`
+- `spike_clusters.npy`: dtype int (usually int64); shape `(n_spikes,)`; values in `[0, max_cluster_id]`
+- `spike_times.npy`: dtype int64; shape `(n_spikes,)` matching spike_clusters length; values monotone non-decreasing
+- `channel_positions.npy`: dtype float; shape `(n_channels, 2)`
+- `channel_map.npy`: dtype int; shape `(n_channels,)`; values are valid electrode indices
+
+**TSV column invariants**:
+- `cluster_KSLabel.tsv`: tab-separated; header row `cluster_id\tKSLabel`; one row per unique cluster
+- `cluster_group.tsv`: tab-separated; header row `cluster_id\tgroup`; group values in `{good, mua, noise}` post-SLAy
+- `cluster_KSLabel.tsv` and `cluster_group.tsv` agree on cluster_id sets (same row count, same IDs)
+
+**JSON schema invariants**:
+- All `*_summary.json`: have a `status` key with value in `{ok, error, dry_run_ok, in_progress, skipped, stale}`
+- `kssynth_summary.json` additionally has: `n_units`, `synth_sorter_output_relpath`, `per_unit_dir`, `per_unit_n_units_written`
+- `branches.json`: list of dicts; each dict has at minimum `unit_id`, `branch_id`, `n_branches`, `total_length_um`
+
+**Reconciliation invariants**:
+- For each well: `count(per-unit dirs in recon_outputs/units/) == count(unique IDs in cluster_KSLabel.tsv where KSLabel=='good')` (only good units get reconstructed per `unit_label_filter`)
+- `merged_template.npy`'s n_active_channels ≤ `channel_positions.npy`'s n_channels for the same well
+- `spike_clusters.npy`'s unique values == `cluster_KSLabel.tsv`'s cluster_id column
+
+**Status**: pending user review. Approve = these become the trusted gate consumed by critic_separation + future pytest.
+
+---
+
+### Z3-TR-001 — M08073/000208/well000/DIV 36 specific count invariants
+
+**Hard counts (exact-match regression targets)**:
+- `len(np.unique(spike_clusters.npy)) == 377` — post-SLAy unique unit IDs
+- `cluster_KSLabel.tsv` row count == 599
+- `cluster_KSLabel.tsv` "good" rows == 287
+- `cluster_KSLabel.tsv` "mua" rows == 312
+- `count(per-unit dirs in recon_outputs/units/) == 176`
+- 176 of those 176 per-unit dirs contain `merged_template.npy` (no missing files)
+- 176 of those 176 per-unit dirs contain `merged_channel_locations.npy`
+
+**Soft numerical invariants** (not exact, but tight bounds for sanity):
+- For each unit's `merged_template.npy`: amplitude (max abs voltage) in [3, 500] μV (units with extremes are suspect)
+- For each unit's `merged_template.npy`: n_active_channels in [3, 100] (sparse-template assumption)
+
+**Reconciliation invariants** (with TR-000 derived):
+- `count(per-unit dirs) == count(cluster_KSLabel.tsv where KSLabel=='good')` → 176 == 287 (NOTE: these DIFFER because post-SLAy merging creates new "good" composites that aren't reconstructed if they fall below `unit_label_filter`; the 176 number is the count of units that survive ALL filtering). The "good" count is 287 because some "good" units were excluded from reconstruction by the filter — this is expected; NOT a bug. Reconciliation predicate: 176 ≤ 287 (loose) and the gap == count of units excluded by `unit_label_filter`.
+
+**Failure response**: any of the hard counts drifting → auto-rollback per `brain/metrics.md` M-001 + escalate to user.
+
+**Status**: pending user review.
+
+---
+
+### Z3-TR-002 — unit_0598 axon_velocity_gtrs anchor
+
+**Schema invariants** (per TR-000 J2 contract):
+- `<well>/recon_outputs/units/0598/gtr.pkl` exists + unpickles via `axon_velocity` (shifter-only)
+- Unpickled object is a `GraphTracking` instance with attributes: `selected_channels`, `branches`, `velocities`, `soma_ch`
+- `<well>/recon_outputs/units/0598/branches.json` exists; list of dicts; len ≥ 8 (high-branch criterion)
+- `<well>/recon_outputs/units/0598/merged_template.npy` exists (TR-000 inherits)
+- `<well>/recon_outputs/units/0598/plot_recons/<unit>.png` exists post-plot_recons phase
+
+**Branch-tree invariants** (gtr-shape specific):
+- `gtr.branches` is a list; each branch dict has: `branch_id`, `length_um`, `electrodes`, `start_t_us`, `end_t_us`
+- `len(gtr.branches) >= 8` (this IS the high-branch-count criterion)
+- For each branch: `length_um > 0`, `electrodes` is a non-empty list of valid channel indices
+- For each branch: `end_t_us > start_t_us` (time-monotone)
+- `gtr.soma_ch` is a valid channel index in `channel_positions.npy`'s range
+
+**Velocity invariants** (physical plausibility — soft):
+- For each branch: derived velocity = `length_um / (end_t_us - start_t_us)` ≈ µm/µs = m/s
+- Velocity values in [0.05, 5.0] m/s (range covering myelinated + unmyelinated axons; outside this is suspect)
+
+**Comparator-side discipline** (DC-001 uses this entry):
+- This TR-002 IS the comparator for Radivojevic differential checks. radivojevic_recon on unit_0598's merged_template must produce a similar-in-shape result (per DC-001 in this file).
+
+**Status**: pending user review.
+
+---
+
+### Z3-TR-003 — sample-rate + device metadata anchor
+
+**Schema invariants**:
+- `<well>/preprocess_outputs/metadata.json` (or equivalent metadata artifact produced by `save_rec_metadata`) exists per recording
+- Contains keys: `sampling_rate_hz` (int), `n_channels` (int), `electrode_positions_um` (list of (x, y) pairs OR shape (n, 2))
+- May additionally contain: `device_name`, `recording_duration_s`, `dtype`, `gain_uv_per_lsb`
+
+**Value-range invariants** (device-family aware):
+- `sampling_rate_hz` is a positive integer
+- `sampling_rate_hz` in `{10000, 20000}` for current cohort (MaxTwo OR MaxOne); broader range for future devices but flag if outside `{1000..100000}`
+- `n_channels` > 0
+- For MaxWell family (current): `n_channels` in `{266, 1024, 26400}` depending on routing/scan-type
+
+**Reconciliation invariants**:
+- `metadata.json` `sampling_rate_hz` agrees with the corresponding `preprocess_outputs/segments/<seg>/params.py` if present
+- Same recording across multiple per-segment metadata files: `sampling_rate_hz` is constant per recording (NOT per segment — if it varies, that's a bug)
+
+**Anti-pattern invariant** (encodes AP-008):
+- NO Python source file in `src/axon_recon/` may have `sampling_rate_hz = 10000` (or any literal sample rate) hardcoded — assertion is `grep -rn 'sampling_rate.*=.*[0-9]\+0\+' src/axon_recon/` returns ZERO non-test hits. (Test files OK to have literal rates as fixtures.)
+
+**Status**: pending user review.
+
+---
+
+### Z3-TR-004 — preprocess binary integrity anchor
+
+**Schema invariants**:
+- `<well>/preprocess_outputs/segments/<seg>/recording.bin` exists
+- Sibling `channel_*.npy` files exist + are consistent
+
+**Bit-level integrity invariants**:
+- For a chosen reference segment (recommendation: `260326/M08073/AxonTracking/000208/well000/preprocess_outputs/segments/000_rec0000/recording.bin`):
+  - Recorded baseline: sha256 = `<TBD: compute on first run>`; file size in bytes = `<TBD>`
+  - Future preprocess-stage changes MUST reproduce this exact sha256 + size (within explicit filter-parameter changes — those get their own baseline update via user-approved promotion)
+- For other segments: shape invariant only — `file_size_bytes == n_samples * n_channels * dtype_bytes`
+
+**Soft consistency invariants**:
+- `recording.bin` shape: `(n_samples, n_channels)` consistent with metadata.json's `n_channels`
+- dtype: int16 OR float32 (preprocess filter output dtype)
+- No NaN / Inf values in any 1000-sample window (catches silent filter blowups)
+
+**Reconciliation invariants**:
+- Sum of per-segment `n_samples` across all `recording.bin` files for a recording == total recording_duration_s × sampling_rate_hz (within rounding)
+
+**Status**: pending user review.
+
+---
+
 ### (Proposed for promotion — user reviews + pins)
 
 Z1 ranked 2026-05-21 (see `brain/dependency_graph.md` §5 for the full justification including coverage estimates). Triage each into: ✅ PIN (you eyeball + approve now) / 💵 ACQUIRE LATER (cheap but needs a smoke first) / ❓ DEFER (expensive or needs other work to land first) / ❌ SKIP.

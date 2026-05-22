@@ -94,6 +94,20 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-007 — Z3 invariants authored as markdown specs in `brain/trusted_outputs.md` (NOT as pytest yet)
+- **Date**: 2026-05-21
+- **Source**: QZ3 user pick "option 1"
+- **Context**: Z3 of the phase-zero mission says "loop authors invariant-based tests" but collaborative mode forbids new test additions. Reconciliation question surfaced as QZ3; user picked option 1.
+- **Options considered**:
+  1. Spec-first as markdown (Recommended; user picked)
+  2. Audit existing tests first
+  3. Mode transition: collaborative → autonomous to author pytest directly
+  4. Hybrid (spec + audit in parallel)
+- **Picked**: option 1 — Loop authored Z3-TR-000 / Z3-TR-001 / Z3-TR-002 / Z3-TR-003 / Z3-TR-004 invariant specs as structured markdown sections in `brain/trusted_outputs.md`. User reviews + approves SPECS (fast — read claims, not data). Pytest implementation deferred to a follow-up autonomous-mode session.
+- **Expected failure mode**: invalidated if (a) markdown specs turn out to be ambiguous when the autonomous-mode session tries to convert them to pytest (i.e. the spec → code translation needs more detail), OR (b) the specs reveal a reference-data inconsistency the user wants to fix before pinning. At that point: revise specs OR adjust the reference data.
+- **Resolution**: commit (this commit) authors specs; QZ4 surfaces the approval gate
+- **Status**: active
+
 ### D-006 — Add 4 reasoning-consistency brain components (decisions, glossary, anti_patterns, slice_contracts Prediction field)
 - **Date**: 2026-05-21
 - **Source**: user msg "Any other brain pieces we could add for better reasoning consistency?"
