@@ -203,3 +203,34 @@ Down to 700 peaks + 30 skel pixels per frame + 508 links. **This is paper-order-
 3. OR (simplest stopgap) expose a `noise_scale` multiplier in radivojevic API — caller can pass √n manually.
 
 Knobs that worked here are HACKED (n_std=90 isn't a real paper value). Need (1) or (2) for production.
+
+#### v5 — slices 10/11/12/14 applied (paper-spec algorithm fixes)
+
+**Slices shipped in sibling radivojevic2023_recon_algo** (commits in `~/dev/pkgs/radivojevic2023_recon_algo/`):
+- `2e1caa7` slice 10: max_distance_um_indirect 200→400μm
+- `775177e` slice 14: recursive step 1B/1C expansion (rider chain)
+- `58eae8d` slice 12: separate analysis_frame_us from upsample_factor
+- `243d13f` slice 11: per-channel noise from external source
+- `dbd0881` slice 11 followup: skeletonization accepts per-channel noise
+- 168→172 tests pass throughout
+
+**Knob-by-knob comparison on unit_598** (`dev_outputs/.../v5_comparison/comparison_knobs.png`, same threshold scaling 90/20/10):
+
+| Config | peaks | chans | frames covered | links |
+|---|---|---|---|---|
+| v4 baseline (no slices) | 700 | 372 | 51/690 | 508 |
+| slice 14 only (iterative) | **2042** | **768** | **84/690** | **1436** |
+| slice 12 only (analysis_frame=50μs) | 1167 | 496 | 13/138 | 788 |
+| all 10+12+14 | **2118** | **825** | 26/138 | 1418 |
+
+**Slice 14 (rider chain) alone DOUBLES channel coverage** — exactly what user predicted. The iterative expansion extends detection across more frames (51→84 at upsample=10) so the rider can travel further along the propagating wavefront.
+
+**Slice 11 deferred for proper raw-recording-noise**: my v5 per-channel proxy (template pre-spike STD) was wrong units (μV vs μV/μs after derivative+decimation). True paper-spec needs:
+- SpikeInterface analyzer's `compute_noise_levels` extension on the raw recording during inactive periods of unit 598
+- OR equivalent: extract raw samples at non-spike times → per-channel STD on dV/dt of those samples
+
+Slice 13 (Stage 2 on-demand pair-averaged skeletonization) NOT shipped — biggest architectural change, deferred.
+
+**Sibling pushes** pending — commits are local-only until pushed to GitHub.
+
+Acceptance criteria from slice 15 NOT met (channels don't trace axon shape) — proper noise estimator (slice 11 done right) is the remaining gap. Slice 14 + 12 + 10 are correct + tested.
