@@ -94,6 +94,15 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-015 — Lift the pause; transition collaborative → extended_autonomous (post-2-audit-rounds)
+- **Date**: 2026-05-21
+- **Source**: QZ11 user pick "option 1" via AskUserQuestion
+- **Context**: After phase zero (Z1+Z2+Z3) + GATE 1 approval + 2 plan-audit rounds (6 findings shipped), backlog was genuinely drained. User picked lift-now vs. risking audit-pass drift.
+- **Picked**: option 1 — lift to extended_autonomous; loop's first autonomous work = GATE 1 per D-010
+- **Expected failure mode**: invalidated if a friction point in GATE 1 reveals the gate spec is wrong AND requires a return to collaborative. At that point: stop-and-ask surfaces it; if user transitions back to collaborative, the cycle restarts.
+- **Resolution**: (a) loop_prompts/extended_autonomous.md PAUSE NOTICE removed inline (not a round bump — stale-block cleanup); (b) user edits brain/mode.md ACTIVE_MODE to extended_autonomous + fires fresh /loop session
+- **Status**: active
+
 ### D-014 — Execute all 3 round-2 audit findings (F#5 TODO refresh + F#6 dashboard_audit historicize + F#7 AP-013/014 anti_patterns)
 - **Date**: 2026-05-21
 - **Source**: QZ10 user pick multi-select [F#5, F#6, F#7] via AskUserQuestion
