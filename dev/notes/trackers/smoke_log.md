@@ -164,3 +164,21 @@ Don't prune. This is a historical record. If an entry becomes superseded, link f
 - **Worker count**: n_jobs=1 (radivojevic algorithm is single-threaded). NOT a worker-count concern for this smoke.
 - **Diagnostics**: HARD-gate filed in `dev/notes/brain/diagnostics_to_review.md` — `comparison_unit_598.png` side-by-side composite at `dev_outputs/radivojevic_apples_to_apples/unit_598_radivojevic/`.
 - **Status**: closed (algorithm + comparison shipped end-to-end); user reviewing HARD-gate diagnostic. Follow-ups: kssynth slice 7+8 (analyzer-policy parity + upsample integration); resources_profiles slice 6 (64-vs-128 procs); plot_recons adapter for true apples-to-apples renderer parity (deferred).
+
+---
+
+## Smoke #7 — Radivojevic 2-stage paper-alignment refactor verification on unit_598
+
+- **Date**: 2026-05-22
+- **Command**: `python /pscratch/sd/a/adammwea/dev_outputs/radivojevic_paper_2stage/run_smoke.py` — login-node, conda env (axon_recon), 1 worker.
+- **Cohort**: M08073/000208/well000 DIV 36 unit_598 (9-branch reference; same as smoke #6)
+- **Commit**: radivojevic sibling repo `1c22138` (paper-alignment refactor; collapse stage_2+stage_3 → paper Stage 2; default `use_pair_averaged_skeleton=True`; add Stage1Trace / Stage2Trace)
+- **Outcome**: ✅ SUCCESS — diagnostic plot written.
+- **Quantitative result**:
+  - Input: kssynth merged_template (13439, 70) at 10 kHz raw + merged_channel_locations (13439, 2)
+  - Stage 1 (paper Step 1/2/3 — n_std 90/20/10 stopgap scale, paper geometry 50μm/100μm): 173 + 424 + 881 = 1478 cumulative peaks
+  - Stage 2 (paper Step 1/2/3 — direct/skel-assisted/indirect, 100/200/400 μm radii, on-demand pair-averaged skel): 991 + 12 + 31 = 1034 links
+  - Wall: 180.12s
+- **Worker count**: n_jobs=1 (radivojevic single-threaded; numpy ops fan out internally; observed ~210% CPU).
+- **Diagnostics**: SOFT-gate filed in `brain/diagnostics_to_review.md` — `unit_598_two_stage_diagnostic.png` at `dev_outputs/radivojevic_paper_2stage/diagnostics/`. Plot shows 4×2 grid (paper Stage 1 / Step 1/2/3/all on top, paper Stage 2 / Step 1/2/3/all on bottom).
+- **Status**: closed (refactor verified; structural plot delivered). Open known issue: selected channels still cluster centrally (noise-underestimate symptom). Follow-up: axon_recon slice 11 raw-recording noise wiring (next session) → re-run with paper n_std 9/2/1 against per-channel raw noise.

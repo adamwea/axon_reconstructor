@@ -47,6 +47,25 @@ Keep the list short. When an entry is `approved`, leave it for ~one week so the 
 
 (initially empty — Claude appends entries as slices generate diagnostics)
 
+### 2026-05-22 — Radivojevic 2-stage paper-alignment refactor (unit_598)
+
+- **Date / commit**: 2026-05-22 / sibling-repo `1c22138`
+- **Plan / slice**: `radivojevic_recon_algo_plan` — paper-alignment refactor (collapses misnamed stage_2 + stage_3 → single paper-Stage-2 module; adds per-step / per-frame trace fields; flips skeleton default to paper-faithful on-demand pair/triple-averaged)
+- **Artifact**: `/pscratch/sd/a/adammwea/dev_outputs/radivojevic_paper_2stage/diagnostics/unit_598_two_stage_diagnostic.png`
+- **What it shows**: 4×2 grid where the TOP row is Paper Stage 1 (channel selection) with each of the 3 thresholding steps as its own panel + a union panel; the BOTTOM row is Paper Stage 2 (trajectory reconstruction) with each of the 3 link steps (direct / skeleton-assisted / indirect) as its own panel + a union panel. Background gray envelope is the max-abs of the electrical-image grid. Channel positions are light gray dots.
+- **Quantitative**:
+  - Stage 1 cumulative peaks (9 / 2 / 1 STD steps): 173 / 424 / 881
+  - Stage 2 links (direct / skel-assisted / indirect): 991 / 12 / 31
+  - Wall: 180.12s (single-pass; iterative_expansion=False for tractability)
+  - Stage 1 step-1 hit 11 frames (out of ~140 analysis frames)
+  - **Threshold note**: stopgap n_std 90 / 20 / 10 (= paper 9/2/1 × 10). The 10× scale is the v4 baseline the user already accepted. Once raw-recording noise-per-channel is wired in (axon_recon slice 11 still pending), paper 9/2/1 should yield comparable peak counts without the scale.
+- **What to check**:
+  - Does each top-row panel look like a sensible "channel-selection at this threshold"? Step 1 should mark a small cluster of high-amplitude channels; step 2 should expand modestly; step 3 should expand a bit more (in a relaxed-confinement way), NOT fill the whole array.
+  - Does each bottom-row panel show a different kind of link (direct = many short links between adjacent frames; skel-assisted = sparse longer links; indirect = even sparser, every-other-frame).
+  - **KNOWN ISSUE the user has called out**: selected channels still cluster centrally (around the soma), not tracing the axon arbor. This is the noise-underestimate symptom — template-derived MAD noise is √n_spikes smaller than the paper-spec raw-recording noise, so the relaxed-threshold step 3 still excludes peripheral arbor channels. The fix is axon_recon slice 11 wiring (next session). The plot's purpose this turn is to confirm the algorithm STRUCTURE matches the paper, not that the output is biologically correct.
+- **Gate level**: soft — review when convenient; downstream slice work (axon_recon-side noise wiring) can proceed once the structure is confirmed.
+- **Status**: pending
+
 ### 2026-05-21 — Radivojevic first real-data smoke (cluster 67, M08073/well000/DIV 36) — RE-FILED with PNG
 
 - **Gate**: SOFT (Stage 1 + Stage 2 + Stage 3 outputs; loop proceeded autonomously)

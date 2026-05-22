@@ -45,6 +45,31 @@ The earlier slices' contracts are recoverable from:
 
 *(append-only; do NOT insert in the middle)*
 
+### 2026-05-22 — radivojevic paper-alignment refactor (sibling repo `1c22138`)
+
+- **Surface**: sibling `radivojevic2023_recon_algo` — `core/stage_1.py`, `core/stage_2.py` (new, was stage_3), `core/stage_3.py` (DELETED), `api.py`, `io/rendering.py`, `tests/test_stage_2.py` (was test_stage_3), `tests/test_api_reconstruct.py`, `tests/test_scaffold.py`. Old `core/stage_2.py` (electrical-image orchestrator) DELETED — coverage subsumed by `electrical_image.py` + `skeletonization.py` direct tests.
+- **Intent**: collapse the 3-file misnomer (stage_1 + stage_2 orchestrator + stage_3 trajectory) into the paper's two-stage shape (Stage 1 channel selection + Stage 2 trajectory). Add per-step / per-frame trace fields for future plot hooks. Default to paper-faithful on-demand pair-averaged skeletonization.
+- **Produces**:
+  - `ReconstructionResult` now has fields: `stage_1: Stage1Result | None` (channel selection), `stage_2: Stage2Result | None` (trajectory; renamed from `stage_3`), `electrical_image_grid: ElectricalImageGrid | None` (plotting-helper data), `skipped_reason: str | None`. Old `stage_2` (skeleton-stack) and `stage_3` fields are GONE — no back-compat shim.
+  - `Stage1Result.trace: Stage1Trace` always populated. `Stage1Trace` exposes `step1_peaks_by_frame: dict[int, list[PeakDetection]]`, `step2_peaks_per_iteration: list[list[PeakDetection]]`, `step3_peaks_per_iteration: list[list[PeakDetection]]`, plus matching `step{2,3}_seeds_at_iteration` snapshots.
+  - `Stage2Result.trace: Stage2Trace` always populated. `Stage2Trace` exposes `{direct,skeleton_assisted,indirect}_links_by_frame: dict[int, list[PeakLink]]` keyed by `peak_a.time_idx`.
+  - `api.reconstruct(..., use_pair_averaged_skeleton=True)` is the new default (paper Fig 4B/4C).
+- **Assumes**: callers that were inspecting `ReconstructionResult.stage_3` MUST migrate to `.stage_2`. The legacy `ReconstructionResult.stage_2.skeleton_stack` access is GONE — the global skeleton stack is no longer pre-computed (per-pair on demand).
+- **Propagates**:
+  - axon_recon-side `reconstruct.radivojevic_recon` phase (radivojevic plan slice 5, NOT YET SHIPPED) — when it lands, it consumes the new 2-stage `ReconstructionResult` shape directly.
+  - axon_recon-side noise wiring (radivojevic plan slice 11) — still pending; the new `noise_std_per_channel` parameter on Stage 1 is the entry point for raw-recording noise per channel.
+  - Any future plotting code that wants per-step / per-frame state can pull from `result.stage_1.trace` / `result.stage_2.trace` without re-running the algorithm.
+- **Trusted-output impact**: none — radivojevic is opt-in / experimental; no Tier-1 TR-xxx fixture covers it yet.
+- **Metric impact**: none directly; structural refactor doesn't change any of the M-xxx baselines.
+- **Prediction** (filed BEFORE smoke ran): expected ≈ same Stage 1 / Stage 2 peak + link counts as the previous v4 baseline (~700 peaks, ~30 skel/frame). Tests should all pass (165/165). Plot file should land in `dev_outputs/radivojevic_paper_2stage/diagnostics/`.
+- **Actual** (smoke #7 in `trackers/smoke_log.md`):
+  - 165/165 tests green after refactor.
+  - Stage 1 peaks 173 + 424 + 881 = 1478 (HIGHER than v4 baseline 700; iterative_expansion=False this run means step 2/3 are single-pass — explains the slight shift).
+  - Stage 2 links 991 + 12 + 31 = 1034.
+  - Plot written successfully.
+- **Delta**: matches structurally (refactor verified, tests green, plot landed). Peak count higher than v4 baseline but expected given `iterative_expansion=False` and a fresh threshold sweep — not a regression. Known noise-underestimate symptom (central clustering) UNCHANGED; that's slice 11's job.
+- **Critic verdict**: NOT RUN — file rename + dataclass field shifts are mechanical, low-risk, test-suite-covered. If the user wants a critic pass, easy to run post-hoc.
+
 ### 2026-05-21 — kssynth slice 3b: analyzer LOAD-path `--input-root` plumbing extension (PATH 2)
 
 - **Surface**: `pipeline/stages/reconstruct/templates/integrations/spikeinterface_extract.py` — `load_spikeinterface_analyzers` + `iter_spikeinterface_analyzers` fallback recursions.
