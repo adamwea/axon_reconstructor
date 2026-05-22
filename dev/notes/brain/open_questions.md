@@ -4,7 +4,35 @@ TBD decisions awaiting user input or empirical data. Each entry has a clear reso
 
 ## 🧠 Phase-zero progression (loop-surfaced)
 
-### QZ9 — All 3 audit findings resolved. Lift the pause now?
+### QZ10 — Audit round 2: 3 more findings surfaced. Which to act on?
+
+Per QZ9 option 2 (one more audit pass). This round checked refs/, anti_patterns, TODO.md status.
+
+**Finding #5 — TODO.md is stale relative to current state**
+- T1 / T2 marked done correctly (✅).
+- T3 ("Derive invariant assertions") shown as `[LOOP, allowed during pause]` but actually COMPLETED via QZ3/QZ4 (Z3-TR-000..004 specs authored + approved).
+- T4 ("Lift pause") shown as `[USER]` plain but is materially the open action (QZ9 is essentially the same question).
+- Status line top-of-file still describes the planning/refinement pause as the dominant state, which is true but stale on the sub-state evolution.
+- Action: mark T3 done; refine T4's framing to reflect QZ9 status; possibly add T5+ to capture post-pause sequence.
+
+**Finding #6 — dashboard_audit.md cross-ref to dashboard_ui_refinement_plan is now stale (plan moved to completed/)**
+- File header says "Inventory ... for slice 1 of `dashboard_ui_refinement_plan.md`" — plan path is now `plans/completed/dashboard_ui_refinement_plan.md` per F#2.
+- Reading is still meaningful (audit doc describes a snapshot at the time), but the cross-ref should at least note the plan is complete + link the new path. Bigger question: does this audit doc still earn its keep, or move to completed/ alongside?
+- Action: update the cross-ref + optionally move to completed/ as a historical artifact.
+
+**Finding #7 — anti_patterns.md missing the 2 collaborative-mode UX bugs we just lived through**
+- AP-013 candidate: "Loop ScheduleWakeup'd long sleep after surfacing question, when user was at keyboard" (collaborative round-1 cadence bug; fixed commit `b132843`).
+- AP-014 candidate: "Loop surfaced question only to open_questions.md file, not to chat / AskUserQuestion tool — user had no immediate signal" (collaborative round-1 chat-output bug; fixed commit `746348e`).
+- These are exactly the kind of "tribal knowledge" entries `anti_patterns.md` is for — future loop instances will benefit. Currently captured only in commit messages.
+- Action: append AP-013 + AP-014 to `brain/anti_patterns.md`.
+
+**Pick which to act on** — answered via AskUserQuestion (multi-select).
+
+### QZ9 — ✅ USER APPROVED 2026-05-21: option 2 (stay collaborative for one more audit pass)
+
+User picked option 2 via AskUserQuestion: one more audit before lifting. Loop audited refs/, anti_patterns, TODO.md status; surfaced 3 more findings as QZ10. D-013 added.
+
+### QZ9 — original body
 
 QZ8 resolution shipped all 3 findings. plans/active/ shrunk from 14 → 9 entries. kssynth slice 5 now bears the GATE 1 dependency. radivojevic kick-off trigger now points at the right plan/slice number. Backlog is genuinely drained.
 

@@ -94,6 +94,14 @@ Append-only record of decisions made + WHY. The semantic-memory layer for choice
 - **Resolution**: commit `240908c` (brain/mode.md + loop_prompts/collaborative.md + critic_separation + escalation)
 - **Status**: active
 
+### D-013 — Run second audit pass before lifting pause (refs/, anti_patterns, TODO.md surfaces)
+- **Date**: 2026-05-21
+- **Source**: QZ9 user pick "option 2" via AskUserQuestion
+- **Context**: After QZ8 shipped 3 plan-audit findings, user wanted one more audit pass on different surface areas before lifting pause.
+- **Picked**: option 2 — second audit catches finding gaps the first didn't cover
+- **Resolution**: surfaced 3 more findings (F#5 stale TODO.md, F#6 stale dashboard_audit cross-ref, F#7 missing AP-013+AP-014 in anti_patterns); QZ10 batched multi-select pending
+- **Status**: active
+
 ### D-012 — Execute all 3 plan-audit findings (F#2 plan-completion sweep + F#3 kssynth slice 5 spec amend + F#4 radivojevic slice ref fix)
 - **Date**: 2026-05-21
 - **Source**: QZ8 user pick multi-select [F#2, F#3, F#4] via AskUserQuestion
