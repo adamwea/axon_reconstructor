@@ -30,9 +30,17 @@ pending.
 
 ## Hypotheses for the mismatch
 
-1. **OLD pipeline trims the analyzer template** in `extract_partial_templates` or `build_templates` before upsampling (e.g. crops to ms_before=0.5+ms_after=2.5=3ms). Then 30 samples × 10x upsample = 300 samples. **Most likely.**
-2. **gtr.template was built with a different YAML config** — the analyzer policy that produced the existing reference data may have used `ms_before=1, ms_after=2` (3ms). Reference data is from May 12; current YAML may have evolved.
+1. **OLD pipeline trims the analyzer template** in `extract_partial_templates` or `build_templates` before upsampling (e.g. crops to ms_before=0.5+ms_after=2.5=3ms). Then 30 samples × 10x upsample = 300 samples. **Plausible.**
+2. **gtr.template was built with a different YAML config** — the analyzer policy that produced the existing reference data may have used `ms_before=1, ms_after=2` (3ms). Reference data is from May 12; current YAML may have evolved. **Verified: May-12 YAML had the same `ms_before=2, ms_after=5` (7ms) — so not config drift.**
 3. **axon_velocity_gtrs internally rebuilds the template** from cached analyzers with its own window, ignoring what the templates substage produced. (Less likely — gtr stores template, suggesting it was passed in.)
+4. **★ MOST LIKELY (per user 2026-05-21)**: the YAML waveform params (ms_before=2, ms_after=5) were NOT being applied in the OLD `extract_partial_templates`/`build_templates` path — SpikeInterface's default (ms_before=1, ms_after=2 = 3ms) was silently used instead. Math: 30 raw samples × 10x upsample = 300 samples ✓ matches gtr.template exactly. So gtr was built from SI-default-extracted templates that then got upsampled by the configured factor=10. The wider YAML config was non-functional in that path.
+
+## What this means
+
+- kssynth's output IS using the YAML config correctly (70 samples = ms_before=2 + ms_after=5 at 10 kHz). So kssynth is the RIGHT behavior; the OLD pipeline had a config-not-applied bug.
+- "Copy the timing in the recon stage" (user directive) means: copy what the recon stage SHOULD be doing, not what it currently does. The recon stage's CURRENT effective behavior (gtr being built from SI defaults) reflects the bug, not the design.
+- gtr.template (and any visual reconstruction based on it) is therefore from a 3ms-windowed STA, not the configured 7ms. That's narrower than intended.
+- The radivojevic apples-to-apples comparison must decide: (a) compare against gtr.template's de-facto 3ms behavior (=run radivojevic on SI-default-windowed template), OR (b) wait for a new gtr built from the CORRECT 7ms config + match that.
 
 ## Where upsampling lives (current code)
 
