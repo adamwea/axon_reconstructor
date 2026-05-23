@@ -201,19 +201,39 @@ def _make_segment_analyzer_iter_factory(inputs: TemplatesInputs):
 
 	**NEVER bootstraps analyzers.** The kssynth phase is strictly a
 	CONSUMER of the analyzers produced by `reconstruct.analyzers`. The
-	inputs are wrapped via `_inputs_with_analyzer_build_if_missing(
-	concat_build_if_missing=False, segments_build_if_missing=False)`
-	before the iterator is created. `iter_spikeinterface_analyzers`
-	loads cached analyzers only; if none are found the iterator yields
-	nothing and `synthesize()` raises a clear error.
+	inputs are wrapped via TWO overrides before the iterator is created:
+
+	1. `_inputs_with_analyzer_use_existing(concat=True, segments=True)` —
+	   the YAML's analyzers phase has `use_existing_analyzer=false`
+	   because it's the BUILDER and always rebuilds. Kssynth needs the
+	   opposite: tell the loader to TRUST the cache. Without this,
+	   `discover_spikeinterface_analyzer_source_names` returns 0 sources
+	   even when the cache is fully populated (the discover step checks
+	   `if bool(segments_use_existing_analyzer)` before walking
+	   `cached_dirs`).
+	2. `_inputs_with_analyzer_build_if_missing(concat=False, segments=False)` —
+	   prevent rebuild if the cache happens to be missing. With this off,
+	   a cache miss yields 0 analyzers and `synthesize()` raises a clear
+	   error → operator runs `reconstruct.analyzers` first.
 	"""
-	from .analyzers import _inputs_with_analyzer_build_if_missing
+	from .analyzers import (
+		_inputs_with_analyzer_build_if_missing,
+		_inputs_with_analyzer_use_existing,
+	)
 	from .build_templates import _resolve_build_templates_context
 	from ..templates.runner import _iter_templates_phase_analyzers
 
 	context = _resolve_build_templates_context(inputs)
-	consumer_only_inputs = _inputs_with_analyzer_build_if_missing(
+	# Override 1: trust the cache (the YAML default is False because the
+	# analyzers phase is the BUILDER; kssynth is the CONSUMER).
+	consumer_only_inputs = _inputs_with_analyzer_use_existing(
 		inputs,
+		concat_use_existing_analyzer=True,
+		segments_use_existing_analyzer=True,
+	)
+	# Override 2: no bootstrap. Cache miss → clear error.
+	consumer_only_inputs = _inputs_with_analyzer_build_if_missing(
+		consumer_only_inputs,
 		concat_build_if_missing=False,
 		segments_build_if_missing=False,
 	)
