@@ -84,13 +84,21 @@ def test_kssynth_phase_ok_translates_writer_result_to_summary(
 		kssynth_phase, "_resolve_kssynth_output_dirs", _stub_resolve(tmp_path)
 	)
 	# Three fake analyzers — content doesn't matter, kssynth.synthesize is mocked.
+	# Streaming refactor: phase calls `_make_segment_analyzer_iter_factory(inputs)`
+	# expecting a zero-arg callable that returns a FRESH iterator on each call.
 	monkeypatch.setattr(
-		kssynth_phase, "_load_segment_analyzers", lambda inputs: [object(), object(), object()]
+		kssynth_phase,
+		"_make_segment_analyzer_iter_factory",
+		lambda inputs: (lambda _fixed=[object(), object(), object()]: iter(_fixed)),
 	)
 	captured: dict = {}
 
-	def _fake_synthesize(*, analyzers, out_folder, **kwargs):
-		captured["analyzers"] = analyzers
+	def _fake_synthesize(*, out_folder, analyzers=None, analyzer_iter_factory=None, **kwargs):
+		# Accept either eager (analyzers list) or streaming (factory) call.
+		if analyzer_iter_factory is not None:
+			captured["analyzers"] = list(analyzer_iter_factory())
+		else:
+			captured["analyzers"] = list(analyzers or [])
 		captured["out_folder"] = out_folder
 		captured["kwargs"] = kwargs
 		# Materialize templates.npy + channel_positions.npy so the slice-4
@@ -131,11 +139,15 @@ def test_kssynth_phase_writes_summary_to_disk(
 	monkeypatch.setattr(
 		kssynth_phase, "_resolve_kssynth_output_dirs", _stub_resolve(tmp_path)
 	)
-	monkeypatch.setattr(kssynth_phase, "_load_segment_analyzers", lambda inputs: [object()])
+	monkeypatch.setattr(
+		kssynth_phase,
+		"_make_segment_analyzer_iter_factory",
+		lambda inputs: (lambda _fixed=[object()]: iter(_fixed)),
+	)
 
 	import kssynth.api
 
-	def _fake_synthesize(*, analyzers, out_folder, **_):
+	def _fake_synthesize(*, out_folder, analyzers=None, analyzer_iter_factory=None, **_):
 		_materialize_fake_synth_output(Path(out_folder), unit_ids=(0, 1, 2))
 		return _fake_writer_result()
 
@@ -157,9 +169,16 @@ def test_kssynth_phase_reports_error_on_synthesize_failure(
 	monkeypatch.setattr(
 		kssynth_phase, "_resolve_kssynth_output_dirs", _stub_resolve(tmp_path)
 	)
-	monkeypatch.setattr(kssynth_phase, "_load_segment_analyzers", lambda inputs: [object(), object()])
+	monkeypatch.setattr(
+		kssynth_phase,
+		"_make_segment_analyzer_iter_factory",
+		lambda inputs: (lambda _fixed=[object(), object()]: iter(_fixed)),
+	)
 
-	def _boom(*, analyzers, out_folder, **_):
+	def _boom(*, out_folder, analyzers=None, analyzer_iter_factory=None, **_):
+		# Consume the factory so the counter reflects N=2 in the error path.
+		if analyzer_iter_factory is not None:
+			list(analyzer_iter_factory())
 		raise RuntimeError("synthesize-failed-for-test")
 
 	import kssynth.api
@@ -183,7 +202,8 @@ def test_kssynth_phase_reports_error_on_analyzer_load_failure(
 	def _boom(inputs):
 		raise RuntimeError("loader-failed-for-test")
 
-	monkeypatch.setattr(kssynth_phase, "_load_segment_analyzers", _boom)
+	# Builder raises at call time → phase's try/except catches it → error summary.
+	monkeypatch.setattr(kssynth_phase, "_make_segment_analyzer_iter_factory", _boom)
 
 	summary = kssynth_phase.run_reconstruct_kssynth_phase(SimpleNamespace())
 
@@ -312,11 +332,13 @@ def test_kssynth_phase_dry_run_writes_summary_and_skips_synthesize(
 		synthesize_called["count"] += 1
 		raise AssertionError("synthesize should not happen in dry-run")
 
-	monkeypatch.setattr(kssynth_phase, "_load_segment_analyzers", _fail_load)
+	monkeypatch.setattr(kssynth_phase, "_make_segment_analyzer_iter_factory", _fail_load)
 
 	import kssynth.api
 
 	monkeypatch.setattr(kssynth.api, "synthesize", _fail_synthesize)
+	# _fail_synthesize / _fail_load assert they're never called — dry-run
+	# should short-circuit before either.
 
 	# Stub the build_templates context lookup so the dry-run can fill in
 	# the analyzer_cache_dir input without needing a real TemplatesInputs.
@@ -378,7 +400,11 @@ def test_kssynth_phase_dry_run_reports_existing_cache(
 	monkeypatch.setattr(
 		kssynth_phase, "_resolve_kssynth_output_dirs", _stub_resolve(tmp_path)
 	)
-	monkeypatch.setattr(kssynth_phase, "_load_segment_analyzers", lambda _: [object()])
+	monkeypatch.setattr(
+		kssynth_phase,
+		"_make_segment_analyzer_iter_factory",
+		lambda _: (lambda _fixed=[object()]: iter(_fixed)),
+	)
 
 	fake_cache_dir = tmp_path / "well_out" / "recon_outputs" / "cache" / "analyzers"
 	fake_cache_dir.mkdir(parents=True, exist_ok=True)

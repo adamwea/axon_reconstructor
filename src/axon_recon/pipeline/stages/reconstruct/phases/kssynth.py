@@ -185,51 +185,51 @@ def _resolve_kssynth_output_dirs(
 	return context.well_out_dir, context.templates_out_dir, synth_out_dir
 
 
-def _load_segment_analyzers(inputs: TemplatesInputs) -> list[Any]:
-	"""Loads segment analyzers for the kssynth phase.
+def _make_segment_analyzer_iter_factory(inputs: TemplatesInputs):
+	"""Build a callable that yields segment analyzers ONE AT A TIME.
 
-	Reuses `templates.runner._load_templates_phase_analyzers` which is the
-	same loader `build_templates` uses; ensures kssynth sees the same
-	analyzer set the retired phases consumed. Returns the raw analyzer
-	instances (drops the `(source_name, analyzer)` tuples).
+	Returns a zero-arg callable; each invocation produces a fresh iterator
+	over (source_name, analyzer) tuples from
+	`_iter_templates_phase_analyzers`. The kssynth sibling's streaming
+	`synthesize(analyzer_iter_factory=...)` path calls this twice (pass 1
+	= metadata, pass 2 = template extraction) and drops each analyzer
+	after use so peak memory stays bounded at ~1 analyzer's footprint.
 
-	`include_concat` is force-disabled inside `_load_templates_phase_analyzers`
-	itself per the recon-stage retirement of the concat codepath
-	(see commit history around `legacy_include_concat`).
+	Mirrors the legacy `build_templates` / `extract_partial_templates`
+	memory pattern (`del analyzer; gc.collect()`) — the kssynth sibling
+	does the drop internally.
 
 	**NEVER bootstraps analyzers.** The kssynth phase is strictly a
-	CONSUMER of the analyzers produced by `reconstruct.analyzers`. If the
-	cache is missing, kssynth raises loudly — the operator must run
-	`reconstruct.analyzers` first. Bootstrapping here was the original
-	`build_templates` behavior carried over by accident during the slice
-	1b transplant; per user direction it doesn't belong here.
-
-	Mechanism: wrap the inputs with `_inputs_with_analyzer_build_if_missing(
-	..., concat_build_if_missing=False, segments_build_if_missing=False)`
-	before calling the shared loader. `iter_spikeinterface_analyzers` then
-	loads cached analyzers only; if none are found, it raises FileNotFoundError
-	(propagates up to the phase-level try/except and lands an error summary).
+	CONSUMER of the analyzers produced by `reconstruct.analyzers`. The
+	inputs are wrapped via `_inputs_with_analyzer_build_if_missing(
+	concat_build_if_missing=False, segments_build_if_missing=False)`
+	before the iterator is created. `iter_spikeinterface_analyzers`
+	loads cached analyzers only; if none are found the iterator yields
+	nothing and `synthesize()` raises a clear error.
 	"""
 	from .analyzers import _inputs_with_analyzer_build_if_missing
 	from .build_templates import _resolve_build_templates_context
-	from ..templates.runner import _load_templates_phase_analyzers
+	from ..templates.runner import _iter_templates_phase_analyzers
 
 	context = _resolve_build_templates_context(inputs)
-	# Hard-block analyzer bootstrap inside kssynth — it's a strict consumer.
 	consumer_only_inputs = _inputs_with_analyzer_build_if_missing(
 		inputs,
 		concat_build_if_missing=False,
 		segments_build_if_missing=False,
 	)
-	analyzer_pairs = _load_templates_phase_analyzers(
-		inputs=consumer_only_inputs,
-		well_out_dir=context.well_out_dir,
-		alternate_well_out_dirs=list(context.alternate_well_out_dirs),
-		analyzer_cache_dir=context.analyzer_cache_dir,
-	)
-	# _load_templates_phase_analyzers returns list[tuple[source_name, analyzer]].
-	# kssynth.synthesize takes list[Any] — just the analyzer instances.
-	return [analyzer for _, analyzer in analyzer_pairs]
+
+	def _factory():
+		# Each call returns a fresh generator. The kssynth sibling iterates
+		# it twice (pass 1 = positions/metadata, pass 2 = template extraction).
+		for _src_name, analyzer in _iter_templates_phase_analyzers(
+			inputs=consumer_only_inputs,
+			well_out_dir=context.well_out_dir,
+			alternate_well_out_dirs=list(context.alternate_well_out_dirs),
+			analyzer_cache_dir=context.analyzer_cache_dir,
+		):
+			yield analyzer
+
+	return _factory
 
 
 def run_reconstruct_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]:
@@ -340,27 +340,49 @@ def run_reconstruct_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 		write_json(summary_path, summary)
 		return summary
 
+	# Build a STREAMING analyzer iterator factory — keeps at most one
+	# analyzer in memory inside kssynth.synthesize() (matches the legacy
+	# build_templates per-source iterate+drop+gc pattern). User feedback:
+	# materializing all 19 segment analyzers at once OOMs on production
+	# multi-segment runs.
 	try:
-		analyzers = _load_segment_analyzers(inputs)
+		analyzer_iter_factory = _make_segment_analyzer_iter_factory(inputs)
 	except Exception as exc:
-		LOGGER.exception("reconstruct.kssynth: analyzer load failed")
+		LOGGER.exception("reconstruct.kssynth: analyzer factory setup failed")
 		summary = _kssynth_summary_payload(
 			status="error",
 			well_out_dir=well_out_dir,
 			templates_out_dir=templates_out_dir,
-			error=f"analyzer load failed: {exc}",
+			error=f"analyzer factory setup failed: {exc}",
 		)
 		write_json(summary_path, summary)
 		return summary
 
+	# Wrap the factory in a counter so we can report n_analyzers in
+	# error / success summaries without materializing a list.
+	# `n_per_pass` resets on each factory call (each pass starts fresh)
+	# so the final value is the count from the LAST pass — whether that
+	# was pass 1 (failed before pass 2 started) or pass 2 (full success).
+	# Either way it equals the unique-analyzer count from one full walk.
+	class _AnalyzerCounter:
+		n_per_pass: int = 0
+
+	counter = _AnalyzerCounter()
+
+	def _counting_factory():
+		counter.n_per_pass = 0
+		for analyzer in analyzer_iter_factory():
+			counter.n_per_pass += 1
+			yield analyzer
+
 	LOGGER.info(
-		"reconstruct.kssynth: loaded %d segment analyzers, calling kssynth.synthesize",
-		len(analyzers),
+		"reconstruct.kssynth: invoking kssynth.synthesize in STREAMING mode "
+		"(one analyzer in memory at a time)"
 	)
 
 	try:
 		writer_result = synthesize(
-			analyzers=analyzers,
+			analyzer_iter_factory=_counting_factory,
 			out_folder=synth_out_dir,
 		)
 	except Exception as exc:
@@ -369,11 +391,12 @@ def run_reconstruct_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 			status="error",
 			well_out_dir=well_out_dir,
 			templates_out_dir=templates_out_dir,
-			n_analyzers=len(analyzers),
+			n_analyzers=int(counter.n_per_pass),
 			error=f"kssynth.synthesize failed: {exc}",
 		)
 		write_json(summary_path, summary)
 		return summary
+	n_analyzers = int(counter.n_per_pass)
 
 	# Slice 4 S4-B: postprocess kssynth's KS-shaped output into per-unit
 	# `merged_template.npy` + `merged_channel_locations.npy` files matching
@@ -399,7 +422,7 @@ def run_reconstruct_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 			well_out_dir=well_out_dir,
 			templates_out_dir=templates_out_dir,
 			n_units=len(unit_ids),
-			n_analyzers=len(analyzers),
+			n_analyzers=n_analyzers,
 			n_channels=int(getattr(writer_result, "n_channels", 0) or 0),
 			channel_grid_mode=getattr(writer_result, "channel_grid_mode", None),
 			policy=getattr(writer_result, "policy", None),
@@ -414,7 +437,7 @@ def run_reconstruct_kssynth_phase(inputs: TemplatesInputs) -> dict[str, Any]:
 		well_out_dir=well_out_dir,
 		templates_out_dir=templates_out_dir,
 		n_units=len(unit_ids),
-		n_analyzers=len(analyzers),
+		n_analyzers=n_analyzers,
 		n_channels=int(getattr(writer_result, "n_channels", 0) or 0),
 		channel_grid_mode=getattr(writer_result, "channel_grid_mode", None),
 		policy=getattr(writer_result, "policy", None),
