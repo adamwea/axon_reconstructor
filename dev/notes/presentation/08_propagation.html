@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 08 · Propagation plots</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">08 / 18</div>
+  </div>
+
+  <h1>Branch propagation + velocities</h1>
+  <p class="subtitle">The time dimension of reconstruction. Each branch is a one-dimensional path along the arbor; voltage peak position vs distance from soma gives propagation; the slope gives conduction velocity. These are the quantitative outputs we'll compare across algorithms (Radivojevic vs <code>axon_velocity_gtrs</code>).</p>
+
+  <figure>
+    <img src="assets/unit_0598_branch_propagations.png" alt="unit_0598 — branch propagations">
+    <figcaption><strong>unit_0598 — branch propagations</strong>. Each panel is one of the 9 branches. X-axis = distance from soma along the branch (µm); Y-axis = time of voltage peak relative to spike (ms). The slope of each near-linear segment is the local conduction velocity along that branch. Anomalies — non-monotonic propagation, jumps, multi-modal — are signatures of tracking errors and the things the Radivojevic comparison should help disambiguate.</figcaption>
+  </figure>
+
+  <h2>Velocity distribution + per-branch propagation (other high-branch units)</h2>
+  <div class="grid-2">
+    <figure>
+      <img src="assets/unit_0598_branch_velocities.png" alt="unit_0598 — branch velocities">
+      <figcaption><strong>unit_0598 — branch velocities</strong>. Histogram or distribution view of per-branch conduction velocities for the same unit. Cortical axons typically 0.3–1.0 m/s; this plot is the per-unit summary statistic feeding population-level analysis.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/unit_0193_branch_propagations.png" alt="unit_0193 — branch propagations">
+      <figcaption><strong>unit_0193 — branch propagations</strong>. Second 9-branch unit. Comparing the propagation shapes across the two 9-branch units gives a sense of unit-to-unit variability for the same algorithm.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/unit_0626_branch_propagations.png" alt="unit_0626 — branch propagations">
+      <figcaption><strong>unit_0626 — branch propagations</strong>. 8-branch unit; useful for showing how branching pattern affects propagation profile.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/unit_0345_branch_propagations.png" alt="unit_0345 — branch propagations">
+      <figcaption><strong>unit_0345 — branch propagations</strong>. 7-branch unit. Long branches → longer propagation tails — these stress the algorithm's ability to track a peak that travels far from the soma.</figcaption>
+    </figure>
+  </div>
+
+  <div class="callout">
+    <strong>Why these plots matter</strong>: branch counts, lengths, velocities, and propagation linearity are the <em>numerical</em> invariants we'll compare between algorithms (DC-001 differential checks). A visually plausible <code>circle_recon</code> can hide a kinked propagation profile; these plots catch that. They're also the natural input for a future "axon vs dendrite" classifier — velocity range + propagation shape are the signal-characteristic features.
+  </div>
+
+  <p style="font-size:13px; color:var(--muted); margin-top:24px;">Source: <code>recon_outputs/units/&lt;unit_id&gt;/branch_qc/{propagations,velocities}/raw/*.png</code> emitted by the recon stage's <code>branch_qc</code> phase.</p>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="07_high_branch_units.html">◀ prev</a>
+  <span class="nav-index">08 / 18</span>
+  <a href="09_siblings.html">next ▶</a>
+</nav>
+</body>
+</html>

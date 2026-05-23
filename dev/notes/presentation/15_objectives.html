@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 12 · Objectives</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">15 / 18</div>
+  </div>
+
+  <h1>Current cycle — 5 objectives</h1>
+  <p class="subtitle">v1 axon_recon end-to-end on M08073 80 k DMEM well000. Five orthogonal objectives; each has a definition-of-done that ends in user visual review.</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3 style="margin-top:0;"><span class="badge badge-warn">O1</span> kssynth integrated into recon stage</h3>
+      <p style="font-size:14px;"><strong>What</strong>: <code>reconstruct.kssynth</code> phase produces per-unit <code>merged_template.npy</code> + <code>merged_channel_locations.npy</code> in <code>build_templates</code>' layout. Downstream phases (<code>plot_templates_v2</code>, <code>report_templates</code>, <code>axon_velocity_gtrs</code>) consume them transparently.</p>
+      <p style="font-size:14px;"><strong>Status</strong>: slices 0–4 + 4c/4d/4e shipped. Slice 5 (enable in YAML + retire old <code>extract_partial_templates</code> + <code>build_templates</code> predecessors) blocked by 176-template HARD-gate regression smoke.</p>
+      <p style="font-size:13px; color:var(--muted);"><strong>DOD</strong>: 176-template count matches pre-kssynth baseline; <code>plot_recons</code> on a high-branch unit qualitatively comparable; legacy phase code deleted.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;"><span class="badge badge-warn">O2</span> unitlink integrated as analysis phase</h3>
+      <p style="font-size:14px;"><strong>What</strong>: <code>analysis.unitmatch</code> phase consumes kssynth outputs from a (chip, well) group of DIVs and writes a per-group match table at <code>unitmatch/&lt;chip&gt;/&lt;well&gt;/</code>.</p>
+      <p style="font-size:14px;"><strong>Status</strong>: phase scaffolded through slices 1–4. Slice 5 (enable + login-node smoke) gated on O1 + a salloc-allocation smoke.</p>
+      <p style="font-size:13px; color:var(--muted);"><strong>DOD</strong>: phase enabled in YAML, runs end-to-end on a ≥3-DIV group from kssynth outputs; match table written; UID chain sanity-checked.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;"><span class="badge badge-warn">O3</span> Radivojevic recon as alternative algorithm</h3>
+      <p style="font-size:14px;"><strong>What</strong>: clean-room Radivojevic 2023 implementation as sibling package + <code>reconstruct.radivojevic_recon</code> phase. Comparable outputs to <code>axon_velocity_gtrs</code> on the same merged_template.</p>
+      <p style="font-size:14px;"><strong>Status</strong>: Stage 1 complete (8 sub-slices, 81 tests). Stage 2 next. See slides 9–11.</p>
+      <p style="font-size:13px; color:var(--muted);"><strong>DOD</strong>: differential checks (DC-001) pass; side-by-side <code>plot_recons</code> PNG via SAME rendering path; USER visual review approves.</p>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;"><span class="badge badge-good">O4</span> Dashboard UI refinement</h3>
+      <p style="font-size:14px;"><strong>What</strong>: <code>src/axon_recon/dashboard/</code> reads existing analyzed_data and presents pipeline outputs cleanly. Box↔bar toggle, tertiary grouping, consistent styling.</p>
+      <p style="font-size:14px;"><strong>Status</strong>: all 9 plan slices SHIPPED. Runs interactively today.</p>
+      <p style="font-size:13px; color:var(--muted);"><strong>DOD</strong>: user interactive review approves rendering on current analyzed_data — pending sit-down review.</p>
+    </div>
+
+    <div class="card" style="grid-column: 1 / 3;">
+      <h3 style="margin-top:0;"><span class="badge badge-warn">O5</span> Resource-profile elimination (worker-count correctness in smokes)</h3>
+      <p style="font-size:14px;"><strong>What</strong>: replace YAML <code>resources.profiles.*</code> with env-only supply resolver. <code>cpus_per_task</code> / <code>tasks_per_node</code> read from <code>SLURM_CPUS_PER_TASK</code> / <code>sched_getaffinity</code> / <code>CUDA_VISIBLE_DEVICES</code> directly. The YAML profile concept disappears.</p>
+      <p style="font-size:14px;"><strong>Status</strong>: 5-slice plan written. Slice 0 reverts paper-overs from a prior session. Sequencing: slices 0–2 before <code>parallelism_post_migration_cleanup</code> slice 2.</p>
+      <p style="font-size:13px; color:var(--muted);"><strong>DOD</strong>: smoke under <code>srun -n 1 -c 128</code> shows actual <code>cpus_per_task = 128</code> in <code>phase_parallelism event=</code> logs (no clamping to YAML default). All <code>--profile</code> references removed.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Out of scope this cycle</strong>: network scans (single-segment recordings, reserved for unitmatch v2); other devices (ThreeBrain, Sony — design only); deletion of disabled bombcell/SLAy paths; DeepUnitMatch HD-MEA training (separate project).
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="14_axon_dendrite.html">◀ prev</a>
+  <span class="nav-index">15 / 18</span>
+  <a href="16_trust_verification.html">next ▶</a>
+</nav>
+</body>
+</html>

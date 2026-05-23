@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 07 · High-branch units</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">07 / 18</div>
+  </div>
+
+  <h1>High-branch units — algorithm demo</h1>
+  <p class="subtitle">The most-branched reconstructions in the anchor well. Branch counts from <code>branches.json</code> (129/176 templates had ≥1 traced branch; top end is 7–9). These exercise the pathfinding / bifurcation logic and are the natural targets for cross-algorithm comparison.</p>
+
+  <div class="grid-4">
+    <figure>
+      <img src="assets/unit_0598_circle_recon.png" alt="Unit 0598 — 9 branches">
+      <figcaption><strong>unit_0598</strong> · <span class="badge badge-good">9 branches</span><br>Canonical high-branch reference. The apples-to-apples target for the Radivojevic comparison.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/unit_0193_circle_recon.png" alt="Unit 0193 — 9 branches">
+      <figcaption><strong>unit_0193</strong> · <span class="badge badge-good">9 branches</span><br>Second 9-branch unit. Different arbor topology — different test of the same algorithm.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/unit_0626_circle_recon.png" alt="Unit 0626 — 8 branches">
+      <figcaption><strong>unit_0626</strong> · <span class="badge badge-good">8 branches</span><br>Eight-branch arbor with a distinct spatial layout.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/unit_0345_circle_recon.png" alt="Unit 0345 — 7 branches">
+      <figcaption><strong>unit_0345</strong> · <span class="badge badge-good">7 branches</span><br>Seven-branch arbor with long-distance branching.</figcaption>
+    </figure>
+  </div>
+
+  <h2>Composite per-unit summary</h2>
+  <figure>
+    <img src="assets/unit_0598_unit_summary.png" alt="Unit 0598 — unit_summary composite">
+    <figcaption><strong>unit_0598 — <code>reports/unit_summary.png</code></strong>. Multi-panel composite emitted by the recon stage: channel selection + amplitude map + per-branch propagation overlay + reconstruction. This is the per-unit "evidence packet" the dashboard surfaces; it's also what makes side-by-side comparison with an alternative algorithm tractable.</figcaption>
+  </figure>
+
+  <div class="grid-3" style="margin-top:16px;">
+    <div class="metric">
+      <div class="metric-label">Units w/ ≥1 branch</div>
+      <div class="metric-value">129</div>
+      <div class="metric-sub">of 176 reconstructed templates</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">High-branch tail</div>
+      <div class="metric-value">≥7</div>
+      <div class="metric-sub">7 units (the demo cohort here)</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Top branch count</div>
+      <div class="metric-value">9</div>
+      <div class="metric-sub">unit_0598 and unit_0193</div>
+    </div>
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="06_recon_chip.html">◀ prev</a>
+  <span class="nav-index">07 / 18</span>
+  <a href="08_propagation.html">next ▶</a>
+</nav>
+</body>
+</html>

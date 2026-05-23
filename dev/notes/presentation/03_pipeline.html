@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 03 · Pipeline</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">03 / 18</div>
+  </div>
+
+  <h1>Pipeline architecture — 6 stages</h1>
+  <p class="subtitle">Each stage is a directed graph of <em>phases</em>. Phases are independently re-runnable, checkpoint-marked (<code>ok</code> / <code>error</code> / <code>stale</code> / <code>in_progress</code>), and addressable from the CLI (<code>axon-recon stages reconstruct.kssynth ...</code>).</p>
+
+  <div class="pipeline">
+    <div class="stage"><div class="stage-name">init</div><div class="stage-desc">Resolve dataset + well + run scope. YAML config → runtime config tree.</div></div>
+    <div class="arrow">▸</div>
+    <div class="stage"><div class="stage-name">preprocess</div><div class="stage-desc">Bandpass + common-reference. Metadata extraction (sample rate, electrode positions).</div></div>
+    <div class="arrow">▸</div>
+    <div class="stage"><div class="stage-name">spikesort</div><div class="stage-desc">Kilosort 4 → SLAy template-similarity merge. Output: clean post-merge unit IDs. (Bombcell QC is currently bypassed — labels are KS4-native.)</div></div>
+    <div class="arrow">▸</div>
+    <div class="stage"><div class="stage-name">reconstruct</div><div class="stage-desc">Spike-triggered averages → axon arbor (<code>axon_velocity_gtrs</code>; <em>+ Radivojevic in progress</em>).</div></div>
+    <div class="arrow">▸</div>
+    <div class="stage"><div class="stage-name">analysis</div><div class="stage-desc">Per-unit metrics → cross-session matching (<code>unitmatch</code>). Aggregation for dashboard.</div></div>
+    <div class="arrow">▸</div>
+    <div class="stage"><div class="stage-name">cleanup</div><div class="stage-desc">Prune intermediate analyzers; status replay; archive.</div></div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🏗️ Engineering invariants</div>
+      <ul>
+        <li><strong>Restart semantics</strong>: three modes — no-flag (auto-restart from first broken phase), <code>--force-restart</code> (rmtree everything), <code>--replot</code> (re-run plot/report phases only).</li>
+        <li><strong>Checkpoint markers</strong>: every phase writes <code>summary.json</code> with status before/after work. Stranded <code>in_progress</code> = crashed process → auto-restart catches it.</li>
+        <li><strong>Process control</strong>: <code>--targets</code> / <code>--limit-wells</code> / <code>--target-pairs</code> CLI flags for surgical re-runs; <code>--force-enable PHASE</code> to override YAML-disabled phases for smokes.</li>
+        <li><strong>Container parity</strong>: shifter image <code>adammwea/axon-recon:pipeline-v2</code> built from <code>pyproject.toml</code> extras; sibling pkgs installed as editable in dev, baked-in in container.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📂 Data flow on disk</div>
+      <pre>analyzed_data/&lt;experiment&gt;/&lt;date&gt;/&lt;chip&gt;/AxonTracking/
+  &lt;rec&gt;/&lt;well&gt;/
+    preprocess_outputs/        # filtered traces, metadata
+    spikesort_outputs/
+      sorter_output/           # kilosort 4 raw (KS4-native labels in cluster_KSLabel.tsv)
+      sorter_output_snapshot/  # snapshot before SLAy mutates aux TSVs
+      merge_SLAy/              # post-merge IDs + diagnostics
+      analyzer_output/         # spike-interface analyzer (recording_info + sorting)
+    recon_outputs/             # axon arbors per unit ← canonical reference
+      reports/                 # chip layout, circle_recon_grid
+      units/&lt;unit_id&gt;/         # circle_recon, template_circles
+      context/                 # branch_propagations, velocities
+    unitmatch/&lt;chip&gt;/&lt;well&gt;/   # cross-DIV matches (in progress)</pre>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Why this structure</strong>: phase-grain checkpointing means any failed step can be retried without re-running the expensive upstream (kilosort + spike-template extraction ≫ everything else). Restart correctness is what makes the pipeline tractable on 32-cohort overnight runs.
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="02_problem.html">◀ prev</a>
+  <span class="nav-index">03 / 18</span>
+  <a href="04_anchor_cohort.html">next ▶</a>
+</nav>
+</body>
+</html>

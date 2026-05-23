@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 08 · Sibling packages</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">09 / 18</div>
+  </div>
+
+  <h1>Sibling packages — what we own</h1>
+  <p class="subtitle">The pipeline orchestrates several sibling Python packages. Most are our own forks or clean-room re-implementations — installed editable in dev, baked into the shifter image for batch runs.</p>
+
+  <table>
+    <thead><tr><th>Package</th><th>Origin</th><th>Role</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>SLAy</code></td>
+        <td>Our fork (post-merge step)</td>
+        <td>Template-similarity unit merging after kilosort. Fixes the "axon arbor split across N sibling clusters" problem.</td>
+        <td><span class="badge badge-good">v1 stable</span></td>
+      </tr>
+      <tr>
+        <td><code>kssynth</code></td>
+        <td>Our package, new</td>
+        <td>Reconstructs a "synthesized" Kilosort folder layout from any per-unit template set. Lets recon-stage phases consume kssynth output as if it were KS native — decouples reconstruction from KS internals.</td>
+        <td><span class="badge badge-good">v1 feature-complete</span> · 58 tests</td>
+      </tr>
+      <tr>
+        <td><code>unitlink</code></td>
+        <td>Our wrapper over <code>UnitMatchPy</code></td>
+        <td>Cross-session unit matching (same neuron, multiple DIVs). Two-halves UMPy backend; output is a per-(chip, well) match table.</td>
+        <td><span class="badge badge-good">v1 feature-complete</span> · 53 tests</td>
+      </tr>
+      <tr>
+        <td><code>radivojevic2023_recon_algo</code></td>
+        <td>Clean-room re-impl of Radivojevic 2023 (eLife 86512)</td>
+        <td>Alternative reconstruction algorithm. Three-stage: adaptive thresholding → skeletonization → multi-step tracking. Compared against <code>axon_velocity_gtrs</code>.</td>
+        <td><span class="badge badge-warn">Stage 1 done · 81 tests</span></td>
+      </tr>
+      <tr>
+        <td><code>axon_velocity</code></td>
+        <td>Buccino 2022 (upstream)</td>
+        <td>Current production reconstruction algorithm; consumed via <code>axon_velocity_gtrs</code> phase. PyPI pin.</td>
+        <td><span class="badge badge-info">3rd-party</span></td>
+      </tr>
+      <tr>
+        <td><code>UnitMatchPy</code></td>
+        <td>Upstream</td>
+        <td>Underlying cross-session matcher; <code>unitlink</code> wraps it.</td>
+        <td><span class="badge badge-info">3rd-party</span></td>
+      </tr>
+      <tr>
+        <td><code>bombcell</code></td>
+        <td>Upstream (Julie Fabre lab)</td>
+        <td>Per-unit quality metrics + good/mua/noise labels post-KS. Phase exists in the spikesort stage but is <strong>currently bypassed</strong> — recon-stage QC reads KS4-native labels from <code>cluster_KSLabel.tsv</code> directly.</td>
+        <td><span class="badge badge-muted">disabled</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Integration shape</h2>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🔌 How they wire in</div>
+      <ul>
+        <li>Each sibling is a separate git repo + <code>pyproject.toml</code> package.</li>
+        <li>Dev: <code>pip install -e ../pkgs/&lt;sibling&gt;</code> via <code>tools/setup_env.sh --editable-siblings</code>.</li>
+        <li>Container: pinned to commit at build time via Dockerfile <code>ARG</code>s; rebuilt + pushed to <code>docker.io/adammwea/axon-recon:pipeline-v2</code> as deps change.</li>
+        <li>Phases call them via thin adapter functions in <code>pipeline/stages/&lt;stage&gt;/phases/</code> — phase shape is the contract, library version can swap.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🧱 Why so many own-pkgs</div>
+      <ul>
+        <li><strong>SLAy</strong>: original was fragile on big wells; we own the merge logic now and fix bugs in-tree.</li>
+        <li><strong>kssynth</strong>: needed to make reconstruction inputs independent of "must run KS first" — opens the door to synthetic templates, ablations, cross-algorithm comparisons.</li>
+        <li><strong>unitlink</strong>: thin shim so cross-session matching speaks our data layout, not UMPy's expected one.</li>
+        <li><strong>radivojevic</strong>: no public code release for the paper — clean-room was the only path.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="08_propagation.html">◀ prev</a>
+  <span class="nav-index">09 / 18</span>
+  <a href="10_radivojevic_overview.html">next ▶</a>
+</nav>
+</body>
+</html>

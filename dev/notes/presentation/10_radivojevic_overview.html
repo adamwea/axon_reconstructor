@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 09 · Radivojevic algorithm</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">10 / 18</div>
+  </div>
+
+  <h1>Radivojevic 2023 — algorithm overview <span class="badge badge-good">PI MILESTONE</span></h1>
+  <p class="subtitle">The <strong>Milos-style</strong> axon-tracking algorithm — clean-room re-implementation of Milos Radivojevic's <em>Functional axonal morphology reconstruction from extracellular HD-MEA recordings</em> (eLife 2023, DOI 10.7554/eLife.86512). No public code release; we reconstruct from the paper + supplemental methods. Alternative / complement to the current <code>axon_velocity</code> path.</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">📥 Inputs (compatible with current pipeline)</div>
+      <ul>
+        <li><strong>Spike-triggered average</strong> <code>electrode_template[n_channels, n_samples]</code> — same shape as our existing <code>axon_velocity_gtrs</code> inputs. Drop-in compat.</li>
+        <li><strong>Electrode locations</strong> <code>(x, y) µm</code>.</li>
+        <li><strong>Sampling rate</strong> — paper used MEA1k @ 20 kHz. We parameterize as <code>upsample_factor</code> (default 10×), not absolute Hz, so MaxTwo @ 10 kHz and MaxOne @ 20 kHz both work without hardcoding.</li>
+        <li>Spike sorting must already have happened (our spikesort stage handles this; current QC is KS4-native labels, bombcell bypassed).</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📤 Outputs (target — same shape as axon_velocity_gtrs)</div>
+      <ul>
+        <li>Per-axon <strong>branch trajectories</strong> (count + lengths).</li>
+        <li>Per-branch <strong>conduction velocities</strong>.</li>
+        <li><strong>Soma localization</strong> (xy on chip).</li>
+        <li>Per-arbor <strong>signal-amplitude map</strong>.</li>
+        <li>Match-able to gtr-pkl format so existing <code>plot_recons</code> renders both algorithms identically.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Three-stage architecture</h2>
+  <div class="grid-3">
+    <div class="card">
+      <div class="card-title"><span class="badge badge-good">Stage 1 ✓</span> Adaptive thresholding</div>
+      <p style="font-size:14px;">Detect signal peaks in the spatiotemporal STA. Operates on the <strong>time-derivative</strong> (µV/µs) of upsampled (10× Whittaker-Shannon) voltage. Three sub-steps:</p>
+      <ul style="font-size:13px;">
+        <li><strong>Step 1</strong>: planar 9-STD threshold + local-max detection.</li>
+        <li><strong>Step 2</strong>: confined 2-STD threshold within 50 µm + ±1 frame of step-1 peaks.</li>
+        <li><strong>Step 3</strong>: confined 2-STD threshold within 50 µm of step-2 peaks (recursive).</li>
+      </ul>
+      <p style="font-size:13px; color:var(--muted);">Output: union of detected peaks with per-step source labels.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="badge badge-warn">Stage 2</span> Skeletonization</div>
+      <p style="font-size:14px;">Infer conduction <strong>pathways</strong> between detected peaks via image-processing on the 2D voltage maps:</p>
+      <ul style="font-size:13px;">
+        <li>Build per-timeframe 2D voltage images from electrode coordinates.</li>
+        <li>Morphological thinning to extract candidate connection skeletons.</li>
+        <li>Pair-averaged skeletonization on-demand (per the paper's two-stage routing logic).</li>
+      </ul>
+      <p style="font-size:13px; color:var(--muted);">Output: per-timeframe skeleton graph used by Stage 3.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title"><span class="badge badge-muted">Stage 3</span> Multi-step tracking</div>
+      <p style="font-size:14px;">Interconnect peaks across consecutive timeframes with three strategies:</p>
+      <ul style="font-size:13px;">
+        <li><strong>Direct matching</strong> — adjacent timeframes, short distance.</li>
+        <li><strong>Skeleton-assisted routing</strong> — when direct fails, follow the Stage-2 skeleton.</li>
+        <li><strong>Velocity-based indirect prediction</strong> — extrapolate forward from established velocity; cap distance to 400 µm.</li>
+      </ul>
+      <p style="font-size:13px; color:var(--muted);">Output: per-axon branching graph with timing.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Why we want it</strong>: <code>axon_velocity</code> (Buccino 2022) is graph-search-driven; Radivojevic is image-processing-driven. Different algorithmic priors. Different failure modes. Side-by-side comparison on the same templates tells us which arbors are algorithm-independent (real) and which are method artifacts. Also: clean-room implementation forces us to fully understand the algorithm, which clarifies the assumptions baked into the production path.
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="09_siblings.html">◀ prev</a>
+  <span class="nav-index">10 / 18</span>
+  <a href="11_radivojevic_progress.html">next ▶</a>
+</nav>
+</body>
+</html>

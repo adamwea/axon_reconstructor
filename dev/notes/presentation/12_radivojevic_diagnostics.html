@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 12 · Radivojevic diagnostics</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">12 / 18</div>
+  </div>
+
+  <h1>Radivojevic — latest diagnostic imagery</h1>
+  <p class="subtitle">Real-data debugging on <strong>unit_0598</strong> (the 9-branch reference unit) — first apples-to-apples vs the axon_velocity reference, then per-stage debug images that drove the algorithm-correctness fix slices (10–15).</p>
+
+  <h2>First side-by-side: axon_velocity (reference) vs Radivojevic (clean-room)</h2>
+  <figure>
+    <img src="assets/radivojevic_comparison_v1.png" alt="Radivojevic vs axon_velocity comparison v1">
+    <figcaption><strong>comparison_unit_598.png</strong> — first HARD-gate comparison. LEFT: existing <code>plot_recons</code> output for unit_0598 (axon_velocity_gtrs, current production path). RIGHT: Radivojevic's own renderer (peaks colored by detection step + Stage-2 skeleton + Stage-3 links). Same merged_template input on both sides. Quantitative summary: 45,209 total Stage-1 peaks (5,443 @ 9-STD + 8,142 @ 2-STD + 31,624 @ 1-STD); 162.9 s wall on a single CPU. <em>Reviewer asked: invert y-axis, isolate per-step channel selections, and check why Stage 2 skeleton is producing so much fill.</em></figcaption>
+  </figure>
+
+  <h2>Per-step thresholding — Stage 1 debug isolation</h2>
+  <div class="grid-3">
+    <figure>
+      <img src="assets/radivojevic_peaks_step1.png" alt="Stage 1 step 1 — 9-STD threshold">
+      <figcaption><strong>Step 1 — 9-STD planar threshold</strong>. 5,443 peaks. Strict; only channels with very strong negative voltage derivatives. Plot is the channel selection (x, y on chip).</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/radivojevic_peaks_step2.png" alt="Stage 1 step 2 — 2-STD confined">
+      <figcaption><strong>Step 2 — 2-STD confined</strong>. 8,142 additional peaks. Looser threshold but restricted to 50 µm × ±1 frame of step-1 peaks — recovers weaker axonal signal near already-detected peaks.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/radivojevic_peaks_step3.png" alt="Stage 1 step 3 — 1-STD confined recursive">
+      <figcaption><strong>Step 3 — 1-STD confined (recursive)</strong>. 31,624 further peaks via recursive expansion off step-2 peaks. Most permissive layer; recovers the long axonal tails. Each step's filter is paper-spec.</figcaption>
+    </figure>
+  </div>
+
+  <h2>Stage 2 — skeletonization debug (a bug surfaced here)</h2>
+  <div class="grid-2">
+    <figure>
+      <img src="assets/radivojevic_skeleton_union.png" alt="Skeleton union across all frames">
+      <figcaption><strong>skeleton_union.png</strong> — 4-panel: channels alone, binary footprint UNION across 690 frames, morphological skeleton UNION, and skeleton + channels overlay. Per-frame averages: <strong>5,142 skeleton pixels</strong> out of 43,677 grid cells (~12%); <strong>8,804 binary-footprint pixels</strong> (~20%). For a real axon at any single frame these should be tens-to-low-hundreds. The over-fill exposed a Stage-2 binarization bug — too-aggressive threshold + MAD-noise-on-dense-template under-estimating noise.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/radivojevic_skeleton_frames.png" alt="Per-frame skeleton samples">
+      <figcaption><strong>skeleton_single_frames.png</strong> — three sample timeframes (T/4, T/2, 3T/4 of 690 frames). Each panel should show a thin centerline along the active axon at that moment in propagation. The current artifact shows much denser fill, which matched the per-frame counts above. Drove the slice 13 architecture fix (on-demand pair-averaged skeletonization replacing the single-pass per-frame approach).</figcaption>
+    </figure>
+  </div>
+
+  <h2>Iteration: v4 comparison + slice-13 architecture fix</h2>
+  <div class="grid-2">
+    <figure>
+      <img src="assets/radivojevic_comparison_v4.png" alt="Radivojevic v4 comparison">
+      <figcaption><strong>comparison_v4_yinverted_v2.png</strong> — v4 iteration: y-axis inverted (MEA convention, top of chip = low y), peaks scaled consistently, channels-only panel added for direct overlap inspection. The cleaner image is what we'll use to assess differential checks (DC-001).</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/radivojevic_slice13.png" alt="Slice 13 architecture-fix comparison">
+      <figcaption><strong>slice13_compare.png</strong> — slice-13 fix: replace bulk per-frame skeletonization with on-demand pair-averaged skeletonization (only build a skeleton for the (frame_i, frame_j) pair currently being linked). Drops the per-frame fill rate, matches paper's two-stage routing logic more faithfully.</figcaption>
+    </figure>
+  </div>
+
+  <div class="callout callout-warn">
+    <strong>What these diagnostics revealed</strong>: 6 algorithm-correctness fix slices (10–15) added after first real-data smoke — fix <code>max_distance_um_indirect</code> to 400 µm; raw-recording inactive-period noise estimator; separate analysis frame interval from upsample factor; Stage 2 on-demand pair-averaged skeletonization; recursive Step 2/3 expansion (rider chain logic); integration smoke + diagnostic regression on unit_0598.
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="11_radivojevic_progress.html">◀ prev</a>
+  <span class="nav-index">12 / 18</span>
+  <a href="13_radivojevic_next.html">next ▶</a>
+</nav>
+</body>
+</html>

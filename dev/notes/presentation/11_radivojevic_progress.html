@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 10 · Radivojevic progress</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">11 / 18</div>
+  </div>
+
+  <h1>Radivojevic — slice progress</h1>
+  <p class="subtitle">Plan <code>radivojevic_recon_algo_plan.md</code>, 9 slices + 6 algorithm-correctness fix slices. Stage 1 fully landed; Stage 2 next. Package status: <strong>81 tests, all green</strong>.</p>
+
+  <table>
+    <thead>
+      <tr><th style="width:80px;">Slice</th><th style="width:110px;">Status</th><th>What it built</th><th style="width:110px;">Tests</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td><span class="badge badge-good">SHIPPED</span></td>
+        <td>Literature + code search. Paper citation pinned. Algorithm-summary doc + input/output spec doc. USER GATE 1 questions answered (6).</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td><span class="badge badge-good">SHIPPED</span></td>
+        <td>Sibling-package scaffold: <code>pyproject.toml</code>, <code>src/radivojevic2023_recon_algo/{api,core,io}/</code>, MIT license, scaffold tests.</td>
+        <td>5</td>
+      </tr>
+      <tr>
+        <td>3.1</td>
+        <td><span class="badge badge-good">SHIPPED</span></td>
+        <td><code>core/upsampling.py</code> — Whittaker–Shannon sinc interpolation (10× by default).</td>
+        <td>15</td>
+      </tr>
+      <tr>
+        <td>3.2</td>
+        <td><span class="badge badge-good">SHIPPED</span></td>
+        <td><code>core/noise_estimation.py</code> — paper-faithful window-based + robust-MAD noise estimators.</td>
+        <td>16</td>
+      </tr>
+      <tr>
+        <td>3.3</td>
+        <td><span class="badge badge-good">SHIPPED</span></td>
+        <td><strong>Step 1</strong>: planar 9-STD threshold + local-max peak detection. Sanity-passed: zero false positives on 10k Gaussian samples (matches paper Fig 5B).</td>
+        <td>17</td>
+      </tr>
+      <tr>
+        <td>3.3b</td>
+        <td><span class="badge badge-good">SHIPPED</span></td>
+        <td><code>core/derivatives.py</code> — µV/µs time-derivative helper (per USER GATE 2 resolution).</td>
+        <td>12</td>
+      </tr>
+      <tr>
+        <td>3.4</td>
+        <td><span class="badge badge-good">SHIPPED</span></td>
+        <td><strong>Step 2</strong>: confined 2-STD thresholding within 50 µm spatial + ±1 temporal frame. Same function reused for Step 3.</td>
+        <td>7</td>
+      </tr>
+      <tr>
+        <td>3.5</td>
+        <td><span class="badge badge-good">SHIPPED</span></td>
+        <td><strong>Stage 1 orchestrator</strong>: <code>core/stage_1.py</code>'s <code>detect_axon_peaks()</code> composes upsample → derivative → noise est → step 1 → step 2 → step 3 → <code>Stage1Result</code> dataclass. Callable end-to-end on real STAs.</td>
+        <td>9</td>
+      </tr>
+      <tr style="background: rgba(210,153,34,0.06);">
+        <td>3.6</td>
+        <td><span class="badge badge-warn">NEXT</span></td>
+        <td><strong>Stage 2 — skeletonization</strong>. Proposed sub-steps: (a) <code>core/electrical_image.py</code> per-timeframe 2D voltage maps; (b) <code>core/skeletonization.py</code> morphological thinning; (c) <code>core/stage_2.py</code> orchestrator.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td><span class="badge badge-muted">QUEUED</span></td>
+        <td>Input-compat check vs <code>axon_velocity_gtrs</code>. Confirms drop-in compatibility on the actual templates.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td><span class="badge badge-muted">QUEUED</span></td>
+        <td>Recon-stage <strong>phase wire-in</strong> — new <code>reconstruct.radivojevic_recon</code> phase, <code>enabled: false</code> by default.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td><span class="badge badge-muted">QUEUED · HARD-GATE</span></td>
+        <td>First real-data smoke + HARD-gate correctness review (USER visual comparison).</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>7</td>
+        <td><span class="badge badge-muted">QUEUED</span></td>
+        <td>Comparable plots + metrics via existing <code>plot_recons</code> (identical rendering for both algorithms).</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>8</td>
+        <td><span class="badge badge-muted">QUEUED</span></td>
+        <td>Comparison analysis phase — branches / velocities / soma-localization differential.</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>9</td>
+        <td><span class="badge badge-muted">QUEUED</span></td>
+        <td>Attribution + docs + divergence list (every place our impl differs from paper, with rationale).</td>
+        <td>—</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="grid-3" style="margin-top:24px;">
+    <div class="metric">
+      <div class="metric-label">Slices shipped</div>
+      <div class="metric-value">8 / 15</div>
+      <div class="metric-sub">incl. 6 sub-steps of slice 3</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Tests, all green</div>
+      <div class="metric-value">81</div>
+      <div class="metric-sub">sibling repo <code>radivojevic2023_recon_algo</code></div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">USER gates resolved</div>
+      <div class="metric-value">2 / 5</div>
+      <div class="metric-sub">GATE 3 pending (Stage 1 review)</div>
+    </div>
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="10_radivojevic_overview.html">◀ prev</a>
+  <span class="nav-index">11 / 18</span>
+  <a href="12_radivojevic_diagnostics.html">next ▶</a>
+</nav>
+</body>
+</html>

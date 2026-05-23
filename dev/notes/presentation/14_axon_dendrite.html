@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 14 · Axon vs dendrite identification</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">14 / 18</div>
+  </div>
+
+  <h1>Axon vs dendrite identification — milestone</h1>
+  <p class="subtitle">Major roadmap milestone. The reconstruction stage currently treats every traced branch as an axon. Some traced branches are dendritic; signal-characteristics-based classification would let downstream analysis filter or stratify by type.</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🎯 What we want</div>
+      <ul>
+        <li><strong>Per-branch label</strong>: axon / dendrite / unknown.</li>
+        <li>Either a per-branch column on the existing reconstruction output, or a new per-branch classification phase in the analysis stage.</li>
+        <li>Confidence score per branch — let downstream consumers threshold appropriately.</li>
+        <li>Stratified summary plots: arbor coverage by type, velocity distribution by type, branch-count histograms by type.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🧬 Discriminating signal characteristics</div>
+      <ul>
+        <li><strong>Conduction velocity</strong>: axons 0.3–1.0 m/s typical; dendrites slower (and back-propagating from soma, not forward).</li>
+        <li><strong>Propagation direction</strong>: axons forward from soma to axon terminals; dendrites back-propagate into the arbor from soma.</li>
+        <li><strong>Waveform polarity / shape</strong>: axonal spikes typically strongly biphasic with sharp negative peak; dendritic signals broader, attenuated, sometimes positive-leading.</li>
+        <li><strong>Branch geometry</strong>: axonal arbors generally longer-distance + thinner; dendritic shorter + more proximal to soma.</li>
+        <li><strong>Signal amplitude decay</strong>: axonal signal stays narrow + attenuates; dendritic signal broadens as it propagates.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Two paths to a v1 classifier</h2>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Path A — Heuristic ruleset (cheap, fast)</div>
+      <ol>
+        <li>Define 3–5 binary features from the list above (e.g. <code>velocity_in_axon_range</code>, <code>propagation_outward_from_soma</code>, <code>waveform_sharp_biphasic</code>).</li>
+        <li>Score each branch on each feature using existing recon outputs (<code>branches.json</code>, <code>branch_qc/propagations/*</code>, gtr.pkl templates).</li>
+        <li>Threshold-vote classifier: ≥3/5 axon-features → "axon"; ≤1/5 → "dendrite"; else "unknown".</li>
+        <li>Ship as analysis-stage phase with config-knob thresholds; produce per-branch label TSV.</li>
+      </ol>
+      <p style="font-size:13px; color:var(--muted);">Pros: ships in &lt;1 week. Honest about uncertainty (most branches → "unknown" initially). Cons: thresholds need tuning per cohort.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Path B — Trained classifier (gold-standard)</div>
+      <ol>
+        <li>Curate a labeled training set: ~50 visually-confirmed axon branches + ~50 visually-confirmed dendrite branches from the anchor cohort. Hand-labels via dashboard.</li>
+        <li>Feature extraction: per-branch velocity, propagation linearity, waveform fwhm + amplitude, branch length + branching factor.</li>
+        <li>Lightweight classifier (logistic regression / random forest); cross-validated.</li>
+        <li>Ship as analysis-stage phase consuming the trained model; outputs per-branch label + confidence.</li>
+      </ol>
+      <p style="font-size:13px; color:var(--muted);">Pros: principled. Calibrated confidences. Cons: needs the labeled set (sit-down session with you to label ~100 branches via dashboard).</p>
+    </div>
+  </div>
+
+  <h2>Dependencies + sequencing</h2>
+  <div class="grid-3">
+    <div class="card card-tight">
+      <div class="card-title">📐 Needs</div>
+      <p style="font-size:14px;">Per-branch propagation data (slide 08 — already shipped). Optional: dashboard "label this branch" UI for Path B training set.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">🔗 Composes with</div>
+      <p style="font-size:14px;">Radivojevic comparison — if axon-vs-dendrite ships first, comparison metrics can be axon-only, removing dendritic noise from the signal.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">⏱ Tier</div>
+      <p style="font-size:14px;">Currently <span class="badge badge-muted">idea</span> in roadmap. Elevating to milestone — please flag if you want Path A as a near-term spike.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Open question for you</strong>: do you want a <em>cheap heuristic</em> first to start stratifying analyses (Path A, ~1 week), or wait for a <em>trained classifier</em> with a labeled set (Path B, ~3–4 weeks including the labeling session)? Or both — Path A as a stopgap, Path B as the v2?
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="13_radivojevic_next.html">◀ prev</a>
+  <span class="nav-index">14 / 18</span>
+  <a href="15_objectives.html">next ▶</a>
+</nav>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 05 · Spikesort</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">05 / 18</div>
+  </div>
+
+  <h1>Spikesort + SLAy merge — reference outputs</h1>
+  <p class="subtitle">DIV 36 anchor well. Kilosort 4 → SLAy template-similarity merge. (Bombcell is bypassed in the current pipeline path.) The merge step recovers axon arbors that kilosort fragments into 2–4 sibling clusters.</p>
+
+  <div class="grid-2">
+    <figure>
+      <img src="assets/drift_scatter.png" alt="Drift scatter — KS4 sorter output">
+      <figcaption><strong>Drift scatter</strong> — Kilosort 4 spike-time × y-position, colored by amplitude. Confirms recording stability (no rigid drift; spike clusters hold a stable y-band) before downstream stages trust spike times.</figcaption>
+    </figure>
+    <figure>
+      <img src="assets/spikesort_diagnostics.png" alt="Spikesort diagnostics">
+      <figcaption><strong>Spikesort diagnostics</strong> — KS4 internal diagnostic panel (firing-rate distribution, ISI violations, contamination percentage). Kilosort's own scoring writes the initial <code>good</code> / <code>mua</code> labels into <code>cluster_KSLabel.tsv</code>; the recon stage's QC filter reads them directly.</figcaption>
+    </figure>
+  </div>
+
+  <h2>SLAy: template-similarity post-merge</h2>
+  <figure style="margin-top:12px;">
+    <img src="assets/unit_locations_before_after_merge.png" alt="Unit locations before vs after SLAy merge">
+    <figcaption><strong>Unit locations — before vs after SLAy</strong>. Left: KS4 raw units (377 clusters). Right: post-SLAy. The merge is what lets a single axon arbor be reconstructed as ONE unit rather than several fragments. Each surviving unit gets a stable post-merge ID appended to <code>cluster_KSLabel.tsv</code> + aux TSVs (sync fixed 2026-05-18 — SLAy commit <code>426ba71</code>). Final reconstructed-template count on this well: <strong>176</strong>.</figcaption>
+  </figure>
+
+  <h2>Why SLAy matters for reconstruction</h2>
+  <div class="grid-3">
+    <div class="card card-tight">
+      <div class="card-title">🧬 Sibling clusters</div>
+      <p style="font-size:14px;">Kilosort splits noisy templates into multiple IDs. Each sibling sees a partial axon → reconstruction gets a fragment.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">🤝 Merge → full template</div>
+      <p style="font-size:14px;">Pooling spikes across siblings doubles or triples the spike count behind the STA — weak axonal channels finally cross the noise floor.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">📊 Aux-TSV coherence</div>
+      <p style="font-size:14px;">Recently fixed: SLAy now writes stub rows into every <code>cluster_*.tsv</code> for new merged IDs. The SpikeInterface KS-extractor's inner-join no longer drops post-merge units downstream.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Recent ship</strong>: <code>accept_merge</code> assertion relaxed (<code>&gt;=</code> instead of <code>==</code>) for same-time intra-cluster collisions — big wells (&gt;700 KS units) no longer crash at the auto-merge step. <code>accept_all_merges</code> aux-TSV sync keeps cluster_KSLabel + cluster_Amplitude + cluster_ContamPct coherent after merges.
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="04_anchor_cohort.html">◀ prev</a>
+  <span class="nav-index">05 / 18</span>
+  <a href="06_recon_chip.html">next ▶</a>
+</nav>
+</body>
+</html>

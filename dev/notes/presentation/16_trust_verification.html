@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 13 · Verification</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">16 / 18</div>
+  </div>
+
+  <h1>How we know it's right — verifier scaffold</h1>
+  <p class="subtitle">Three-tier trust model anchored on user-pinned reference outputs. Tests are advisory; outputs are ground truth.</p>
+
+  <h2>Trust tiers</h2>
+  <table>
+    <thead><tr><th>Tier</th><th>What's in it</th><th>Auth</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="badge badge-good">1 · trusted</span></td>
+        <td>User-pinned outputs. <code>TR-000</code> blanket pin on the reference dir. <code>TR-001</code> 176-template regression. <code>TR-002</code> unit_0598 gtr.pkl. <code>TR-003</code> sample-rate metadata. <code>TR-004</code> preprocess binary.</td>
+        <td>User</td>
+        <td>Ground truth. Any deviation needs explicit user OK.</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-warn">2 · advisory</span></td>
+        <td>Existing test suite (~457 tests across axon_recon + siblings). Demoted from blocking → advisory after observing tests-green ≠ feature-works-on-real-data.</td>
+        <td>Maintained by loop</td>
+        <td>Catches regressions in unit-level invariants. Doesn't certify real-data correctness.</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-muted">3 · provisional</span></td>
+        <td>New outputs from in-progress algorithms (e.g. Radivojevic Stage 1 output today). No reference yet.</td>
+        <td>None</td>
+        <td>Visual diagnostics + USER review gate; promoted to Tier 1 once stable.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>The <code>brain/</code> module — context-drift defense</h2>
+  <p>Long-running autonomous loops drift. Defense is a small set of files re-read every iteration as the persistent goal slot:</p>
+  <div class="grid-3">
+    <div class="card card-tight">
+      <div class="card-title">Goal slot</div>
+      <p style="font-size:13px;"><code>objectives.md</code>, <code>current_state.md</code>, <code>open_questions.md</code>. Goal-attractor that biases everything downstream.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">Trust anchor</div>
+      <p style="font-size:13px;"><code>trusted_outputs.md</code>. Tiered registry; anchors the verification chain on USER-pinned outputs, not on tests.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">Propagation map</div>
+      <p style="font-size:13px;"><code>dependency_graph.md</code>. Phases / modules / plans / contracts + 13 data junctions (J1–J13). Tells the loop what to re-verify when something changes.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">Termination</div>
+      <p style="font-size:13px;"><code>metrics.md</code> + <code>escalation.md</code>. Definition of "better" + rollback triggers + perseveration limits (N=3 retries, M=5 stalled-slice).</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">Episodic memory</div>
+      <p style="font-size:13px;"><code>decisions.md</code> + <code>slice_contracts.md</code>. Every decision + its rationale + the expected failure mode. Every shipped slice's prediction-vs-actual.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">Lessons</div>
+      <p style="font-size:13px;"><code>anti_patterns.md</code> — 14 cataloged traps (AP-001…AP-014) + the right move. Replaces "rediscover by failing" with "read the entry first."</p>
+    </div>
+  </div>
+
+  <h2>Operational discipline</h2>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">Critic separation</div>
+      <p style="font-size:14px;">Every shipped slice gets verified by an <strong>Explore subagent</strong> — a separate read-only verifier with narrow scope. The slice author and the slice critic are different actors so the loop can't self-grade.</p>
+    </div>
+    <div class="card">
+      <div class="card-title">Visual diagnostics + smoke log</div>
+      <p style="font-size:14px;">Any slice changing user-visible rendering files a diagnostic entry with a rendered PNG. Real-data smokes append to <code>trackers/smoke_log.md</code> with cohort + commit + outcome + bugs-revealed → fix-commit. Tests-green ≠ feature-works-on-real-data; the smoke log is the ground truth for real-data behavior.</p>
+    </div>
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="15_objectives.html">◀ prev</a>
+  <span class="nav-index">16 / 18</span>
+  <a href="17_roadmap.html">next ▶</a>
+</nav>
+</body>
+</html>

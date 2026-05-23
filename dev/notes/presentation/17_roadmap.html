@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 17 · Roadmap</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">17 / 18</div>
+  </div>
+
+  <h1>Roadmap — near + far</h1>
+  <p class="subtitle">Active plans first (2–6 wk horizon), then idea-stage backlog. PI-priority milestones marked <span class="badge badge-good">MILESTONE</span>.</p>
+
+  <h2>Near-term — next 2–6 weeks</h2>
+  <div class="timeline">
+    <div class="timeline-label">⏱ Now</div>
+    <div class="timeline-content">
+      <strong>Radivojevic Stage 2 — skeletonization</strong> <span class="badge badge-warn">in flight</span> <span class="badge badge-good">MILESTONE</span><br>
+      <span style="font-size:14px; color:var(--muted);">Electrical-image rasterization + morphological skeleton extraction. USER GATE 3 (Stage 1 review) is the gate before Stage 2 sub-steps start.</span>
+    </div>
+
+    <div class="timeline-label">Week 1</div>
+    <div class="timeline-content">
+      <strong>O1 — kssynth slice 5 enable + 176-template regression smoke</strong> <span class="badge badge-info">HARD-gate</span><br>
+      <span style="font-size:14px; color:var(--muted);">First end-to-end run through the kssynth-integrated recon. Confirms 176-template count holds; lets us retire <code>extract_partial_templates</code> + <code>build_templates</code>.</span>
+    </div>
+
+    <div class="timeline-label">Week 1–2</div>
+    <div class="timeline-content">
+      <strong>O2 — unitlink slice 5 enable + cross-DIV match table smoke</strong><br>
+      <span style="font-size:14px; color:var(--muted);">First (M08073, well000, 3+ DIVs) match table. Sanity-check UID chain, row counts.</span>
+    </div>
+
+    <div class="timeline-label">Week 2–3</div>
+    <div class="timeline-content">
+      <strong>O3 — Radivojevic Stage 3 + phase wire-in + HARD-gate comparison</strong> <span class="badge badge-info">USER review</span> <span class="badge badge-good">MILESTONE</span><br>
+      <span style="font-size:14px; color:var(--muted);">Stage 3 multi-step tracking → recon-stage phase shipped (<code>enabled: false</code>) → side-by-side comparison on <code>unit_0598</code> via existing <code>plot_recons</code>. The PI-priority deliverable.</span>
+    </div>
+
+    <div class="timeline-label">Week 2–3</div>
+    <div class="timeline-content">
+      <strong>O5 — resource-profile elimination slices 1–5</strong><br>
+      <span style="font-size:14px; color:var(--muted);">Env-only worker-count resolver. Removes a class of silent <code>n_jobs=1</code> collapse bugs in MPI workers.</span>
+    </div>
+
+    <div class="timeline-label">Week 3–4</div>
+    <div class="timeline-content">
+      <strong>chip_layout_phase_split</strong> + <strong>analysis_propagation_video</strong><br>
+      <span style="font-size:14px; color:var(--muted);">Move <code>plot_full_chip_layout</code> from recon → analysis with cross-session unit colors via unitlink (gated on O2). Re-implement axon_velocity's branch-propagation GIF as a new analysis-stage phase.</span>
+    </div>
+
+    <div class="timeline-label">Spike?</div>
+    <div class="timeline-content">
+      <strong>Axon-vs-dendrite classifier — Path A (heuristic)</strong> <span class="badge badge-good">MILESTONE</span><br>
+      <span style="font-size:14px; color:var(--muted);">~1-week spike to stratify recon outputs by branch type. See slide 14 for details. Pending PI sign-off on Path A vs Path B.</span>
+    </div>
+  </div>
+
+  <h2>Longer-term — idea / scoped backlog</h2>
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🧬 Algorithms &amp; analysis</div>
+      <ul>
+        <li><strong>Axon-vs-dendrite identification</strong> <span class="badge badge-good">MILESTONE</span><br><span style="font-size:13px; color:var(--muted);">Path A heuristic (~1 week) or Path B trained classifier (~3–4 weeks + labeling session). See slide 14.</span></li>
+        <li><strong>Post-templates bombcell + SLAy pass</strong> <span class="badge badge-muted">idea</span><br><span style="font-size:13px; color:var(--muted);">Re-run label/merge on the FULL post-recon template payload instead of just KS-mean waveform. Needs an adapter to feed materialized templates back to bombcell/SLAy.</span></li>
+        <li><strong>Bombcell re-enable + young-culture tuning</strong> <span class="badge badge-muted">deferred</span><br><span style="font-size:13px; color:var(--muted);">Currently bypassed (KS4-native labels used). At DIV 6 bombcell labels nearly all units noise/mua — needs param sweep or DIV-conditional presets.</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🖥️ Curation &amp; UI</div>
+      <ul>
+        <li><strong>Curation GUI features in dashboard</strong> <span class="badge badge-muted">idea</span><br><span style="font-size:13px; color:var(--muted);">Recon-aware merge-candidate tab (side-by-side <code>circle_recon</code> + similarity → accept/reject). External-GUI launchers (sortingview, spikeinterface-gui). "Apply curation" button reruns spikesort.merge_SLAy.</span></li>
+        <li><strong>Dashboard "device-agnostic" mode</strong> <span class="badge badge-muted">idea</span><br><span style="font-size:13px; color:var(--muted);">Auto-discover device + sample rate from analyzer manifest; surface prominently when comparing MaxTwo vs MaxOne wells.</span></li>
+        <li><strong>Axon-vs-dendrite branch labeling UI</strong> <span class="badge badge-muted">idea</span><br><span style="font-size:13px; color:var(--muted);">If we go Path B for the classifier: need a dashboard view to hand-label ~100 branches per cohort. Composable with the curation GUI work above.</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🔌 Devices &amp; infrastructure</div>
+      <ul>
+        <li><strong>Device generalization</strong> <span class="badge badge-info">scoped</span><br><span style="font-size:13px; color:var(--muted);">MaxTwo @ 10 kHz today. MaxOne @ 20 kHz: same algorithm path, sample rate read from manifest. ThreeBrain + Sony HD-MEA: specs TBD; pipeline already parameterizes electrode pitch + count + sample rate.</span></li>
+        <li><strong>Editable / mount-based source for fast container iteration</strong> <span class="badge badge-muted">idea</span><br><span style="font-size:13px; color:var(--muted);">Today every change → 15–30 min shifter rebuild. Three candidates: bind-mount site-packages, <code>pip install -e</code> in image + mount, or <code>PYTHONPATH</code> prepend.</span></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">📋 Plans not on the near-term timeline</div>
+      <table style="margin-top:0;">
+        <thead><tr><th>Plan</th><th>Tier</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td><code>dry_run_rollout_plan</code></td><td>5</td><td>chip-away</td></tr>
+          <tr><td><code>env_install_unification</code></td><td>5</td><td>completed; pre-shifter-rebuild timing constraint</td></tr>
+          <tr><td><code>dashboard_ui_refinement</code></td><td>4</td><td>completed (O4 — interactive review pending)</td></tr>
+          <tr><td><code>parallelism_post_migration_cleanup</code></td><td>5</td><td>chip-away</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Sequencing summary</strong>: O1 → O2 → (O3 + O5 in parallel) → chip_layout / propagation_video / axon-vs-dendrite. Two PI-facing milestone moments: (1) Radivojevic side-by-side comparison PNG on unit_0598, (2) first axon-vs-dendrite stratified summary.
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="16_trust_verification.html">◀ prev</a>
+  <span class="nav-index">17 / 18</span>
+  <a href="18_summary.html">next ▶</a>
+</nav>
+</body>
+</html>

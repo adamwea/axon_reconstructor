@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 04 · Anchor cohort</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">04 / 18</div>
+  </div>
+
+  <h1>Anchor cohort &amp; reference baseline</h1>
+  <p class="subtitle">All iteration work happens against ONE well-characterized cohort. The reference outputs on this cohort are the pinned trust anchor for the verification stack.</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🧫 Cohort spec</div>
+      <dl class="kv">
+        <dt>Experiment</dt><dd>Media_Density_T5_02182026_AR</dd>
+        <dt>Chip family</dt><dd>M08073 (MaxTwo, 80 k DMEM)</dd>
+        <dt>Device</dt><dd>MaxTwo, 10 kHz sampling, AxonTracking mode</dd>
+        <dt>Wells in iteration</dt><dd><strong>well000</strong> only (well001 as parallelism sample if needed)</dd>
+        <dt>DIVs covered</dt><dd>DIV 6, 11, 16, 21, 26, 31, <strong>DIV 36 reference</strong></dd>
+        <dt>Reference rec</dt><dd><code>260326/M08073/000208/well000</code></dd>
+        <dt>Reference data dir</dt><dd><code class="mono" style="font-size:11px;">/pscratch/sd/a/adammwea/analyzed_data/Media_Density_T5_02182026_AR_axon_analysis_AW/</code></dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎯 Known-good counts (DIV 36 reference)</div>
+      <table>
+        <thead><tr><th>Stage</th><th>Count</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>kilosort 4 clusters</td><td>377</td><td>unique IDs in <code>spike_clusters.npy</code></td></tr>
+          <tr><td>KS4-native <code>good</code></td><td>287</td><td>from <code>cluster_KSLabel.tsv</code> — KS4 internal scoring (no bombcell; bypassed for now)</td></tr>
+          <tr><td>KS4-native <code>mua</code></td><td>312</td><td>multi-unit per KS4 scoring</td></tr>
+          <tr><td>post-SLAy KSLabel rows</td><td>599</td><td>287 + 312 — SLAy appended new merge-IDs into the same TSV (aux-TSV-synced)</td></tr>
+          <tr><td><strong>reconstructed templates</strong></td><td><strong>176</strong></td><td>post-merge units that built valid axon arbors</td></tr>
+          <tr><td>per-unit recon outputs</td><td>176</td><td>matches reconstructed-template count</td></tr>
+        </tbody>
+      </table>
+      <p style="font-size:13px; color:var(--muted);">These 176 templates are the regression target. Any change to reconstruction or its upstream that perturbs this count needs an explicit reason + USER review. QC filtering currently uses post-SLAy <code>cluster_KSLabel.tsv</code> directly (KS4-native labels); bombcell stage is bypassed.</p>
+    </div>
+  </div>
+
+  <h2>Why <em>one</em> cohort</h2>
+  <div class="grid-3">
+    <div class="card card-tight">
+      <div class="card-title">🔬 Trust anchoring</div>
+      <p style="font-size:14px;">Every algorithm change is compared against the same baseline outputs. Reduces variance to "algorithm change" only.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">⏱️ Iteration speed</div>
+      <p style="font-size:14px;">~30-min full reconstruct on one well. Multi-well runs are reserved for batch validation, not for slice development.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">🔓 Scope discipline</div>
+      <p style="font-size:14px;">Adding wells / cohorts requires explicit user gate — prevents over-fitting to non-representative data.</p>
+    </div>
+  </div>
+
+  <div class="callout callout-good">
+    <strong>Read-only invariant</strong>: the reference data dir is NEVER mutated by iteration runs. New outputs go to <code>/pscratch/sd/a/adammwea/dev_outputs/&lt;plan_slice&gt;/...</code> and are compared against the reference, not on top of it.
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="03_pipeline.html">◀ prev</a>
+  <span class="nav-index">04 / 18</span>
+  <a href="05_spikesort.html">next ▶</a>
+</nav>
+</body>
+</html>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 02 · Problem</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">02 / 18</div>
+  </div>
+
+  <h1>From HD-MEA voltage → axonal morphology</h1>
+  <p class="subtitle">Spike-triggered averages of every electrode encode the propagation of the action potential down the axon arbor — if we can extract it.</p>
+
+  <div class="grid-2" style="margin-top:24px;">
+    <div class="card">
+      <div class="card-title">📡 Input</div>
+      <ul>
+        <li><strong>MaxWell HD-MEA recordings</strong> — 26,400 electrodes, ~17.5 µm pitch, AxonTracking scan mode.</li>
+        <li>Devices: <strong>MaxTwo @ 10 kHz</strong> (current 80 k DMEM cohort), <strong>MaxOne @ 20 kHz</strong>, future <strong>ThreeBrain</strong> + <strong>Sony</strong> (device-agnostic by design).</li>
+        <li>Cell type: dissociated rat cortical cultures, DIV 6 → DIV 36+.</li>
+        <li>Per recording: 5–10 min of activity → 300–700 spike-sorted units, ~150–200 surviving QC.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎯 Output</div>
+      <ul>
+        <li><strong>Per-unit axon arbor</strong>: branch trajectories, lengths, conduction velocities, soma location.</li>
+        <li><strong>Per-well summary plots</strong>: chip layout with all arbors overlaid, circle-recon grid of every unit.</li>
+        <li><strong>Cross-session</strong>: same unit tracked across DIVs (via <code>unitlink</code> / UnitMatchPy).</li>
+        <li><strong>Population statistics</strong>: branch counts, velocity distributions, arbor sizes — via Dash dashboard.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>Why this is hard</h2>
+  <div class="grid-3">
+    <div class="card card-tight">
+      <div class="card-title">⚡ Signal</div>
+      <p style="font-size:14px;">Axonal signals are 10–100× weaker than somatic spikes — need spike-triggered averaging over 100s–1000s of trials before peaks emerge from noise.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">🧩 Crowding</div>
+      <p style="font-size:14px;">Multi-unit recordings have overlapping arbors. Spike-sorting + post-sort merge (SLAy) must disambiguate before reconstruction.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">🌀 Topology</div>
+      <p style="font-size:14px;">Reconstruction means recovering a <em>branching graph</em> from sparse 2D voltage maps — connectivity is the goal, not just localization.</p>
+    </div>
+  </div>
+
+  <div class="callout">
+    <strong>Status today:</strong> end-to-end pipeline runs reliably on the anchor cohort. 176-template baseline locks in spikesort + merge + reconstruction correctness. Current work: alternative reconstruction algorithm (Radivojevic 2023), cross-session matching, device generalization.
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="01_title.html">◀ prev</a>
+  <span class="nav-index">02 / 18</span>
+  <a href="03_pipeline.html">next ▶</a>
+</nav>
+</body>
+</html>

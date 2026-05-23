@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 11 · Radivojevic next</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">13 / 18</div>
+  </div>
+
+  <h1>Radivojevic — what's next</h1>
+  <p class="subtitle">Stage 2 + Stage 3 implementation, then the first apples-to-apples comparison against <code>axon_velocity_gtrs</code> on a real high-branch unit.</p>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">🔬 Immediate (slice 3.6) — Stage 2: skeletonization</div>
+      <ol>
+        <li><strong><code>core/electrical_image.py</code></strong> — build a 2D voltage map per upsampled timeframe by rasterizing electrode (x, y) onto a regular grid. Pixel size is a knob; default ~10 µm to roughly match electrode pitch.</li>
+        <li><strong><code>core/skeletonization.py</code></strong> — morphological thinning of each per-timeframe voltage image to a 1-pixel-wide centerline. <code>scikit-image</code> primitives + paper-spec post-processing (despur, prune short branches).</li>
+        <li><strong><code>core/stage_2.py</code></strong> — orchestrator: take <code>Stage1Result</code> peaks, build pair-averaged skeletons on-demand for each (frame_i, frame_j) link candidate. Output: per-pair skeleton dict consumed by Stage 3.</li>
+      </ol>
+      <p style="font-size:13px; color:var(--muted);">USER GATE 3 review of Stage 1 is the gate before Stage 2 sub-steps start.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🎯 Mid-term (slices 4–6) — End-to-end correctness</div>
+      <ol>
+        <li><strong>Stage 3</strong> tracking — direct matching / skeleton-assisted / velocity-extrapolated, with the 400 µm cap.</li>
+        <li><strong>Input-compat check</strong> against existing <code>axon_velocity_gtrs</code> inputs on actual templates from the anchor cohort.</li>
+        <li><strong>Phase wire-in</strong>: <code>reconstruct.radivojevic_recon</code> phase shipped, <code>enabled: false</code>, all guardrails (checkpoint, dry-run, scope flags).</li>
+        <li><strong>HARD-gate diagnostic</strong>: side-by-side comparison PNG on <code>unit_0598</code> (the canonical 9-branch high-branch reference unit). Identical rendering path (existing <code>plot_recons</code>) so visual differences are algorithmic, not stylistic.</li>
+      </ol>
+    </div>
+  </div>
+
+  <h2>Comparison protocol (gates slice 6)</h2>
+  <div class="callout">
+    <strong>Pre-diagnostic GATE 1</strong>: before generating the comparison, the loop confirms the execution plan: same merged_template input, identical render path via <code>plot_recons</code>, target unit confirmed to be the high-branch post-merge unit. Then runs both algorithms on the same input → two PNGs from the same rendering code → composite. User reviews; algorithm differences are now isolated.
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <div class="card-title">📐 Differential check (DC-001)</div>
+      <p style="font-size:14px; margin-top:0;">Numerical invariants required to pass before promotion off "provisional":</p>
+      <ul>
+        <li><strong>Identical inputs</strong>: merged_template byte-for-byte.</li>
+        <li><strong>Similar size</strong>: arbor area within tolerance TBD by triage.</li>
+        <li><strong>Similar branching</strong>: n_branches within tolerance.</li>
+        <li><strong>Similar velocity</strong>: median + distribution comparable.</li>
+        <li><strong>Similar soma localization</strong>: xy within µm tolerance.</li>
+      </ul>
+      <p style="font-size:13px; color:var(--muted);">Tolerances are set by the first comparison; subsequent runs measure against them.</p>
+    </div>
+
+    <div class="card">
+      <div class="card-title">🚦 Algorithm-correctness fix slices (10–15)</div>
+      <p style="font-size:14px;">After the first real-data smoke, an audit added 6 follow-on slices to address paper-faithfulness gaps:</p>
+      <ul>
+        <li>Slice 10 — fix <code>max_distance_um_indirect</code> to 400 µm + paper-validation tests.</li>
+        <li>Slice 11 — raw-recording inactive-period noise estimator (paper-spec).</li>
+        <li>Slice 12 — separate analysis frame interval from upsample factor.</li>
+        <li>Slice 13 — Stage 2 on-demand pair-averaged skeletonization.</li>
+        <li>Slice 14 — recursive Step 2/3 expansion (rider chain logic).</li>
+        <li>Slice 15 — integration smoke + diagnostic regression on <code>unit_0598</code>.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="12_radivojevic_diagnostics.html">◀ prev</a>
+  <span class="nav-index">13 / 18</span>
+  <a href="14_axon_dendrite.html">next ▶</a>
+</nav>
+</body>
+</html>

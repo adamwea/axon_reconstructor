@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>axon_recon · 16 · Summary</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="slide">
+  <div class="slide-header">
+    <div class="deck-title">axon_recon · progress deck</div>
+    <div class="slide-number">18 / 18</div>
+  </div>
+
+  <h1>Summary</h1>
+
+  <div class="grid-2">
+    <div class="card">
+      <h3 style="margin-top:0;">✅ Where we are</h3>
+      <ul>
+        <li>End-to-end pipeline runs reliably on the anchor cohort: 6-stage architecture, 176-template reference baseline on DIV 36 well000.</li>
+        <li>Spikesort + SLAy merge stable; aux-TSV sync fixed; big wells (&gt;700 KS units) no longer crash.</li>
+        <li>Sibling packages all v1: <code>SLAy</code>, <code>kssynth</code> (58 tests), <code>unitlink</code> (53 tests), <code>radivojevic2023_recon_algo</code> (81 tests, Stage 1 complete).</li>
+        <li>Dashboard refinement plan landed (9 slices, awaiting interactive review).</li>
+        <li>Verifier scaffold (<code>brain/</code> module) anchored on user-pinned outputs — trust tier 1 / 2 / 3 explicit.</li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">🚧 Where we're going (next 2–6 weeks)</h3>
+      <ul>
+        <li><strong>Milos-style Radivojevic</strong> <span class="badge badge-good">MILESTONE</span> — Stage 2 (skeletonization) → Stage 3 (tracking) → HARD-gate side-by-side vs <code>axon_velocity_gtrs</code> on <code>unit_0598</code>.</li>
+        <li><strong>O1 kssynth slice 5</strong> — first end-to-end run through kssynth-integrated recon; 176-template HARD-gate.</li>
+        <li><strong>O2 unitlink slice 5</strong> — first cross-DIV match table on a 3+ DIV group.</li>
+        <li><strong>O5 resource-profile elimination</strong> — env-only worker-count resolver.</li>
+        <li><strong>Axon-vs-dendrite classifier</strong> <span class="badge badge-good">MILESTONE</span> — Path A (heuristic, ~1 week) or Path B (trained, ~3–4 weeks) — awaiting your sign-off.</li>
+        <li><strong>chip_layout_phase_split</strong> + <strong>propagation_video</strong> — new analysis-stage phases gated on O2.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h2>What I'd want from you</h2>
+  <div class="grid-3">
+    <div class="card card-tight">
+      <div class="card-title">👁️ Visual reviews</div>
+      <p style="font-size:14px;">HARD-gate diagnostic PNGs at: Radivojevic side-by-side on unit_0598 (the PI milestone), 176-template kssynth regression, dashboard sit-down.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">🧭 Axon-vs-dendrite — Path A or B?</div>
+      <p style="font-size:14px;">Quick heuristic now (~1 wk) to start stratifying analyses, or wait for a properly trained classifier (~3–4 wks + a labeling session)? Or both — A as stopgap, B as v2.</p>
+    </div>
+    <div class="card card-tight">
+      <div class="card-title">📊 Data scope</div>
+      <p style="font-size:14px;">When do we expand from M08073 80 k DMEM well000 → multi-well / multi-chip / multi-condition? Network scans are queued for unitmatch v2.</p>
+    </div>
+  </div>
+
+  <h2>Reference links (in-tree)</h2>
+  <pre>dev/notes/brain/objectives.md            # the five O1–O5 objectives
+dev/notes/brain/trusted_outputs.md       # TR-000..004 + DC-001
+dev/notes/brain/current_state.md         # what's shipped / in-flight / queued
+dev/notes/plans/active/                  # active plan registry
+dev/notes/plans/active/radivojevic_recon_algo_plan.md
+dev/notes/trackers/roadmap.md            # idea-stage backlog
+dev/notes/trackers/smoke_log.md          # real-data smoke history</pre>
+
+  <div class="callout callout-good">
+    Thanks for the time. Happy to dive into any slide.
+  </div>
+</div>
+
+<nav class="deck-nav">
+  <a href="index.html">⌂</a>
+  <a href="17_roadmap.html">◀ prev</a>
+  <span class="nav-index">18 / 18</span>
+  <a href="01_title.html">restart ↻</a>
+</nav>
+</body>
+</html>
