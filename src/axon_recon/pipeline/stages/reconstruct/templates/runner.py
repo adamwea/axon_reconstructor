@@ -1691,6 +1691,7 @@ def _iter_templates_phase_analyzers(
 	source_scope: str | None = None,
 	requested_source_names: list[str] | tuple[str, ...] | set[str] | None = None,
 	load_stats: dict[str, Any] | None = None,
+	load_extensions: bool = True,
 ) -> Any:
 	# Concat analyzer support is retired in recon (see
 	# spikeinterface_extract.load_spikeinterface_analyzers). Hard-disable
@@ -1734,6 +1735,7 @@ def _iter_templates_phase_analyzers(
 		requested_source_names=requested_source_names,
 		limit_segments=inputs.limit_segments,
 		load_stats=load_stats,
+		load_extensions=load_extensions,
 	)
 
 

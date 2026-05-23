@@ -105,6 +105,27 @@ The earlier slices' contracts are recoverable from:
 - **Metric impact**: enables a new metric baseline once smoke runs — `source_count > 0` + `units_ok > 0` on M08073/000208/well000 DIV 36 with `--input-root` set.
 - **Critic verdict**: concerns (1 caught: `.expanduser()` asymmetry between the two fallback sites) — fixed before commit; re-test green.
 
+### 2026-05-22 — kssynth analyzer-cache-hit fast path (trust the cached artifact)
+
+- **Surface**: `pipeline/stages/reconstruct/templates/integrations/spikeinterface_extract.py` — `iter_spikeinterface_analyzers` (cache-hit fast path inserted before the existing per-source loop).
+- **Intent**: trust the cached analyzer artifact as self-sufficient on read. For every source name that exists in the analyzer cache, load it lazy via `_load_sorting_analyzer_with_extension_policy(load_extensions=load_extensions)` and yield directly. Bypass the `preprocess_segments` discovery, the always-override `_attach_temporary_recording_if_missing`, the `_prepare_loaded_analyzer_with_policy` sparse-but-dense → cache-miss silent rejection, and the fallback recursion. Sources NOT in cache fall through to the existing complex loader (which still builds from `preprocess_segments` for the analyzers phase).
+- **Produces**:
+  - Behavior change: on cache hit, the cached analyzer's own `recording.json` (lazy chain back to raw H5 via the 14-up relative path) is used directly. No path inference, no override.
+  - Stats accounting: fast path increments `stats["cache"]["segments_loaded"]`, `stats["segments"]["cache_hits"]`, and `stats["cache"]["concat_loaded"]` for concat. Counter keys match the schema in `_initialize_iter_load_stats`.
+  - Exception fallthrough: if the fast-path load raises, the name is NOT added to `cache_yielded_names`, so the existing complex loop retries it. Net behavior is at-worst-equal to pre-change.
+- **Assumes**:
+  - The cached analyzer's `recording.json` resolves cleanly on its own (no override needed). For our setup this is true: relative 14-up path lands at `/pscratch/.../raw_data/...` from the cache dir.
+  - Callers that need recompute-on-policy-mismatch will discover that on first extension access, not via the load-time policy gate. For kssynth this is moot: cached `templates` extension already matches `ms_before=2.0 / ms_after=18.0`.
+- **Propagates**:
+  - Kssynth phase (`reconstruct.kssynth`) — unblocks the well000 8-DIV cohort run; the prior failure mode (19/19 segments rejected via "sparse but dense requested → cache miss") goes away. Heavy smoke required to confirm end-to-end.
+  - Analyzers phase (`reconstruct.analyzers`) — when the cache is empty, fast path no-ops and the existing build path runs. Non-regression verified via `test_analyzers_phase_dry_run.py` (passes) and the 26 `test_spikeinterface_extract.py` tests (pass).
+- **Trusted-output impact**: TR-001 (176 templates) — unaffected at the loader level. Downstream kssynth output schema unchanged. TR-000 reference-data read-only respected (no writes anywhere new).
+- **Metric impact**: enables a new baseline once smoke runs — `iter yielded count == requested source_names count` on this cohort; pre-change baseline was 0/19. Wall-time expected to drop from ~30 min (19 sources × 90 s of preprocess_segments-discovery + always-override + cache-miss rejection) to a few minutes (just the lazy SI loads + extension JIT for templates).
+- **Prediction** (filed BEFORE smoke): kssynth on `dev_outputs/03_radivojevic_recon_algo/04_paper_window/.../000208/well000` yields all 19 segment analyzers, runs `synthesize` successfully, writes a sorter_output with 335 units. Wall-time < 10 min. No "Per-source analyzer load failed" warnings.
+- **Actual** (smoke pending): not yet verified.
+- **Delta**: not-yet-verified.
+- **Critic verdict**: PASS (Explore subagent). Verified yield safety (cache_yielded_names guard), exception-fallthrough retry semantics, empty-cache no-op gating, stats schema match, and the always-override claim against `_attach_temporary_recording_if_missing` (line 2372–2396). No concerns.
+
 ---
 
 ## How the loop uses this file

@@ -241,11 +241,18 @@ def _make_segment_analyzer_iter_factory(inputs: TemplatesInputs):
 	def _factory():
 		# Each call returns a fresh generator. The kssynth sibling iterates
 		# it twice (pass 1 = positions/metadata, pass 2 = template extraction).
+		# `load_extensions=False` is REQUIRED — the eager default loads the
+		# `waveforms` extension (random_spikes_percentage=100% × ~100k spikes
+		# × ~1k channels × 200 samples × 4 bytes ≈ ~75 GB per segment), which
+		# OOMs the worker on cache hits. With lazy loading, only the small
+		# templates extension gets materialized later inside kssynth via
+		# `analyzer.load_extension('templates')`.
 		for _src_name, analyzer in _iter_templates_phase_analyzers(
 			inputs=consumer_only_inputs,
 			well_out_dir=context.well_out_dir,
 			alternate_well_out_dirs=list(context.alternate_well_out_dirs),
 			analyzer_cache_dir=context.analyzer_cache_dir,
+			load_extensions=False,
 		):
 			yield analyzer
 

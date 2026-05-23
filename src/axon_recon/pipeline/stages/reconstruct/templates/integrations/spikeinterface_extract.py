@@ -3148,7 +3148,58 @@ def iter_spikeinterface_analyzers(
 	yielded = 0
 	has_concat = False
 	has_segments = False
+
+	# Cache-hit fast path. The cached analyzer dir is self-sufficient: its
+	# recording.json carries the full lazy chain back to raw H5, and the
+	# templates/waveforms extensions are precomputed on disk. We do NOT need
+	# to discover preprocess_segments, attach a temporary recording, or run
+	# the prepare-policy "sparse-but-dense → cache miss" gate. Skipping all
+	# of that means consumers (e.g. kssynth) can iterate a cache built by a
+	# prior analyzers run even when preprocess_segments lives at a different
+	# path than the cache root.
+	cache_root_resolved = (
+		None if analyzer_cache_dir is None else Path(analyzer_cache_dir).expanduser().resolve()
+	)
+	cached_dirs = _discover_cached_analyzer_dirs(
+		analyzer_cache_dir=cache_root_resolved,
+		concat_analyzer_subdir=str(analyzer_cache_concat_subdir or "concat"),
+		segment_analyzers_subdir=str(analyzer_cache_segments_subdir or ""),
+	)
+	cache_yielded_names: set[str] = set()
+	if cached_dirs:
+		import spikeinterface.full as si  # type: ignore[import-not-found]
+		for name in source_names:
+			cache_folder = cached_dirs.get(str(name))
+			if cache_folder is None:
+				continue
+			try:
+				analyzer = _load_sorting_analyzer_with_extension_policy(
+					si=si,
+					folder=cache_folder,
+					load_extensions=load_extensions,
+				)
+			except Exception:
+				LOGGER.warning(
+					"Cache-hit fast path failed for source=%s folder=%s; will retry via full loader",
+					str(name),
+					str(cache_folder),
+					exc_info=True,
+				)
+				continue
+			cache_yielded_names.add(str(name))
+			if str(name) == "concat":
+				has_concat = True
+				stats["cache"]["concat_loaded"] = True
+			else:
+				has_segments = True
+				stats["cache"]["segments_loaded"] = int(stats["cache"].get("segments_loaded", 0)) + 1
+				stats["segments"]["cache_hits"] = int(stats["segments"].get("cache_hits", 0)) + 1
+			yield str(name), analyzer
+			yielded += 1
+
 	for name in source_names:
+		if str(name) in cache_yielded_names:
+			continue
 		try:
 			result = load_spikeinterface_analyzers(
 				well_out_dir=well_out_dir,
