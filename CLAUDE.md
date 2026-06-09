@@ -13,6 +13,7 @@
 7. Read `dev/notes/brain/current_state.md` — shipped / in-flight / queued. **§"⚡ USER INJECTIONS" is authoritative**; apply at the earliest applicable slice. Promote resolved injections to guardrails / slice protocol / plans, then delete the entry.
 8. Read `dev/notes/brain/open_questions.md` for pending decisions (including `🔎 Plan-audit findings` and any `🛑 PRE-DIAGNOSTIC GATE` blocks).
 9. Glance at `dev/notes/plans/active/` to know what plans exist; read the one you're working on cover-to-cover before starting a slice from it.
+10. **If the session touches the Radivojevic 2023 reconstruction algorithm at all** (anything under `03_radivojevic_recon_algo/`, `radivojevic2023_recon_algo` package, anything mentioning Stage 1/2/3 thresholds, the 9σ/2σ/1σ adaptive thresholding, the moving-tracker linking, Dryad cortical/motor neurons, or the 7295-electrode figure): **READ `dev/notes/brain/refs/radivojevic2023_paper.md` IN FULL before quoting any paper number or designing a tuning step.** Re-read every session. That file contains verbatim Stage-1, noise-estimation, and per-neuron-vs-aggregate quotes. The 7295 number is a SINGLE representative example, NOT a population target — calibrating against it on an arbitrary neuron is meaningless. (Promoted from user injection 2026-05-25 after a tuning-against-wrong-target error.)
 
 ## Slice protocol (every commit-sized unit of work)
 

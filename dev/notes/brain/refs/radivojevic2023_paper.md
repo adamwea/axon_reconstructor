@@ -105,6 +105,121 @@ Slice 1's algorithm-summary doc is built from the abstract +
 algorithm-overview section visible online; the figures-pdf is useful
 for visual reference but doesn't carry the methods detail.
 
+## Stage 1 — verbatim quotes (the ones that bit us)
+
+> ⚠️ Use these quotes — not paraphrases — for any decision about thresholds,
+> noise estimation, channel counts, or what a paper number represents.
+
+### Noise estimation (page 6)
+
+> "The thresholds were initially determined based on electrical noise
+> observed from the HD-MEA chip. **Electrical noise was estimated from
+> voltage traces sampled across an entire array during periods when the
+> observed neuron was inactive, and the noise was estimated for each
+> neuron separately.**"
+
+Implications:
+- Noise is sampled from the **raw voltage trace**, NOT the spike-triggered
+  average template, NOT the template-derivative.
+- Sampled during **inactive periods** of the neuron (no AP / axonal energy).
+- **Per-neuron**, not per-channel.
+- Templates are spike-triggered averages of **200 voltage traces per
+  electrode** (also page 6) — so noise on the template is ~√200 ≈ 14× lower
+  than raw-trace noise. Any MAD-on-template noise estimate is therefore
+  ~14× too low compared to the paper's intended threshold scale.
+
+### Adaptive thresholding (page 6)
+
+> "In the first step, a simple planar threshold, set to **9 STD of the
+> estimated noise**, was used to detect high-amplitude signal peaks…"
+> "In the second step, confined thresholds, set to **2 STD of the estimated
+> noise**, were applied locally to detect low-amplitude AP peaks. The
+> confined thresholds were positioned on spatial and temporal coordinates
+> of previously mapped peaks. The thresholds were confined spatially to
+> **50 μm radii** and temporally to periods encompassing **three consecutive
+> timeframes** (t_previous, t_current, t_next)…"
+> "The third step…the threshold level was further lowered to **1 STD** of
+> the estimated noise, and the spatial confinement was broadened to a
+> **100 μm radius**."
+
+### Time-derivative grid (page 6)
+
+> "Axonal electrical images were obtained by **averaging 200 voltage traces
+> per electrode**. **Time derivatives of averaged traces (μV/μs)** were
+> computed for each of the electrodes, and the resulting data were divided
+> into **400 consecutive timeframes (with 50 μs inter-frame intervals)**."
+
+### Figure 7A representative-neuron numbers (page 10–12)
+
+> "Representative examples of functional morphologies reconstructed for
+> cortical and motor neurons are shown in Figure 7A…"
+> "The reconstructed arbor of the cortical axon yielded a total length of
+> **27.12 mm**, comprising 101 inter-branching segments and 53 axon
+> terminals. **Axonal electrical activity was detected on 7295 electrodes,
+> occupying an active area of 2.23 mm².**"
+> "Axonal activity was detected on **6663 electrodes**, occupying an active
+> area of 2.04 mm²." (motor neuron representative)
+
+**⚠️ 7295 is wrong for tuning Stage-1 cumulative channel counts. Two
+independent reasons:**
+
+1. **It's a SINGLE representative cortical example.** The paper does not
+   identify which of the 50 cortical neurons it is. Calibrating against it
+   on an arbitrary other neuron (e.g. `myNeuron01`) is meaningless. The
+   only aggregate stat available across all 50 is "average active area
+   1.38±0.08 mm²" (page 12) — NOT a per-neuron channel count.
+
+2. **7295 is the count of electrodes in the RECONSTRUCTED arbor**, not the
+   count of channels that passed the three-step Stage-1 thresholding. The
+   Stage-1 cumulative set `(9σ ∪ 2σ ∪ 1σ)` is a strict superset of the
+   reconstructed arbor — many channels detected at Stage 1 never end up
+   linked into a valid trajectory by Stage 2 (direct / skel-assisted /
+   indirect). Matching our Stage-1 cumulative count to a post-Stage-2 arbor
+   count tunes the wrong quantity entirely.
+
+There is no Stage-1-cumulative channel count published in the paper.
+Stop using 7295 as a tuning target.
+
+### Algorithm performance numbers (page 10)
+
+> "We were able to detect **45%, 74%, and 98%** of the actual peaks after
+> the first, second, and third steps, respectively. We observed **no false
+> peak detections** for thresholds set to 9, 2, and 1 STD of the noise in
+> first, second, and third steps, respectively."
+> "We could interconnect **70%, 85%, and 91%** of the mapped AP peaks after
+> the first, second, and third steps, respectively."
+
+### Aggregate population stats (page 12)
+
+> "Average axonal lengths were **16.73±1.20** and **14.63±0.88 mm** for
+> cortical and motor neurons, respectively (p=0.25). The average sizes of
+> active areas were **1.38±0.08** and **1.61±0.08 mm²**…"
+> "Average axial distances of axonal branching points were 0.27±0.01 and
+> 0.43±0.01 mm for cortical and motor neurons, respectively (p<10⁻⁶)."
+> "Average numbers of axon terminals were 29.92±1.64 and 17.82±1.03…"
+
+## Errata in our reconstruction work
+
+- **`tune_noise_mult.py --target 7295` was wrong on two axes.** First, 7295
+  is a single arbitrary neuron from Fig 7A — not even known to be
+  `myNeuron01`. Second, 7295 is a POST-RECONSTRUCTION arbor-channel count,
+  not a Stage-1 cumulative pre-link channel count — we were matching our
+  Stage-1 set to a quantity that the paper computed AFTER its Stage-2
+  trajectory linking. There is no Stage-1-cumulative-channel-count
+  published in the paper. NOISE_MULT=1.10312 has no principled basis.
+- **Noise estimation method mismatch.** We use per-channel MAD on the
+  template derivative; paper uses raw-trace inactive-period noise (page 6).
+  Templates are spike-triggered averages of 200 trials so our noise floor
+  is ~√200 (≈14×) lower in magnitude. We do not have raw-trace Dryad data
+  (Dryad publishes only templates), so we cannot replicate paper-style
+  noise on Dryad. NOISE_MULT is a knob used to BRIDGE this gap empirically
+  — but it needs a real anchor, and the 7295 anchor was bogus.
+- **What we don't have a target for yet.** No published paper number we
+  can tune against gives us a defensible Stage-1 channel count on Dryad.
+  Path forward: either drop empirical tuning (use NOISE_MULT=1.0 raw MAD),
+  or replicate paper-style noise on our OWN unit_598 (where raw recording
+  is accessible via spikeinterface) and verify the algorithm there.
+
 ## Sources
 
 - [Paper at eLife](https://elifesciences.org/articles/86512)
